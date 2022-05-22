@@ -4,3 +4,4 @@
 /plots
 /saves
 *pkl
+**/*__pycache__
