@@ -65,19 +65,25 @@ def running_std(x, N):
     return std
 
 
-def fill_buffer(buffer, env, samples, tf=None):
-    while len(buffer) < samples:
-        done = False
-        state = env.reset()
-        if tf:
-            state = tf(state)
-        while not done:
-            action = env.action_space.sample()
-            next_state, reward, done, _ = env.step(action)
-            if tf:
-                next_state = tf(next_state)
-            buffer.append((state, action, reward, next_state, done))
-            state = next_state
+def fill_buffer(buffer, env, samples, load=False, save=False, path=None):
+    try:
+        if load:
+            if path.exists():
+                buffer.load(path)
+                return
+            print("Buffer save not found, filling again.")
+        while len(buffer) < samples:
+            done = False
+            state = env.reset()
+            while not done:
+                action = env.action_space.sample()
+                next_state, reward, done, _ = env.step(action)
+                buffer.append((state, action, reward, next_state, done))
+                state = next_state
+        if save:
+            buffer.save(path)
+    except:  # noqa: E722
+        env.close()
 
 
 def wrap2pi(x) -> float:

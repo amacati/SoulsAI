@@ -1,4 +1,6 @@
 from collections import deque
+import pickle
+
 import numpy as np
 
 
@@ -19,7 +21,15 @@ class ExperienceReplayBuffer:
             raise RuntimeError("Asked to sample more elements than available in buffer")
         indices = np.random.choice(len(self.buffer), n, replace=False)
         batch = [self.buffer[i] for i in indices]
-        return map(np.array, zip(*batch))
+        return zip(*batch)
+
+    def save(self, path):
+        with open(path, "wb") as f:
+            pickle.dump(self.buffer, f)
+
+    def load(self, path):
+        with open(path, "rb") as f:
+            self.buffer = pickle.load(f)
 
 
 class ImportanceReplayBuffer:
