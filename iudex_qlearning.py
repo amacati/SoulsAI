@@ -79,7 +79,7 @@ if __name__ == "__main__":
             episodes_reward.append(ep_reward)
             episodes_steps.append(t)
             iudex_hp.append(state.boss_hp)
-            wins.append(int(iudex_hp == 0))
+            wins.append(int(state.boss_hp == 0))
 
             if i % 100 == 0:
                 agent.save(Path(__file__).parent)
@@ -88,7 +88,7 @@ if __name__ == "__main__":
                 stats_path = Path(__file__).parent / "stats.json"
                 with open(stats_path, "w") as f:
                     json.dump({"rewards": episodes_reward, "steps": episodes_steps,
-                            "iudex_hp": iudex_hp, "wins": wins}, f)
+                               "iudex_hp": iudex_hp, "wins": wins}, f)
 
             desc = "Current average reward: {:.2f}".format(running_mean(episodes_reward, 50)[-1])
             reward_log.set_description_str(desc)

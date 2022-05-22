@@ -70,8 +70,12 @@ def fill_buffer(buffer, env, samples, load=False, save=False, path=None):
         if load:
             if path.exists():
                 buffer.load(path)
-                return
-            print("Buffer save not found, filling again.")
+                if len(buffer) == samples:
+                    return
+                print("Buffer size mismatch, filling again")
+                buffer.clear()
+            else:
+                print("Buffer save not found, filling again")
         while len(buffer) < samples:
             done = False
             state = env.reset()

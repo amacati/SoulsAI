@@ -23,6 +23,9 @@ class ExperienceReplayBuffer:
         batch = [self.buffer[i] for i in indices]
         return zip(*batch)
 
+    def clear(self):
+        self.buffer.clear()
+
     def save(self, path):
         with open(path, "wb") as f:
             pickle.dump(self.buffer, f)
