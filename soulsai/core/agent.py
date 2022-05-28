@@ -1,4 +1,5 @@
 import random
+import json
 import torch
 import torch.nn as nn
 import io
@@ -49,7 +50,7 @@ class DQNAgent:
         self.dqn1 = torch.load(path / "dqn1.pt").to(self.dev)
         self.dqn2 = torch.load(path / "dqn2.pt").to(self.dev)
 
-    def as_json(self):
+    def serialize(self):
         dqn1_buff = io.BytesIO()
         torch.save(self.dqn1, dqn1_buff)
         dqn1_buff.seek(0)
@@ -58,11 +59,11 @@ class DQNAgent:
         dqn2_buff.seek(0)
         return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read()}
 
-    def from_json(self, json_dict):
-        dqn1_buff = io.BytesIO(json_dict["dqn1"])
+    def deserialize(self, serialization):
+        dqn1_buff = io.BytesIO(["dqn1"])
         dqn1_buff.seek(0)
         self.dqn1 = torch.load(dqn1_buff)
-        dqn2_buff = io.BytesIO(json_dict["dqn2"])
+        dqn2_buff = io.BytesIO(["dqn2"])
         dqn2_buff.seek(0)
         self.dqn2 = torch.load(dqn2_buff)
 
@@ -73,14 +74,13 @@ class ClientAgent:
         self.dev = torch.device("cpu")  # CPU is faster for small networks
         self.dqn1 = AdvantageDQN(size_s, size_a).to(self.dev)
         self.dqn2 = AdvantageDQN(size_s, size_a).to(self.dev)
-        self.eps = 0
 
     def __call__(self, x):
         with torch.no_grad():
             x = torch.as_tensor(x).to(self.dev)
             return torch.argmax(self.dqn1(x)+self.dqn2(x)).item()
 
-    def as_json(self):
+    def serialize(self):
         dqn1_buff = io.BytesIO()
         torch.save(self.dqn1, dqn1_buff)
         dqn1_buff.seek(0)
@@ -89,14 +89,13 @@ class ClientAgent:
         dqn2_buff.seek(0)
         return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read()}
 
-    def from_json(self, json_dict):
-        dqn1_buff = io.BytesIO(json_dict["dqn1"])
+    def deserialize(self, serialization):
+        dqn1_buff = io.BytesIO(["dqn1"])
         dqn1_buff.seek(0)
         self.dqn1 = torch.load(dqn1_buff)
-        dqn2_buff = io.BytesIO(json_dict["dqn2"])
+        dqn2_buff = io.BytesIO(["dqn2"])
         dqn2_buff.seek(0)
         self.dqn2 = torch.load(dqn2_buff)
-        self.eps = json_dict["eps"]
 
 
 class DQN(nn.Module):

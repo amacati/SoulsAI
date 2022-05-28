@@ -34,7 +34,7 @@ if __name__ == "__main__":
     n_states = len(gamestate2np(gamestate))
     agent = ClientAgent(n_states, n_actions)
     model_params = red.get(model_id)
-    agent.from_json(model_params["model"])
+    agent.deserialize(model_params)
     eps = model_params["eps"]
 
     try:
@@ -52,7 +52,7 @@ if __name__ == "__main__":
                     update_flag[0] = False
                     model_id = red.get("model_id")
                     model_params = red.get(model_id)
-                    agent.from_json(model_params["model"])
+                    agent.deserialize(model_params)
                     eps = model_params["eps"]
     finally:
         env.close()

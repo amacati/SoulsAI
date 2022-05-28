@@ -41,9 +41,9 @@ class TrainingNode:
         self.train_epochs = 250
 
         self.agent = DQNAgent(n_states, n_actions, lr, gamma, grad_clip, q_clip)
-        self.push_model_update()
         self.buffer = ExperienceReplayBuffer(maximum_length=buffer_size)
         self.eps_scheduler = EpsilonScheduler(eps_max, eps_min, eps_steps, zero_ending=True)
+        self.push_model_update()
         logger.info("Initial model upload successful, startup complete")
 
     def run(self):
@@ -70,8 +70,9 @@ class TrainingNode:
 
     def push_model_update(self):
         logger.info("Publishing new model")
-        self.red.set(self.model_id, {"model": self.agent.as_json(),
-                                     "eps": self.eps_scheduler.epsilon})
+        model_params = self.agent.serialize()
+        model_params["eps"] = self.eps_scheduler.epsilon
+        self.red.hmset(self.model_id, model_params)
         self.red.set("model_id", self.model_id)
         self.red.publish("model_update", self.model_id)
         logger.info("Model update successful")
