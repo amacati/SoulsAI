@@ -7,11 +7,11 @@ from tqdm import tqdm
 import numpy as np
 import json
 
-from agent import DQNAgent
-from replay_buffer import ExperienceReplayBuffer
-from utils import running_mean, fill_buffer, gamestate2np
-from visualization import save_plots
-from scheduler import EpsilonScheduler
+from soulsai.core.agent import DQNAgent
+from soulsai.core.replay_buffer import ExperienceReplayBuffer
+from soulsai.core.utils import running_mean, fill_buffer, gamestate2np
+from soulsai.utils.visualization import save_plots
+from soulsai.core.scheduler import EpsilonScheduler
 
 
 if __name__ == "__main__":
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     agent = DQNAgent(n_states, n_actions, lr, gamma, grad_clip, q_clip)
     buffer = ExperienceReplayBuffer(maximum_length=buffer_size)
     eps_scheduler = EpsilonScheduler(eps_max, eps_min, eps_steps, zero_ending=True)
-    path = Path(__file__).parent / "replay_buffer.pkl"
+    path = Path(__file__).parents[2] / "saves" / "replay_buffer.pkl"
     fill_buffer(buffer, env, buffer_size, load=True, save=True, path=path)
 
     status_bar = tqdm(total=n_episodes, desc="Episodes: ", position=0, leave=False)
@@ -82,10 +82,10 @@ if __name__ == "__main__":
             wins.append(int(state.boss_hp == 0))
 
             if i % 100 == 0:
-                agent.save(Path(__file__).parent)
-                fig_path = Path(__file__).parent / "training_progress.png"
+                agent.save(Path(__file__).parents[2] / "saves")
+                fig_path = Path(__file__).parents[2] / "saves" / "training_progress.png"
                 save_plots(episodes_reward, episodes_steps, iudex_hp, wins, fig_path)
-                stats_path = Path(__file__).parent / "stats.json"
+                stats_path = Path(__file__).parents[2] / "saves" / "stats.json"
                 with open(stats_path, "w") as f:
                     json.dump({"rewards": episodes_reward, "steps": episodes_steps,
                                "iudex_hp": iudex_hp, "wins": wins}, f)

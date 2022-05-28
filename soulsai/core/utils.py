@@ -1,7 +1,8 @@
 import numpy as np
 from soulsgym.core.game_state import GameState
-from one_hot_encoder import OneHotEncoder
 from soulsgym.core.static import player_animations, boss_animations
+
+from soulsai.core.one_hot_encoder import OneHotEncoder
 
 
 def unique(seq):
@@ -44,25 +45,6 @@ player_animation_encoder.fit(p_animations)
 boss_animation_encoder = OneHotEncoder(allow_unknown=True)
 b_animations = list(unique(map(filter_boss_animation, boss_animations["iudex"]["all"])))
 boss_animation_encoder.fit(b_animations)
-
-
-def running_mean(x, N):
-    ''' Function used to compute the running average
-        of the last N elements of a vector x
-    '''
-    if len(x) >= N:
-        y = np.copy(x)
-        y[N-1:] = np.convolve(x, np.ones((N, )) / N, mode='valid')
-    else:
-        y = np.zeros_like(x)
-    return y
-
-
-def running_std(x, N):
-    std = np.zeros_like(x)
-    if len(x) >= N:
-        std[N-1:] = np.var(np.lib.stride_tricks.sliding_window_view(x, N), axis=-1)
-    return std
 
 
 def fill_buffer(buffer, env, samples, load=False, save=False, path=None):

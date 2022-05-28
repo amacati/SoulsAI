@@ -8,9 +8,9 @@ import torch
 import matplotlib.pyplot as plt
 from uuid import uuid4
 
-from agent import DQNAgent
-from replay_buffer import ExperienceReplayBuffer, MultistepEpisodeBuffer
-from utils import running_average
+from soulsai.core.agent import DQNAgent
+from soulsai.core.replay_buffer import ExperienceReplayBuffer, MultistepEpisodeBuffer
+from soulsai.core.utils import running_average
 
 
 def state_tf(state: np.ndarray) -> np.ndarray:

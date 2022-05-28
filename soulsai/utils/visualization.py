@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from utils import running_mean, running_std
+from soulsai.core.utils import running_mean, running_std
 
 
 def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path):

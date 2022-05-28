@@ -8,8 +8,8 @@ import gym
 import matplotlib.pyplot as plt
 
 from ppo_agent import PPOAgent
-from replay_buffer import EpisodeBuffer
-from utils import running_average
+from soulsai.core.replay_buffer import EpisodeBuffer
+from soulsai.core.utils import running_average
 
 
 if __name__ == "__main__":

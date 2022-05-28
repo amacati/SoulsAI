@@ -1,0 +1,93 @@
+from uuid import uuid4
+import logging
+import redis
+import json
+import numpy as np
+
+from soulsai.core.replay_buffer import ExperienceReplayBuffer
+from soulsai.core.agent import DQNAgent
+from soulsai.core.scheduler import EpsilonScheduler
+from soulsai.core.utils import gamestate2np
+
+logger = logging.getLogger(__name__)
+
+
+class TrainingNode:
+
+    def __init__(self):
+        logger.info("Training node startup")
+        self.red = redis.Redis(host='localhost', port=6379, db=0, charset="utf-8",
+                               decode_responses=True)
+        self.sub = self.red.pubsub(ignore_subscribe_messages=True)
+        self.sub.subscribe("samples")
+        self.sample_cnt = 0
+        self.required_training_samples = 100
+        self.model_id = str(uuid4())
+        self.red.set("model_id", self.model_id)
+        logger.info(f"Initial model ID: {self.model_id}")
+
+        # Learning initialization
+        lr = 1e-3
+        gamma = 0.99
+        eps_max = [0.99, 0.1, 0.1]
+        eps_min = [0.1, 0.1, 0.01]
+        eps_steps = [1500, 1500, 1500]
+        grad_clip = 1.5
+        q_clip = 200.
+        buffer_size = 100_000
+        n_states = 1
+        n_actions = 1
+        self.batch_size = 64
+        self.train_epochs = 250
+
+        self.agent = DQNAgent(n_states, n_actions, lr, gamma, grad_clip, q_clip)
+        self.push_model_update()
+        self.buffer = ExperienceReplayBuffer(maximum_length=buffer_size)
+        self.eps_scheduler = EpsilonScheduler(eps_max, eps_min, eps_steps, zero_ending=True)
+        logger.info("Initial model upload successful, startup complete")
+
+    def run(self):
+        logger.info("Training node running")
+        while True:
+            msg = self.sub.get_message()
+            if not msg:
+                continue
+            sample = json.loads(msg["data"])
+            if not self._check_sample(sample):
+                continue
+            self.buffer.append(sample.get("sample"))
+            self.sample_cnt += 1
+            if self.sample_cnt >= self.required_training_samples:
+                self.model_update()
+                self.sample_cnt = 0
+
+    def model_update(self):
+        logger.info("Training model")
+        self.train_model()
+        self.red.delete(self.model_id)
+        self.model_id = str(uuid4())
+        self.push_model_update()
+
+    def push_model_update(self):
+        logger.info("Publishing new model")
+        self.red.set(self.model_id, {"model": self.agent.as_json(),
+                                     "eps": self.eps_scheduler.epsilon})
+        self.red.set("model_id", self.model_id)
+        self.red.publish("model_update", self.model_id)
+        logger.info("Model update successful")
+
+    def _check_sample(self, sample):
+        if sample.get("model_id") == self.model_id:
+            logging.info("Sample ID accepted")
+            return True
+        logging.info("Sample ID rejected")
+        return False
+
+    def train_model(self):
+        for _ in range(self.train_epochs):
+            states, actions, rewards, next_states, dones = self.buffer.sample_batch(self.batch_size)
+            states = np.array([gamestate2np(state) for state in states])
+            next_states = np.array([gamestate2np(next_state) for next_state in next_states])
+            actions, rewards, dones = map(np.array, (actions, rewards, dones))
+            self.agent.train(states, actions, rewards, next_states, dones)
+        self.eps_scheduler.step()

@@ -1,6 +1,7 @@
 import random
 import torch
 import torch.nn as nn
+import io
 
 
 class DQNAgent:
@@ -32,7 +33,8 @@ class DQNAgent:
         q_a = train_net(states)[range(batch_size), actions]
         with torch.no_grad():
             a_next = torch.max(train_net(next_states), 1).indices
-            q_a_next = torch.clamp(estimate_net(next_states)[range(batch_size), a_next], -self.q_clip, self.q_clip)
+            q_a_next = torch.clamp(estimate_net(next_states)[range(batch_size), a_next],
+                                   -self.q_clip, self.q_clip)
             q_td = rewards + self.gamma * q_a_next * (1 - dones)
         loss = torch.nn.functional.mse_loss(q_a, q_td)
         loss.backward()
@@ -46,6 +48,55 @@ class DQNAgent:
     def load(self, path):
         self.dqn1 = torch.load(path / "dqn1.pt").to(self.dev)
         self.dqn2 = torch.load(path / "dqn2.pt").to(self.dev)
+
+    def as_json(self):
+        dqn1_buff = io.BytesIO()
+        torch.save(self.dqn1, dqn1_buff)
+        dqn1_buff.seek(0)
+        dqn2_buff = io.BytesIO()
+        torch.save(self.dqn2, dqn2_buff)
+        dqn2_buff.seek(0)
+        return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read()}
+
+    def from_json(self, json_dict):
+        dqn1_buff = io.BytesIO(json_dict["dqn1"])
+        dqn1_buff.seek(0)
+        self.dqn1 = torch.load(dqn1_buff)
+        dqn2_buff = io.BytesIO(json_dict["dqn2"])
+        dqn2_buff.seek(0)
+        self.dqn2 = torch.load(dqn2_buff)
+
+
+class ClientAgent:
+
+    def __init__(self, size_s, size_a):
+        self.dev = torch.device("cpu")  # CPU is faster for small networks
+        self.dqn1 = AdvantageDQN(size_s, size_a).to(self.dev)
+        self.dqn2 = AdvantageDQN(size_s, size_a).to(self.dev)
+        self.eps = 0
+
+    def __call__(self, x):
+        with torch.no_grad():
+            x = torch.as_tensor(x).to(self.dev)
+            return torch.argmax(self.dqn1(x)+self.dqn2(x)).item()
+
+    def as_json(self):
+        dqn1_buff = io.BytesIO()
+        torch.save(self.dqn1, dqn1_buff)
+        dqn1_buff.seek(0)
+        dqn2_buff = io.BytesIO()
+        torch.save(self.dqn2, dqn2_buff)
+        dqn2_buff.seek(0)
+        return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read()}
+
+    def from_json(self, json_dict):
+        dqn1_buff = io.BytesIO(json_dict["dqn1"])
+        dqn1_buff.seek(0)
+        self.dqn1 = torch.load(dqn1_buff)
+        dqn2_buff = io.BytesIO(json_dict["dqn2"])
+        dqn2_buff.seek(0)
+        self.dqn2 = torch.load(dqn2_buff)
+        self.eps = json_dict["eps"]
 
 
 class DQN(nn.Module):
