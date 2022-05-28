@@ -3,6 +3,7 @@ import logging
 import redis
 import json
 import numpy as np
+from soulsgym.core.game_state import GameState
 
 from soulsai.core.replay_buffer import ExperienceReplayBuffer
 from soulsai.core.agent import DQNAgent
@@ -16,8 +17,7 @@ class TrainingNode:
 
     def __init__(self):
         logger.info("Training node startup")
-        self.red = redis.Redis(host='localhost', port=6379, db=0, charset="utf-8",
-                               decode_responses=True)
+        self.red = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub.subscribe("samples")
         self.sample_cnt = 0
@@ -35,8 +35,8 @@ class TrainingNode:
         grad_clip = 1.5
         q_clip = 200.
         buffer_size = 100_000
-        n_states = 1
-        n_actions = 1
+        n_states = 72
+        n_actions = 20
         self.batch_size = 64
         self.train_epochs = 250
 
@@ -55,7 +55,10 @@ class TrainingNode:
             sample = json.loads(msg["data"])
             if not self._check_sample(sample):
                 continue
-            self.buffer.append(sample.get("sample"))
+            experience = sample.get("sample")
+            experience[0] = GameState.from_dict(experience[0])
+            experience[3] = GameState.from_dict(experience[3])
+            self.buffer.append(experience)
             self.sample_cnt += 1
             if self.sample_cnt >= self.required_training_samples:
                 self.model_update()

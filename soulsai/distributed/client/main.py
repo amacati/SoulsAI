@@ -1,6 +1,5 @@
 import logging
 import json
-import struct
 
 import numpy as np
 import gym
@@ -52,7 +51,7 @@ if __name__ == "__main__":
                 state = next_state
                 if update_flag[0]:
                     update_flag[0] = False
-                    model_id = red.get("model_id")
+                    model_id = red.get("model_id").decode("utf-8")
                     model_params = red.hgetall(model_id)
                     model_params = {key.decode("utf-8"): value for key, value in model_params.items()}
                     agent.deserialize(model_params)
