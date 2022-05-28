@@ -1,5 +1,6 @@
 import logging
 import json
+import struct
 
 import numpy as np
 import gym
@@ -19,8 +20,8 @@ if __name__ == "__main__":
     def model_update_callback(_):
         update_flag[0] = True
 
-    red = redis.Redis(host='localhost', port=6379, db=0, charset="utf-8", decode_responses=True)
-    model_id = red.get("model_id")
+    red = redis.Redis(host='localhost', port=6379, db=0)
+    model_id = red.get("model_id").decode("utf-8")
     pubsub = red.pubsub()
     pubsub.psubscribe(**{"model_update": model_update_callback})
     pubsub.run_in_thread(sleep_time=.01, daemon=True)
@@ -33,12 +34,13 @@ if __name__ == "__main__":
     gamestate.boss_max_hp = 1
     n_states = len(gamestate2np(gamestate))
     agent = ClientAgent(n_states, n_actions)
-    model_params = red.get(model_id)
+    model_params = red.hgetall(model_id)
+    model_params = {key.decode("utf-8"): value for key, value in model_params.items()}
     agent.deserialize(model_params)
-    eps = model_params["eps"]
+    eps = float(model_params["eps"].decode("utf-8"))
 
     try:
-        for _ in range(3):
+        for _ in range(10):
             state = env.reset()
             done = False
             while not done:
@@ -51,9 +53,10 @@ if __name__ == "__main__":
                 if update_flag[0]:
                     update_flag[0] = False
                     model_id = red.get("model_id")
-                    model_params = red.get(model_id)
+                    model_params = red.hgetall(model_id)
+                    model_params = {key.decode("utf-8"): value for key, value in model_params.items()}
                     agent.deserialize(model_params)
-                    eps = model_params["eps"]
+                    eps = float(model_params["eps"].decode("utf-8"))
     finally:
         env.close()
         ...

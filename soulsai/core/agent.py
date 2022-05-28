@@ -90,10 +90,10 @@ class ClientAgent:
         return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read()}
 
     def deserialize(self, serialization):
-        dqn1_buff = io.BytesIO(["dqn1"])
+        dqn1_buff = io.BytesIO(serialization["dqn1"])
         dqn1_buff.seek(0)
         self.dqn1 = torch.load(dqn1_buff)
-        dqn2_buff = io.BytesIO(["dqn2"])
+        dqn2_buff = io.BytesIO(serialization["dqn2"])
         dqn2_buff.seek(0)
         self.dqn2 = torch.load(dqn2_buff)
 
