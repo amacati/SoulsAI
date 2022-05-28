@@ -1,11 +1,9 @@
 version: "3.8"
 services:
   redis:
-    image: "redis"
+    image: redis
     ports:
-      - 6379
-    networks:
-      - server
+      - 6379:6379
 
   train_node:
     build: 
@@ -13,10 +11,3 @@ services:
       context: ./
     depends_on:
       - redis
-    networks:
-      - server
-    
-
-networks:
-  server:
-    driver: bridge

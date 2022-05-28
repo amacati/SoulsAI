@@ -19,7 +19,7 @@ if __name__ == "__main__":
     def model_update_callback(_):
         update_flag[0] = True
 
-    red = redis.Redis(host='redis', port=6379, db=0)
+    red = redis.Redis(host='localhost', port=6379, db=0)
     model_id = red.get("model_id").decode("utf-8")
     pubsub = red.pubsub()
     pubsub.psubscribe(**{"model_update": model_update_callback})
