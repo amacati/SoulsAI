@@ -17,7 +17,7 @@ class TrainingNode:
 
     def __init__(self):
         logger.info("Training node startup")
-        self.red = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+        self.red = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub.subscribe("samples")
         self.sample_cnt = 0
