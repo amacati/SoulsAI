@@ -6,3 +6,5 @@
 *pkl
 **/*__pycache__
 soulsai.egg-info/
+soulsai/distributed/server/redis_secret.conf
+soulsai/distributed/client/redis_secret.conf

@@ -2,6 +2,11 @@ version: "3.8"
 services:
   redis:
     image: redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./soulsai/distributed/server/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./soulsai/distributed/server/redis_secret.conf:/usr/local/etc/redis/redis_secret.conf
+
     ports:
       - 6379:6379
 

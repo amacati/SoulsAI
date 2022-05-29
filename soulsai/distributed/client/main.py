@@ -1,5 +1,6 @@
 import logging
 import json
+from pathlib import Path
 
 import numpy as np
 import gym
@@ -13,17 +14,26 @@ from soulsai.core.utils import gamestate2np
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    env = gym.make("SoulsGymIudex-v0")
+
     update_flag = [False]
 
     def model_update_callback(_):
         update_flag[0] = True
+
+    with open(Path(__file__).parent / "redis_secret.conf") as f:
+        conf = f.readlines()
+    for line in conf:
+        if len(line) > 12 and line[0:12] == "requirepass ":
+            secret = line[12:]
+            break
 
     red = redis.Redis(host='localhost', port=6379, db=0)
     model_id = red.get("model_id").decode("utf-8")
     pubsub = red.pubsub()
     pubsub.psubscribe(**{"model_update": model_update_callback})
     pubsub.run_in_thread(sleep_time=.01, daemon=True)
+
+    env = gym.make("SoulsGymIudex-v0")
 
     # Training setup
     n_actions = env.action_space.n

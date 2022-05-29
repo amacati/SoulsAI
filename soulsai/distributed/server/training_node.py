@@ -1,8 +1,10 @@
 from uuid import uuid4
 import logging
-import redis
 import json
+from pathlib import Path
+
 import numpy as np
+import redis
 from soulsgym.core.game_state import GameState
 
 from soulsai.core.replay_buffer import ExperienceReplayBuffer
@@ -17,7 +19,19 @@ class TrainingNode:
 
     def __init__(self):
         logger.info("Training node startup")
-        self.red = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
+        # Read redis server secret
+        with open(Path(__file__).parent / "redis_secret.conf") as f:
+            conf = f.readlines()
+        secret = None
+        for line in conf:
+            if len(line) > 12 and line[0:12] == "requirepass ":
+                secret = line[12:]
+                break
+        if secret is None:
+            raise RuntimeError("Missing password configuration for redis in redis_secret.conf")
+
+        self.red = redis.Redis(host='redis', port=6379, password=secret, db=0,
+                               decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub.subscribe("samples")
         self.sample_cnt = 0
