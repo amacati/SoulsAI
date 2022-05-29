@@ -6,8 +6,8 @@
 *pkl
 **/*__pycache__
 soulsai.egg-info/
-soulsai/distributed/server/redis_secret.secret
-soulsai/distributed/client/redis_secret.secret
+soulsai/distributed/server/redis.secret
+soulsai/distributed/client/redis.secret
 
 # Disable all secret files. Additional guard against accidental leaking of secrets
 **/*.secret

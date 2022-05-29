@@ -20,7 +20,7 @@ if __name__ == "__main__":
     def model_update_callback(_):
         update_flag[0] = True
 
-    with open(Path(__file__).parent / "redis_secret.secret") as f:
+    with open(Path(__file__).parent / "redis.secret") as f:
         conf = f.readlines()
     secret = None
     for line in conf:
@@ -28,7 +28,7 @@ if __name__ == "__main__":
             secret = line[12:]
             break
     if secret is None:
-        raise RuntimeError("Missing password configuration for redis in redis_secret.secret")
+        raise RuntimeError("Missing password configuration for redis in redis.secret")
 
     red = redis.Redis(host='localhost', password=secret, port=6379, db=0)
     model_id = red.get("model_id").decode("utf-8")

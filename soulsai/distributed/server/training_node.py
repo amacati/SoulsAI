@@ -20,7 +20,7 @@ class TrainingNode:
     def __init__(self):
         logger.info("Training node startup")
         # Read redis server secret
-        with open(Path(__file__).parent / "redis_secret.secret") as f:
+        with open(Path(__file__).parent / "redis.secret") as f:
             conf = f.readlines()
         secret = None
         for line in conf:
@@ -28,7 +28,7 @@ class TrainingNode:
                 secret = line[12:]
                 break
         if secret is None:
-            raise RuntimeError("Missing password configuration for redis in redis_secret.secret")
+            raise RuntimeError("Missing password configuration for redis in redis.secret")
 
         self.red = redis.Redis(host='redis', port=6379, password=secret, db=0,
                                decode_responses=True)

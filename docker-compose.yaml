@@ -5,7 +5,7 @@ services:
     command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
       - ./soulsai/distributed/server/redis.conf:/usr/local/etc/redis/redis.conf
-      - ./soulsai/distributed/server/redis_secret.secret:/usr/local/etc/redis/redis_secret.secret
+      - ./soulsai/distributed/server/redis.secret:/usr/local/etc/redis/redis.secret
 
     ports:
       - 6379:6379
