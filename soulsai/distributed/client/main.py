@@ -27,7 +27,7 @@ if __name__ == "__main__":
             secret = line[12:]
             break
 
-    red = redis.Redis(host='localhost', port=6379, db=0)
+    red = redis.Redis(host='localhost', password=secret, port=6379, db=0)
     model_id = red.get("model_id").decode("utf-8")
     pubsub = red.pubsub()
     pubsub.psubscribe(**{"model_update": model_update_callback})
