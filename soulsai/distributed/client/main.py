@@ -33,7 +33,7 @@ if __name__ == "__main__":
     red = redis.Redis(host='localhost', password=secret, port=6379, db=0)
     model_id = red.get("model_id").decode("utf-8")
     pubsub = red.pubsub()
-    pubsub.psubscribe(**{"model_update": model_update_callback})
+    pubsub.psubscribe(model_update=model_update_callback)
     pubsub.run_in_thread(sleep_time=.01, daemon=True)
 
     env = gym.make("SoulsGymIudex-v0")
