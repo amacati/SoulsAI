@@ -54,13 +54,13 @@ class TelemetryNode:
             self.rewards.append(sample["reward"])
             self.steps.append(sample["steps"])
             self.boss_hp.append(sample["boss_hp"])
-            self.wins.append(sample["wins"])
+            self.wins.append(sample["win"])
 
-            if len(self.rewards) % 1 == 0:
+            if len(self.rewards) % 5 == 0:
                 self.update_dashboard()
 
     def update_dashboard(self):
-        self.figure_path.mkdir(parents=True, exist_ok=True)
+        self.figure_path.parent.mkdir(parents=True, exist_ok=True)
         save_plots(self.rewards, self.steps, self.boss_hp, self.wins, self.figure_path)
         with open(self.stats_path, "w") as f:
             json.dump({"rewards": self.rewards, "steps": self.steps, "boss_hp": self.boss_hp,
