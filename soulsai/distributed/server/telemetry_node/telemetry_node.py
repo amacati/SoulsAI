@@ -38,8 +38,8 @@ class TelemetryNode:
 
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub_telemetry.subscribe("telemetry")
-        self.figure_path = Path(__file__).parent / "tmp" / "SoulsAIDashboard.png"
-        self.stats_path = Path(__file__).parent / "tmp" / "SoulsAIStats.json"
+        self.figure_path = Path("/tmp") / "dashboard" / "SoulsAIDashboard.png"
+        self.stats_path = Path("/tmp") / "dashboard" / "SoulsAIStats.json"
         logger.info("Telemetry node startup complete")
 
     def run(self):
@@ -51,12 +51,12 @@ class TelemetryNode:
                 continue
             sample = json.loads(msg["data"])
 
-            self.rewards.append(sample["telemetry"]["reward"])
-            self.steps.append(sample["telemetry"]["steps"])
-            self.boss_hp.append(sample["telemetry"]["boss_hp"])
-            self.wins.append(sample["telemetry"]["wins"])
+            self.rewards.append(sample["reward"])
+            self.steps.append(sample["steps"])
+            self.boss_hp.append(sample["boss_hp"])
+            self.wins.append(sample["wins"])
 
-            if len(self.rewards) % 20 == 0:
+            if len(self.rewards) % 1 == 0:
                 self.update_dashboard()
 
     def update_dashboard(self):
@@ -65,3 +65,4 @@ class TelemetryNode:
         with open(self.stats_path, "w") as f:
             json.dump({"rewards": self.rewards, "steps": self.steps, "boss_hp": self.boss_hp,
                        "wins": self.wins}, f)
+        logger.info("Dashboard updated")

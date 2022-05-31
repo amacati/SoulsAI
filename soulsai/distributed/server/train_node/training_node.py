@@ -35,7 +35,7 @@ class TrainingNode:
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub.subscribe("samples")
         self.sample_cnt = 0
-        self.required_training_samples = 100
+        self.required_training_samples = 350
         self.model_id = str(uuid4())
         self.red.set("model_id", self.model_id)
         logger.info(f"Initial model ID: {self.model_id}")
@@ -46,7 +46,7 @@ class TrainingNode:
         eps_max = [0.99, 0.1, 0.1]
         eps_min = [0.1, 0.1, 0.01]
         eps_steps = [1500, 1500, 1500]
-        grad_clip = 1.5
+        grad_clip = 100.  # 1.5
         q_clip = 200.
         buffer_size = 100_000
         n_states = 72
@@ -86,7 +86,7 @@ class TrainingNode:
         self.push_model_update()
 
     def push_model_update(self):
-        logger.info("Publishing new model")
+        logger.info(f"Publishing new model with ID {self.model_id}")
         model_params = self.agent.serialize()
         model_params["eps"] = self.eps_scheduler.epsilon
         self.red.hmset(self.model_id, model_params)
@@ -96,16 +96,18 @@ class TrainingNode:
 
     def _check_sample(self, sample):
         if sample.get("model_id") == self.model_id:
-            logging.info("Sample ID accepted")
+            logger.debug("Sample ID accepted")
             return True
-        logging.info("Sample ID rejected")
+        logger.debug("Sample ID rejected")
         return False
 
     def train_model(self):
-        for _ in range(self.train_epochs):
-            states, actions, rewards, next_states, dones = self.buffer.sample_batch(self.batch_size)
-            states = np.array([gamestate2np(state) for state in states])
-            next_states = np.array([gamestate2np(next_state) for next_state in next_states])
-            actions, rewards, dones = map(np.array, (actions, rewards, dones))
-            self.agent.train(states, actions, rewards, next_states, dones)
-        self.eps_scheduler.step()
+        if len(self.buffer) > self.batch_size:
+            for _ in range(self.train_epochs):
+                states, actions, rewards, next_states, dones = self.buffer.sample_batch(
+                    self.batch_size)
+                states = np.array([gamestate2np(state) for state in states])
+                next_states = np.array([gamestate2np(next_state) for next_state in next_states])
+                actions, rewards, dones = map(np.array, (actions, rewards, dones))
+                self.agent.train(states, actions, rewards, next_states, dones)
+            self.eps_scheduler.step()

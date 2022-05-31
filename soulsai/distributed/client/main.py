@@ -52,9 +52,11 @@ if __name__ == "__main__":
     eps = float(model_params["eps"].decode("utf-8"))
 
     try:
-        for _ in range(10):
+        while True:
             state = env.reset()
             done = False
+            reward = 0.
+            steps = 1
             while not done:
                 state_A = gamestate2np(state)
                 action = env.action_space.sample() if np.random.rand() < eps else agent(state_A)
@@ -69,6 +71,10 @@ if __name__ == "__main__":
                     model_params = {key.decode("utf-8"): value for key, value in model_params.items()}
                     agent.deserialize(model_params)
                     eps = float(model_params["eps"].decode("utf-8"))
+            boss_hp = state.boss_hp
+            win = boss_hp == 0
+            red.publish("telemetry", json.dumps({"reward": reward, "steps": steps,
+                                                 "boss_hp": boss_hp, "win": win}))
     finally:
         env.close()
         ...

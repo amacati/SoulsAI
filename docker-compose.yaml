@@ -6,7 +6,6 @@ services:
     volumes:
       - ./soulsai/distributed/server/redis.conf:/usr/local/etc/redis/redis.conf
       - ./soulsai/distributed/server/redis.secret:/usr/local/etc/redis/redis.secret
-
     ports:
       - 6379:6379
 
@@ -16,10 +15,12 @@ services:
       context: ./
     depends_on:
       - redis
-  
+
   telemetry_node:
     build: 
       dockerfile: ./soulsai/distributed/server/telemetry_node/Dockerfile
       context: ./
+    volumes:
+      - ./soulsai/distributed/server/telemetry_node/tmp:/tmp/dashboard
     depends_on:
       - redis
