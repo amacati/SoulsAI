@@ -20,7 +20,7 @@ class TrainingNode:
     def __init__(self):
         logger.info("Training node startup")
         # Read redis server secret
-        with open(Path(__file__).parent / "redis.secret") as f:
+        with open(Path(__file__).parents[1] / "redis.secret") as f:
             conf = f.readlines()
         secret = None
         for line in conf:

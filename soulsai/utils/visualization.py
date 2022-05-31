@@ -15,6 +15,7 @@ def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path):
     ax[0, 0].set_title("Total reward vs Episodes")
     ax[0, 0].set_xlabel("Episodes")
     ax[0, 0].set_ylabel("Total reward")
+    ax[0, 0].grid(alpha=0.3)
     if len(t) >= 50:
         lim = [min(reward_mean - reward_std) - 100, max(reward_mean + reward_std) + 100]
         ax[0, 0].set_ylim(lim)
@@ -27,6 +28,7 @@ def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path):
     ax[0, 1].set_title("Number of steps vs Episodes")
     ax[0, 1].set_xlabel("Episodes")
     ax[0, 1].set_ylabel("Number of steps")
+    ax[0, 1].grid(alpha=0.3)
     if len(t) >= 50:
         ax[0, 1].set_ylim([min(steps_mean - steps_std) - 100, max(steps_mean + steps_std) + 100])
 
@@ -39,6 +41,7 @@ def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path):
     ax[1, 0].set_xlabel("Episodes")
     ax[1, 0].set_ylabel("Iudex HP")
     ax[1, 0].set_ylim([0, 1100])
+    ax[1, 0].grid(alpha=0.3)
 
     wins = np.array(wins, dtype=np.float64)
     wins_mean = running_mean(wins, 50)
@@ -50,6 +53,7 @@ def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path):
     ax[1, 1].set_xlabel("Episodes")
     ax[1, 1].set_ylabel("Success rate")
     ax[1, 1].set_ylim([0, 1])
+    ax[1, 1].grid(alpha=0.3)
 
     fig.savefig(path)
-    fig.clear()
+    plt.close(fig)

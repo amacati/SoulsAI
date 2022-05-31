@@ -1,6 +1,6 @@
 import logging
 
-from soulsai.distributed.server.training_node import TrainingNode
+from soulsai.distributed.server.train_node.training_node import TrainingNode
 
 logger = logging.getLogger(__name__)
 
