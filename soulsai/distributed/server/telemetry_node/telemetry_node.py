@@ -55,20 +55,22 @@ class TelemetryNode:
                                                                             self.GSA_SCOPES)
             self.gdrive_service = build("drive", 'v3', credentials=credentials).files()
             self.metadata = {"name": "SoulsAIDashboard.png", "parents": [self.GDRIVE_FOLDER]}
+            self.update_dashboard(drive_update=False)
             self.media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
             logger.info("Authentication successful")
             # During training the file is only updated, so we have to make sure the file exists
             rsp = self.gdrive_service.list(q=f"name='SoulsAIDashboard.png' and mimeType='image/png' and '{self.GDRIVE_FOLDER}' in parents").execute()
-            if not rsp["files"]:
+            if rsp["files"]:
+                self.file_id = rsp["files"][0]["id"]
+            else:
                 logger.info("Telemetry file does not exist in Drive, creating new file")
-                self.update_dashboard(drive_update=False)
-                self.gdrive_service.create(body=self.metadata, media_body=self.media).execute()
-                rsp = self.gdrive_service.list(q=f"name='SoulsAIDashboard.png' and mimeType='image/png' and '{self.GDRIVE_FOLDER}' in parents").execute()
-            self.file_id = rsp["files"][0]["id"]
+                rsp = self.gdrive_service.create(body=self.metadata, media_body=self.media).execute()
+                self.file_id = rsp["id"]
+            logger.info("Google Drive initialization complete")
         except Exception as e:
             self.gdrive_service = None
             logger.warning(e)
-            logger.warning("Authentication failed")
+            logger.warning("Google Drive initialization failed")
 
         logger.info("Telemetry node startup complete")
 
