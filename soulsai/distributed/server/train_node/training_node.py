@@ -2,6 +2,7 @@ from uuid import uuid4
 import logging
 import json
 from pathlib import Path
+from collections import deque
 
 import numpy as np
 import redis
@@ -37,6 +38,8 @@ class TrainingNode:
         self.sample_cnt = 0
         self.required_training_samples = 350
         self.model_id = str(uuid4())
+        self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
+        self.model_ids.append(self.model_id)
         self.red.set("model_id", self.model_id)
         logger.info(f"Initial model ID: {self.model_id}")
 
@@ -83,6 +86,7 @@ class TrainingNode:
         self.train_model()
         self.red.delete(self.model_id)
         self.model_id = str(uuid4())
+        self.model_ids.append(self.model_id)
         self.push_model_update()
 
     def push_model_update(self):
@@ -95,7 +99,7 @@ class TrainingNode:
         logger.info("Model update successful")
 
     def _check_sample(self, sample):
-        if sample.get("model_id") == self.model_id:
+        if sample.get("model_id") in self.model_ids:
             logger.debug("Sample ID accepted")
             return True
         logger.debug("Sample ID rejected")

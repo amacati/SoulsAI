@@ -5,6 +5,8 @@ COPY soulsai/distributed/server/telemetry_node/requirements.txt /home/requiremen
 RUN pip install -r /home/requirements.txt
 RUN rm /home/requirements.txt
 COPY . /home/SoulsAI
+# Remove all secret files from the container
+RUN find /home/SoulsAI -type f -name '*.secret' -delete
 WORKDIR /home/SoulsAI
 RUN git checkout dev
 RUN python setup.py develop

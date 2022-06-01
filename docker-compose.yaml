@@ -13,6 +13,9 @@ services:
     build: 
       dockerfile: ./soulsai/distributed/server/train_node/Dockerfile
       context: ./
+    # Manually add secrets as volumes during runtime
+    volumes:
+      - ./soulsai/distributed/server/redis.secret:/home/SoulsAI/soulsai/distributed/server/redis.secret
     depends_on:
       - redis
 
@@ -20,7 +23,10 @@ services:
     build: 
       dockerfile: ./soulsai/distributed/server/telemetry_node/Dockerfile
       context: ./
+    # Manually add secrets as volumes during runtime
     volumes:
+      - ./soulsai/distributed/server/redis.secret:/home/SoulsAI/soulsai/distributed/server/redis.secret
+      - ./soulsai/distributed/server/telemetry_node/gsa.secret:/home/SoulsAI/soulsai/distributed/server/telemetry_node/gsa.secret
       - ./soulsai/distributed/server/telemetry_node/tmp:/tmp/dashboard
     depends_on:
       - redis

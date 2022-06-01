@@ -5,6 +5,8 @@ COPY soulsai/distributed/server/train_node/requirements.txt /home/requirements.t
 RUN pip install -r /home/requirements.txt
 RUN rm /home/requirements.txt
 COPY . /home/SoulsAI
+# Remove all secret files from the container
+RUN find /home/SoulsAI -type f -name '*.secret' -delete
 RUN git clone https://github.com/amacati/SoulsGym.git
 WORKDIR /home/SoulsGym
 RUN git checkout dev
