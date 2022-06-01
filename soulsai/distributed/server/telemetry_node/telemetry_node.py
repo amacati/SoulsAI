@@ -1,13 +1,12 @@
 import logging
 import json
 from pathlib import Path
-from collections import deque
-from threading import Lock
 
 from matplotlib import pyplot as plt
 import numpy as np
 import redis
 from googleapiclient.discovery import build
+from googleapiclient.http import HttpError
 from googleapiclient.http import MediaFileUpload
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -50,15 +49,25 @@ class TelemetryNode:
 
         logger.info("Authenticating with Google Drive for live telemetry")
 
+        # Set up the Google Drive service and create the Dashboard file if it does not already exist
         try:
             credentials = ServiceAccountCredentials.from_json_keyfile_name(self.GSA_SECRET,
                                                                             self.GSA_SCOPES)
-            self.gdrive_service = build("drive", 'v3', credentials=credentials)
+            self.gdrive_service = build("drive", 'v3', credentials=credentials).files()
             self.metadata = {"name": "SoulsAIDashboard.png", "parents": [self.GDRIVE_FOLDER]}
             self.media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
             logger.info("Authentication successful")
+            # During training the file is only updated, so we have to make sure the file exists
+            rsp = self.gdrive_service.list(q=f"name='SoulsAIDashboard.png' and mimeType='image/png' and '{self.GDRIVE_FOLDER}' in parents").execute()
+            if not rsp["files"]:
+                logger.info("Telemetry file does not exist in Drive, creating new file")
+                self.update_dashboard(drive_update=False)
+                self.gdrive_service.create(body=self.metadata, media_body=self.media).execute()
+                rsp = self.gdrive_service.list(q=f"name='SoulsAIDashboard.png' and mimeType='image/png' and '{self.GDRIVE_FOLDER}' in parents").execute()
+            self.file_id = rsp["files"][0]["id"]
         except Exception as e:
             self.gdrive_service = None
+            logger.warning(e)
             logger.warning("Authentication failed")
 
         logger.info("Telemetry node startup complete")
@@ -80,14 +89,17 @@ class TelemetryNode:
             if len(self.rewards) % 1 == 0:
                 self.update_dashboard()
 
-    def update_dashboard(self):
+    def update_dashboard(self, drive_update=True):
         self.figure_path.parent.mkdir(parents=True, exist_ok=True)
         save_plots(self.rewards, self.steps, self.boss_hp, self.wins, self.figure_path)
         with open(self.stats_path, "w") as f:
             json.dump({"rewards": self.rewards, "steps": self.steps, "boss_hp": self.boss_hp,
                        "wins": self.wins}, f)
-        if self.gdrive_service is not None:
-            self.gdrive_service.files().create(body=self.metadata, media_body=self.media,
-                                               fields="id").execute()
-            logger.info("Google Drive upload successful")
+        if self.gdrive_service is not None and drive_update:
+            try:
+                self.gdrive_service.update(fileId=self.file_id, media_body=self.media).execute()
+                logger.info("Google Drive upload successful")
+            except:
+                logger.info("Google Drive error, deactivating cloud saves")
+                self.gdrive_service = None
         logger.info("Dashboard updated")
