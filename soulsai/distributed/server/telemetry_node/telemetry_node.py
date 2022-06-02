@@ -54,9 +54,9 @@ class TelemetryNode:
             credentials = ServiceAccountCredentials.from_json_keyfile_name(self.GSA_SECRET,
                                                                             self.GSA_SCOPES)
             self.gdrive_service = build("drive", 'v3', credentials=credentials).files()
-            self.metadata = {"name": "SoulsAIDashboard.png", "parents": [self.GDRIVE_FOLDER]}
+            metadata = {"name": "SoulsAIDashboard.png", "parents": [self.GDRIVE_FOLDER]}
             self.update_dashboard(drive_update=False)
-            self.media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
+            media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
             logger.info("Authentication successful")
             # During training the file is only updated, so we have to make sure the file exists
             rsp = self.gdrive_service.list(q=f"name='SoulsAIDashboard.png' and mimeType='image/png' and '{self.GDRIVE_FOLDER}' in parents").execute()
@@ -64,7 +64,7 @@ class TelemetryNode:
                 self.file_id = rsp["files"][0]["id"]
             else:
                 logger.info("Telemetry file does not exist in Drive, creating new file")
-                rsp = self.gdrive_service.create(body=self.metadata, media_body=self.media).execute()
+                rsp = self.gdrive_service.create(body=metadata, media_body=media).execute()
                 self.file_id = rsp["id"]
             logger.info("Google Drive initialization complete")
         except Exception as e:
@@ -88,7 +88,7 @@ class TelemetryNode:
             self.boss_hp.append(sample["boss_hp"])
             self.wins.append(sample["win"])
 
-            if len(self.rewards) % 1 == 0:
+            if len(self.rewards) % 5 == 0:
                 self.update_dashboard()
 
     def update_dashboard(self, drive_update=True):
@@ -99,7 +99,8 @@ class TelemetryNode:
                        "wins": self.wins}, f)
         if self.gdrive_service is not None and drive_update:
             try:
-                self.gdrive_service.update(fileId=self.file_id, media_body=self.media).execute()
+                media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
+                self.gdrive_service.update(fileId=self.file_id, media_body=media).execute()
                 logger.info("Google Drive upload successful")
             except:
                 logger.info("Google Drive error, deactivating cloud saves")

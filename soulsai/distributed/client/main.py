@@ -55,7 +55,7 @@ if __name__ == "__main__":
         while True:
             state = env.reset()
             done = False
-            reward = 0.
+            total_reward = 0.
             steps = 1
             while not done:
                 state_A = gamestate2np(state)
@@ -64,6 +64,8 @@ if __name__ == "__main__":
                 sample = [state.as_json(), action, reward, next_state.as_json(), done]
                 red.publish("samples", json.dumps({"model_id": model_id, "sample": sample}))
                 state = next_state
+                total_reward += reward
+                steps += 1
                 if update_flag[0]:
                     update_flag[0] = False
                     model_id = red.get("model_id").decode("utf-8")
@@ -73,7 +75,7 @@ if __name__ == "__main__":
                     eps = float(model_params["eps"].decode("utf-8"))
             boss_hp = state.boss_hp
             win = boss_hp == 0
-            red.publish("telemetry", json.dumps({"reward": reward, "steps": steps,
+            red.publish("telemetry", json.dumps({"reward": total_reward, "steps": steps,
                                                  "boss_hp": boss_hp, "win": win}))
     finally:
         env.close()
