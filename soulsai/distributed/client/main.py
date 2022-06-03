@@ -12,6 +12,8 @@ import keyboard
 from soulsai.core.agent import ClientAgent
 from soulsai.core.utils import gamestate2np
 
+logger = logging.getLogger(__name__)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
@@ -57,6 +59,8 @@ if __name__ == "__main__":
     model_params = {key.decode("utf-8"): value for key, value in model_params.items()}
     agent.deserialize(model_params)
     eps = float(model_params["eps"].decode("utf-8"))
+
+    logger.info("Press 'enter' to end training")
 
     try:
         while not stop_flag[0]:
