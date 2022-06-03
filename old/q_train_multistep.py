@@ -49,7 +49,7 @@ if __name__ == "__main__":
         episodes_steps = []   # Contains the number of steps per episode
 
         agent = DQNAgent(n_states+1, n_actions, lr, gamma, grad_clip, multistep=n_multisteps)
-        buffer = ExperienceReplayBuffer(maximum_length=buffer_size)
+        buffer = ExperienceReplayBuffer(maxlen=buffer_size)
         episode_buffer = MultistepEpisodeBuffer(gamma=gamma)
         while len(buffer) < buffer_size:
             done = False

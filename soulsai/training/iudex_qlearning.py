@@ -44,7 +44,7 @@ if __name__ == "__main__":
     wins = []
 
     agent = DQNAgent(n_states, n_actions, lr, gamma, grad_clip, q_clip)
-    buffer = ExperienceReplayBuffer(maximum_length=buffer_size)
+    buffer = ExperienceReplayBuffer(maxlen=buffer_size)
     eps_scheduler = EpsilonScheduler(eps_max, eps_min, eps_steps, zero_ending=True)
     path = Path(__file__).parents[2] / "saves" / "replay_buffer.pkl"
     fill_buffer(buffer, env, buffer_size, load=True, save=True, path=path)

@@ -49,8 +49,8 @@ if __name__ == "__main__":
         episodes_steps = []   # Contains the number of steps per episode
 
         agent = DQNAgent(n_states+1, n_actions, lr, gamma, grad_clip)
-        buffer = ExperienceReplayBuffer(maximum_length=buffer_size)
-        # buffer = ImportanceReplayBuffer(maximum_length=buffer_size)
+        buffer = ExperienceReplayBuffer(maxlen=buffer_size)
+        # buffer = ImportanceReplayBuffer(maxlen=buffer_size)
         fill_buffer(buffer, env, buffer_size, state_tf)
 
         status_bar = tqdm(total=n_episodes, desc="Episodes: ", position=0, leave=False)

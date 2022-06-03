@@ -6,9 +6,9 @@ import numpy as np
 
 class ExperienceReplayBuffer:
 
-    def __init__(self, maximum_length=1000):
-        self.maximum_length = maximum_length
-        self.buffer = deque(maxlen=maximum_length)
+    def __init__(self, maxlen=1000):
+        self.maxlen = maxlen
+        self.buffer = deque(maxlen=maxlen)
 
     def append(self, experience):
         self.buffer.append(experience)
@@ -37,10 +37,10 @@ class ExperienceReplayBuffer:
 
 class ImportanceReplayBuffer:
 
-    def __init__(self, maximum_length=1000):
-        self.maximum_length = maximum_length
-        self.buffer = deque(maxlen=maximum_length)
-        self.p = deque(maxlen=maximum_length)
+    def __init__(self, maxlen=1000):
+        self.maxlen = maxlen
+        self.buffer = deque(maxlen=maxlen)
+        self.p = deque(maxlen=maxlen)
 
     def append(self, experience):
         self.buffer.append(experience)

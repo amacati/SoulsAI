@@ -36,7 +36,6 @@ class TrainingNode:
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub.subscribe("samples")
         self.sample_cnt = 0
-        self.required_training_samples = 350
         self.model_id = str(uuid4())
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
         self.model_ids.append(self.model_id)
@@ -46,8 +45,8 @@ class TrainingNode:
         # Learning initialization
         lr = 1e-3
         gamma = 0.99
-        eps_max = [0.99, 0.1, 0.1]
-        eps_min = [0.1, 0.1, 0.01]
+        eps_max = [0.99, 0.05, 0.05]
+        eps_min = [0.05, 0.05, 0.01]
         eps_steps = [1500, 1500, 1500]
         grad_clip = 100.  # 1.5
         q_clip = 200.
@@ -55,10 +54,11 @@ class TrainingNode:
         n_states = 72
         n_actions = 20
         self.batch_size = 64
-        self.train_epochs = 250
+        self.train_epochs = 5
+        self.n_update_samples = 10
 
         self.agent = DQNAgent(n_states, n_actions, lr, gamma, grad_clip, q_clip)
-        self.buffer = ExperienceReplayBuffer(maximum_length=buffer_size)
+        self.buffer = ExperienceReplayBuffer(maxlen=buffer_size)
         self.eps_scheduler = EpsilonScheduler(eps_max, eps_min, eps_steps, zero_ending=True)
         self.push_model_update()
         logger.info("Initial model upload successful, startup complete")
@@ -77,7 +77,7 @@ class TrainingNode:
             experience[3] = GameState.from_dict(experience[3])
             self.buffer.append(experience)
             self.sample_cnt += 1
-            if self.sample_cnt >= self.required_training_samples:
+            if self.sample_cnt >= self.n_update_samples and len(self.buffer) == self.buffer.maxlen:
                 self.model_update()
                 self.sample_cnt = 0
 
