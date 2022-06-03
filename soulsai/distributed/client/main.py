@@ -7,6 +7,7 @@ import gym
 import soulsgym  # noqa: F401
 from soulsgym.core.game_state import GameState
 import redis
+import keyboard
 
 from soulsai.core.agent import ClientAgent
 from soulsai.core.utils import gamestate2np
@@ -16,6 +17,12 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     update_flag = [False]
+    stop_flag = [False]
+
+    def exit_callback():
+        stop_flag[0] = True
+
+    keyboard.add_hotkey("enter", exit_callback)
 
     def model_update_callback(_):
         update_flag[0] = True
@@ -30,7 +37,7 @@ if __name__ == "__main__":
     if secret is None:
         raise RuntimeError("Missing password configuration for redis in redis.secret")
 
-    red = redis.Redis(host='localhost', password=secret, port=6379, db=0)
+    red = redis.Redis(host='192.168.0.88', password=secret, port=6379, db=0)
     model_id = red.get("model_id").decode("utf-8")
     pubsub = red.pubsub()
     pubsub.psubscribe(model_update=model_update_callback)
@@ -52,12 +59,12 @@ if __name__ == "__main__":
     eps = float(model_params["eps"].decode("utf-8"))
 
     try:
-        while True:
+        while not stop_flag[0]:
             state = env.reset()
             done = False
             total_reward = 0.
             steps = 1
-            while not done:
+            while not done and not stop_flag[0]:
                 state_A = gamestate2np(state)
                 action = env.action_space.sample() if np.random.rand() < eps else agent(state_A)
                 next_state, reward, done, _ = env.step(action)
