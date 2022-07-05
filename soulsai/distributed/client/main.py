@@ -39,7 +39,7 @@ if __name__ == "__main__":
     if secret is None:
         raise RuntimeError("Missing password configuration for redis in redis.secret")
 
-    red = redis.Redis(host='192.168.0.88', password=secret, port=6379, db=0)
+    red = redis.Redis(host='localhost', password=secret, port=6379, db=0)
     pubsub = red.pubsub()
     pubsub.psubscribe(model_update=model_update_callback)
     pubsub.run_in_thread(sleep_time=.01, daemon=True)
@@ -86,6 +86,7 @@ if __name__ == "__main__":
             win = boss_hp == 0
             red.publish("telemetry", json.dumps({"reward": total_reward, "steps": steps,
                                                  "boss_hp": boss_hp, "win": win}))
+        logger.info("Exiting training")
     finally:
         env.close()
         ...
