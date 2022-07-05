@@ -40,7 +40,6 @@ if __name__ == "__main__":
         raise RuntimeError("Missing password configuration for redis in redis.secret")
 
     red = redis.Redis(host='192.168.0.88', password=secret, port=6379, db=0)
-    model_id = red.get("model_id").decode("utf-8")
     pubsub = red.pubsub()
     pubsub.psubscribe(model_update=model_update_callback)
     pubsub.run_in_thread(sleep_time=.01, daemon=True)
@@ -55,7 +54,7 @@ if __name__ == "__main__":
     gamestate.boss_max_hp = 1
     n_states = len(gamestate2np(gamestate))
     agent = ClientAgent(n_states, n_actions)
-    model_params = red.hgetall(model_id)
+    model_params = red.hgetall("model_params")
     model_params = {key.decode("utf-8"): value for key, value in model_params.items()}
     agent.deserialize(model_params)
     eps = float(model_params["eps"].decode("utf-8"))
@@ -73,14 +72,13 @@ if __name__ == "__main__":
                 action = env.action_space.sample() if np.random.rand() < eps else agent(state_A)
                 next_state, reward, done, _ = env.step(action)
                 sample = [state.as_json(), action, reward, next_state.as_json(), done]
-                red.publish("samples", json.dumps({"model_id": model_id, "sample": sample}))
+                red.publish("samples", json.dumps({"model_id": agent.model_id, "sample": sample}))
                 state = next_state
                 total_reward += reward
                 steps += 1
                 if update_flag[0]:
                     update_flag[0] = False
-                    model_id = red.get("model_id").decode("utf-8")
-                    model_params = red.hgetall(model_id)
+                    model_params = red.hgetall("model_params")
                     model_params = {key.decode("utf-8"): value for key, value in model_params.items()}
                     agent.deserialize(model_params)
                     eps = float(model_params["eps"].decode("utf-8"))

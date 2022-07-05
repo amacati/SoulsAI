@@ -36,11 +36,7 @@ class TrainingNode:
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub.subscribe("samples")
         self.sample_cnt = 0
-        self.model_id = str(uuid4())
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
-        self.model_ids.append(self.model_id)
-        self.red.set("model_id", self.model_id)
-        logger.info(f"Initial model ID: {self.model_id}")
 
         # Learning initialization
         lr = 1e-3
@@ -58,6 +54,11 @@ class TrainingNode:
         self.n_update_samples = 10
 
         self.agent = DQNAgent(n_states, n_actions, lr, gamma, grad_clip, q_clip)
+        self.model_id = str(uuid4())
+        self.agent.model_id = self.model_id
+        self.model_ids.append(self.model_id)
+        logger.info(f"Initial model ID: {self.model_id}")
+
         self.buffer = ExperienceReplayBuffer(maxlen=buffer_size)
         self.eps_scheduler = EpsilonScheduler(eps_max, eps_min, eps_steps, zero_ending=True)
         self.push_model_update()
@@ -84,17 +85,16 @@ class TrainingNode:
     def model_update(self):
         logger.info("Training model")
         self.train_model()
-        self.red.delete(self.model_id)
         self.model_id = str(uuid4())
         self.model_ids.append(self.model_id)
+        self.agent.model_id = self.model_id
         self.push_model_update()
 
     def push_model_update(self):
         logger.info(f"Publishing new model with ID {self.model_id}")
         model_params = self.agent.serialize()
         model_params["eps"] = self.eps_scheduler.epsilon
-        self.red.hmset(self.model_id, model_params)
-        self.red.set("model_id", self.model_id)
+        self.red.hmset("model_params", model_params)
         self.red.publish("model_update", self.model_id)
         logger.info("Model update successful")
 

@@ -16,6 +16,7 @@ class DQNAgent:
         self.dqn2_opt = torch.optim.Adam(self.dqn2.parameters(), lr=lr)
         self.gamma = gamma
         self.grad_clip = grad_clip
+        self.model_id = None
 
     def __call__(self, x):
         with torch.no_grad():
@@ -51,19 +52,20 @@ class DQNAgent:
         self.dqn2 = torch.load(path / "dqn2.pt").to(self.dev)
 
     def serialize(self):
+        assert self.model_id is not None
         dqn1_buff = io.BytesIO()
         torch.save(self.dqn1, dqn1_buff)
         dqn1_buff.seek(0)
         dqn2_buff = io.BytesIO()
         torch.save(self.dqn2, dqn2_buff)
         dqn2_buff.seek(0)
-        return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read()}
+        return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read(), "model_id": self.model_id}
 
     def deserialize(self, serialization):
-        dqn1_buff = io.BytesIO(["dqn1"])
+        dqn1_buff = io.BytesIO(serialization["dqn1"])
         dqn1_buff.seek(0)
         self.dqn1 = torch.load(dqn1_buff)
-        dqn2_buff = io.BytesIO(["dqn2"])
+        dqn2_buff = io.BytesIO(serialization["dqn2"])
         dqn2_buff.seek(0)
         self.dqn2 = torch.load(dqn2_buff)
 
@@ -87,7 +89,7 @@ class ClientAgent:
         dqn2_buff = io.BytesIO()
         torch.save(self.dqn2, dqn2_buff)
         dqn2_buff.seek(0)
-        return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read()}
+        return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read(), "model_id": self.model_id}
 
     def deserialize(self, serialization):
         dqn1_buff = io.BytesIO(serialization["dqn1"])
@@ -96,6 +98,7 @@ class ClientAgent:
         dqn2_buff = io.BytesIO(serialization["dqn2"])
         dqn2_buff.seek(0)
         self.dqn2 = torch.load(dqn2_buff)
+        self.model_id = serialization["model_id"].decode("utf-8")
 
 
 class DQN(nn.Module):
