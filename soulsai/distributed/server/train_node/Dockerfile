@@ -9,7 +9,6 @@ COPY . /home/SoulsAI
 RUN find /home/SoulsAI -type f -name '*.secret' -delete
 RUN git clone https://github.com/amacati/SoulsGym.git
 WORKDIR /home/SoulsGym
-RUN git checkout dev
 RUN python setup.py develop
 WORKDIR /home/SoulsAI
 RUN git checkout dev
