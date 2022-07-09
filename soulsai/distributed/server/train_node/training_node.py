@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from collections import deque
 from types import SimpleNamespace
+import time
 
 import numpy as np
 import yaml
@@ -44,7 +45,6 @@ class TrainingNode:
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
 
         self.config = self.load_config()
-        self.n_update_samples = 10
 
         self.agent = DQNAgent(self.config.n_states, self.config.n_actions, self.config.lr,
                               self.config.gamma, self.config.grad_clip, self.config.q_clip)
@@ -58,6 +58,7 @@ class TrainingNode:
                                               self.config.eps_steps, zero_ending=True)
         if self.config.load_checkpoint:
             self.load_checkpoint()
+            logger.info("Checkpoint loading complete")
         self.push_model_update()
         logger.info("Initial model upload successful, startup complete")
 
@@ -84,7 +85,7 @@ class TrainingNode:
             experience[3] = GameState.from_dict(experience[3])
             self.buffer.append(experience)
             self.sample_cnt += 1
-            if self.sample_cnt >= self.config.n_update_samples and self.buffer.filled:
+            if self.sample_cnt >= self.config.update_samples and self.buffer.filled:
                 self.model_update()
                 self.sample_cnt = 0
 
@@ -97,7 +98,9 @@ class TrainingNode:
         self.push_model_update()
         self.model_cnt += 1
         if self.model_cnt >= self.config.checkpoint_epochs:
+            tstart = time.time()
             self.checkpoint()
+            logger.info(f"Training checkpoint successful, took {time.time() - tstart:.2f}s")
             self.model_cnt = 0
 
     def push_model_update(self):
@@ -128,14 +131,14 @@ class TrainingNode:
 
     def checkpoint(self):
         self.SAVE_PATH.mkdir(exist_ok=True)
-        self.agent.save(self.SAVE_PATH)
+        self.agent.save(self.SAVE_PATH)  # Agent only takes the save directory
         with open(self.SAVE_PATH / "config.json", "w") as f:
-            json.dump(self.config, f)
+            json.dump(vars(self.config), f)
         self.buffer.save(self.SAVE_PATH / "buffer.pkl")
         self.eps_scheduler.save(self.SAVE_PATH / "eps_scheduler.json")
 
     def load_checkpoint(self):
-        self.agent.load(self.SAVE_PATH / "agent.pt")
+        self.agent.load(self.SAVE_PATH)
         self.buffer.load(self.SAVE_PATH / "buffer.pkl")
         self.eps_scheduler.load(self.SAVE_PATH / "eps_scheduler.json")
         if self.config.load_checkpoint_config:

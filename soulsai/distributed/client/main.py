@@ -60,7 +60,7 @@ if __name__ == "__main__":
     agent.deserialize(model_params)
     eps = float(model_params["eps"].decode("utf-8"))
 
-    logger.info("Press 'enter' to end training")
+    logger.info("Press 'Enter' to end training")
 
     try:
         while not stop_flag[0]:

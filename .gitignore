@@ -1,6 +1,7 @@
 *.pt
 *.png
 *.json
+*.log
 /plots
 /saves
 *pkl

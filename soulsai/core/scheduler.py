@@ -40,12 +40,12 @@ class EpsilonScheduler:
         return np.maximum(epsilon_min, eps)
 
     def save(self, path: Path):
-        save = vars(self)
+        save = vars(self).copy()
         for key, val in save.items():  # Convert numpy arrays to lists for json
             if isinstance(val, np.ndarray):
                 save[key] = val.tolist()
         with open(path, "w") as f:
-            json.dump(f)
+            json.dump(save, f)
 
     def load(self, path: Path):
         with open(path, "r") as f:
