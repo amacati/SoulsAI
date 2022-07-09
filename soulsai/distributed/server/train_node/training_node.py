@@ -59,6 +59,8 @@ class TrainingNode:
         if self.config.load_checkpoint:
             self.load_checkpoint()
             logger.info("Checkpoint loading complete")
+        else:
+            self.checkpoint()  # Checkpoint to make config accessible for sanity checking
         self.push_model_update()
         logger.info("Initial model upload successful, startup complete")
 

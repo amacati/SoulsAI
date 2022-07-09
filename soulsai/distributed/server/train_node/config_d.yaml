@@ -7,7 +7,7 @@ lr: 0.001
 gamma: 0.99
 eps_max: [0.99, 0.1, 0.05]
 eps_min: [0.1, 0.05, 0.01]
-eps_steps: [1500, 1500, 1500]
+eps_steps: [60_000, 60_000, 60_000]
 grad_clip: 2.
 q_clip: 200
 buffer_size: 100_000

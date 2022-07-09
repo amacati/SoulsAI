@@ -1,7 +1,0 @@
-buffer_size: 100
-batch_size: 64
-train_epochs: 10
-update_samples: 20
-checkpoint_epochs: 1
-load_checkpoint: True
-load_checkpoint_config: True
