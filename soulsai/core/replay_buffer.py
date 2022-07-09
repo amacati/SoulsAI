@@ -16,6 +16,10 @@ class ExperienceReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
+    @property
+    def filled(self):
+        return len(self.buffer) == self.maxlen
+
     def sample_batch(self, n):
         if n > len(self.buffer):
             raise RuntimeError("Asked to sample more elements than available in buffer")

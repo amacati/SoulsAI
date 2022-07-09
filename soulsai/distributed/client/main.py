@@ -39,7 +39,8 @@ if __name__ == "__main__":
     if secret is None:
         raise RuntimeError("Missing password configuration for redis in redis.secret")
 
-    red = redis.Redis(host='localhost', password=secret, port=6379, db=0)
+    # Use localhost for local redis server, and IP for remote server
+    red = redis.Redis(host='192.168.0.88', password=secret, port=6379, db=0)
     pubsub = red.pubsub()
     pubsub.psubscribe(model_update=model_update_callback)
     pubsub.run_in_thread(sleep_time=.01, daemon=True)
@@ -78,8 +79,8 @@ if __name__ == "__main__":
                 steps += 1
                 if update_flag[0]:
                     update_flag[0] = False
-                    model_params = red.hgetall("model_params")
-                    model_params = {key.decode("utf-8"): value for key, value in model_params.items()}
+                    _params = red.hgetall("model_params")
+                    model_params = {key.decode("utf-8"): value for key, value in _params.items()}
                     agent.deserialize(model_params)
                     eps = float(model_params["eps"].decode("utf-8"))
             boss_hp = state.boss_hp

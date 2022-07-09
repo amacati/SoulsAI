@@ -1,0 +1,4 @@
+buffer_size: 200_000
+batch_size: 128
+train_epochs: 10
+update_samples: 20

@@ -13,9 +13,10 @@ services:
     build: 
       dockerfile: ./soulsai/distributed/server/train_node/Dockerfile
       context: ./
-    # Manually add secrets as volumes during runtime
+    # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
     volumes:
       - ./soulsai/distributed/server/redis.secret:/home/SoulsAI/soulsai/distributed/server/redis.secret
+      - ./soulsai/distributed/server/train_node/save:/home/SoulsAI/soulsai/distributed/server/train_node/save
     depends_on:
       - redis
 

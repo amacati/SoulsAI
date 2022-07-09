@@ -3,8 +3,10 @@ import logging
 import json
 from pathlib import Path
 from collections import deque
+from types import SimpleNamespace
 
 import numpy as np
+import yaml
 import redis
 from soulsgym.core.game_state import GameState
 
@@ -17,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 class TrainingNode:
+
+    SAVE_PATH = Path(__file__).parent / "save"
 
     def __init__(self):
         logger.info("Training node startup")
@@ -35,34 +39,36 @@ class TrainingNode:
                                decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub.subscribe("samples")
-        self.sample_cnt = 0
+        self.sample_cnt = 0  # Track number of samples for training trigger
+        self.model_cnt = 0  # Track number of model iterations for checkpoint trigger
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
 
-        # Learning initialization
-        lr = 1e-3
-        gamma = 0.99
-        eps_max = [0.99, 0.05, 0.05]
-        eps_min = [0.05, 0.05, 0.01]
-        eps_steps = [1500, 1500, 1500]
-        grad_clip = 100.  # 1.5
-        q_clip = 200.
-        buffer_size = 100_000
-        n_states = 72
-        n_actions = 20
-        self.batch_size = 64
-        self.train_epochs = 5
+        self.config = self.load_config()
         self.n_update_samples = 10
 
-        self.agent = DQNAgent(n_states, n_actions, lr, gamma, grad_clip, q_clip)
+        self.agent = DQNAgent(self.config.n_states, self.config.n_actions, self.config.lr,
+                              self.config.gamma, self.config.grad_clip, self.config.q_clip)
         self.model_id = str(uuid4())
         self.agent.model_id = self.model_id
         self.model_ids.append(self.model_id)
         logger.info(f"Initial model ID: {self.model_id}")
 
-        self.buffer = ExperienceReplayBuffer(maxlen=buffer_size)
-        self.eps_scheduler = EpsilonScheduler(eps_max, eps_min, eps_steps, zero_ending=True)
+        self.buffer = ExperienceReplayBuffer(maxlen=self.config.buffer_size)
+        self.eps_scheduler = EpsilonScheduler(self.config.eps_max, self.config.eps_min,
+                                              self.config.eps_steps, zero_ending=True)
+        if self.config.load_checkpoint:
+            self.load_checkpoint()
         self.push_model_update()
         logger.info("Initial model upload successful, startup complete")
+
+    def load_config(self):
+        with open(Path(__file__).parent / "config_d.yaml", "r") as f:
+            config_d = yaml.safe_load(f)
+        if (Path(__file__).parent / "config.yaml").is_file():
+            with open(Path(__file__).parent / "config.yaml", "r") as f:
+                config = yaml.safe_load(f)
+            config_d |= config  # Overwrite default config with keys from user config
+        return SimpleNamespace(**config_d)
 
     def run(self):
         logger.info("Training node running")
@@ -78,7 +84,7 @@ class TrainingNode:
             experience[3] = GameState.from_dict(experience[3])
             self.buffer.append(experience)
             self.sample_cnt += 1
-            if self.sample_cnt >= self.n_update_samples and len(self.buffer) == self.buffer.maxlen:
+            if self.sample_cnt >= self.config.n_update_samples and self.buffer.filled:
                 self.model_update()
                 self.sample_cnt = 0
 
@@ -89,6 +95,10 @@ class TrainingNode:
         self.model_ids.append(self.model_id)
         self.agent.model_id = self.model_id
         self.push_model_update()
+        self.model_cnt += 1
+        if self.model_cnt >= self.config.checkpoint_epochs:
+            self.checkpoint()
+            self.model_cnt = 0
 
     def push_model_update(self):
         logger.info(f"Publishing new model with ID {self.model_id}")
@@ -106,12 +116,28 @@ class TrainingNode:
         return False
 
     def train_model(self):
-        if len(self.buffer) > self.batch_size:
-            for _ in range(self.train_epochs):
+        if len(self.buffer) > self.config.batch_size:
+            for _ in range(self.config.train_epochs):
                 states, actions, rewards, next_states, dones = self.buffer.sample_batch(
-                    self.batch_size)
+                    self.config.batch_size)
                 states = np.array([gamestate2np(state) for state in states])
                 next_states = np.array([gamestate2np(next_state) for next_state in next_states])
                 actions, rewards, dones = map(np.array, (actions, rewards, dones))
                 self.agent.train(states, actions, rewards, next_states, dones)
             self.eps_scheduler.step()
+
+    def checkpoint(self):
+        self.SAVE_PATH.mkdir(exist_ok=True)
+        self.agent.save(self.SAVE_PATH)
+        with open(self.SAVE_PATH / "config.json", "w") as f:
+            json.dump(self.config, f)
+        self.buffer.save(self.SAVE_PATH / "buffer.pkl")
+        self.eps_scheduler.save(self.SAVE_PATH / "eps_scheduler.json")
+
+    def load_checkpoint(self):
+        self.agent.load(self.SAVE_PATH / "agent.pt")
+        self.buffer.load(self.SAVE_PATH / "buffer.pkl")
+        self.eps_scheduler.load(self.SAVE_PATH / "eps_scheduler.json")
+        if self.config.load_checkpoint_config:
+            with open(self.SAVE_PATH / "config.json", "r") as f:
+                self.config = SimpleNamespace(**json.load(f))

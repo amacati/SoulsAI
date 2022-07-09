@@ -1,5 +1,4 @@
 import random
-import json
 import torch
 import torch.nn as nn
 import io
@@ -44,12 +43,12 @@ class DQNAgent:
         train_opt.step()
 
     def save(self, path):
-        torch.save(self.dqn1, path / "dqn1.pt")
-        torch.save(self.dqn2, path / "dqn2.pt")
+        torch.save(self.dqn1, path / "actor_dqn1.pt")
+        torch.save(self.dqn2, path / "actor_dqn2.pt")
 
     def load(self, path):
-        self.dqn1 = torch.load(path / "dqn1.pt").to(self.dev)
-        self.dqn2 = torch.load(path / "dqn2.pt").to(self.dev)
+        self.dqn1 = torch.load(path / "actor_dqn1.pt").to(self.dev)
+        self.dqn2 = torch.load(path / "actor_dqn2.pt").to(self.dev)
 
     def serialize(self):
         assert self.model_id is not None

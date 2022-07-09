@@ -1,3 +1,7 @@
+from pathlib import Path
+import json
+from typing import List
+
 import numpy as np
 
 
@@ -34,3 +38,19 @@ class EpsilonScheduler:
     def _exponential_decay(epsilon_max, epsilon_min, decay_steps, current_step):
         eps = epsilon_max*(epsilon_min/epsilon_max)**(current_step/decay_steps)
         return np.maximum(epsilon_min, eps)
+
+    def save(self, path: Path):
+        save = vars(self)
+        for key, val in save.items():  # Convert numpy arrays to lists for json
+            if isinstance(val, np.ndarray):
+                save[key] = val.tolist()
+        with open(path, "w") as f:
+            json.dump(f)
+
+    def load(self, path: Path):
+        with open(path, "r") as f:
+            save = json.load(f)
+        for key, val in save.items():  # Convert numpy arrays to lists for json
+            if isinstance(val, List):
+                val = np.array(val)
+            setattr(self, key, val)
