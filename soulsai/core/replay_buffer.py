@@ -32,12 +32,12 @@ class ExperienceReplayBuffer:
 
     def save(self, path):
         with open(path, "wb") as f:
-            pickle.dump(self.buffer, f)
+            pickle.dump({self.buffer, f})
 
     def load(self, path):
         with open(path, "rb") as f:
             self.buffer = pickle.load(f)
-
+        self.maxlen = len(self.buffer)
 
 class ImportanceReplayBuffer:
 

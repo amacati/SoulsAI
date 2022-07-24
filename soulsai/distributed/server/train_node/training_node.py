@@ -70,7 +70,9 @@ class TrainingNode:
             config = yaml.safe_load(f)
         if (root_path / "config.yaml").is_file():
             with open(root_path / "config.yaml", "r") as f:
-                config |= yaml.safe_load(f)  # Overwrite default config with keys from user config
+                _config = yaml.safe_load(f)
+            if _config is not None:
+                config |= _config  # Overwrite default config with keys from user config
         return SimpleNamespace(**config)
 
     def run(self):
@@ -82,12 +84,9 @@ class TrainingNode:
             sample = json.loads(msg["data"])
             if not self._check_sample(sample):
                 continue
-            experience = sample.get("sample")
-            experience[0] = GameState.from_dict(experience[0])
-            experience[3] = GameState.from_dict(experience[3])
+            experience = self._unpack_sample(sample.get("sample"))
             self.buffer.append(experience)
             if experience[4]:
-                logger.debug(f"episode end: {experience[4]}")
                 self.eps_scheduler.step()
             self.sample_cnt += 1
             if self.sample_cnt >= self.config.update_samples and self.buffer.filled:
@@ -148,3 +147,36 @@ class TrainingNode:
         if self.config.load_checkpoint_config:
             with open(self.SAVE_PATH / "config.json", "r") as f:
                 self.config = SimpleNamespace(**json.load(f))
+
+    def fill_buffer(self):
+        logger.info("Filling buffer")
+        self.SAVE_PATH.mkdir(exist_ok=True)
+        buffer_path = self.SAVE_PATH / "random_buffer.pkl"
+        if not buffer_path.exists():
+            random_buffer = ExperienceReplayBuffer(maxlen=500_000)
+            while not random_buffer.filled:
+                msg = self.sub.get_message()
+                if not msg:
+                    continue
+                sample = json.loads(msg["data"])
+                if not self._check_sample(sample):
+                    continue
+                random_buffer.append(self._unpack_sample(sample.get("sample")))
+            random_buffer.save(buffer_path)
+        self.load_buffer()
+
+    def load_buffer(self):
+        random_buffer = ExperienceReplayBuffer()
+        random_buffer.load(self.SAVE_PATH / "random_buffer.pkl")
+        assert len(random_buffer) >= self.buffer.maxlen
+        self.buffer.clear()
+        while not self.buffer.filled:
+            self.buffer.append(random_buffer.buffer.pop())
+        logger.info("Loaded buffer with neutral samples")
+
+    @staticmethod
+    def _unpack_sample(sample):
+        experience = sample.get("sample")
+        experience[0] = GameState.from_dict(experience[0])
+        experience[3] = GameState.from_dict(experience[3])
+        return experience

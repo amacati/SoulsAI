@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
@@ -14,7 +15,9 @@ def load_config():
         config = yaml.safe_load(f)
     if (root_dir / "config.yaml").is_file():
         with open(root_dir / "config.yaml", "r") as f:
-            config |= yaml.safe_load(f)  # Overwrite default config with keys from user config
+            _config = yaml.safe_load(f)
+        if _config is not None:
+            config |= _config  # Overwrite default config with keys from user config
     loglvl = config["loglevel"].lower()
     if loglvl == "debug":
         config["loglevel"] = logging.DEBUG
@@ -26,17 +29,19 @@ def load_config():
         config["loglevel"] = logging.ERROR
     else:
         raise RuntimeError(f"Loglevel {config['loglevel']} in config not supported!")
+    return SimpleNamespace(**config)
 
 
 if __name__ == "__main__":
     config = load_config()
     path = Path(__file__).parent / "save" / "training_node.log"
     path.parent.mkdir(exist_ok=True)
-    logging.basicConfig(level=config["loglevel"])
+    logging.basicConfig(level=config.loglevel)
     logFormatter = logging.Formatter("%(asctime)s [%(levelname)s]  %(message)s")
     fileHandler = logging.FileHandler(path)
     fileHandler.setFormatter(logFormatter)
     logging.getLogger().addHandler(fileHandler)
 
     training_node = TrainingNode()
+    training_node.fill_buffer()
     training_node.run()
