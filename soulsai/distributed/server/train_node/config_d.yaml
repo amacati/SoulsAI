@@ -1,3 +1,5 @@
+# Create config.yaml file to overwrite default settings
+
 # Environment information
 n_states: 72
 n_actions: 20
@@ -19,3 +21,6 @@ update_samples: 10
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration
 load_checkpoint: False
 load_checkpoint_config: False
+
+# Logging settings:
+loglevel: info

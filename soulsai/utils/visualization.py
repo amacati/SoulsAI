@@ -4,7 +4,7 @@ import numpy as np
 from soulsai.utils.utils import running_mean, running_std
 
 
-def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path):
+def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path, eps=None):
     t = np.arange(len(episodes_rewards))
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     reward_mean = running_mean(episodes_rewards, 50)
@@ -22,15 +22,26 @@ def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path):
 
     steps_mean = running_mean(episodes_steps, 50)
     steps_std = np.sqrt(running_std(episodes_steps, 50))
-    ax[0, 1].plot(t, steps_mean)
-    ax[0, 1].fill_between(t, steps_mean - steps_std, steps_mean + steps_std, alpha=0.4)
-    ax[0, 1].legend(["Mean episode steps", "Std deviation episode steps"])
+    ax[0, 1].plot(t, steps_mean, label="Mean episode steps")
+    lower, upper = steps_mean - steps_std, steps_mean + steps_std
+    ax[0, 1].fill_between(t, lower, upper, alpha=0.4, label="Std deviation episode steps")
+    ax[0, 1].legend()
     ax[0, 1].set_title("Number of steps vs Episodes")
     ax[0, 1].set_xlabel("Episodes")
     ax[0, 1].set_ylabel("Number of steps")
     ax[0, 1].grid(alpha=0.3)
     if len(t) >= 50:
-        ax[0, 1].set_ylim([min(steps_mean - steps_std) - 100, max(steps_mean + steps_std) + 100])
+        lim_low = max((min(steps_mean - steps_std) - 100, 0))
+        lim_up = max(steps_mean + steps_std) + 100
+        ax[0, 1].set_ylim([lim_low, lim_up])
+
+    if eps is not None:
+        secax_y = ax[0, 1].twinx()
+        secax_y.plot(t, eps, "orange", label="ε")
+        secax_y.set_ylabel("Fraction of ε-greedy moves")
+        lines, labels = ax[0, 1].get_legend_handles_labels()
+        lines2, labels2 = secax_y.get_legend_handles_labels()
+        secax_y.legend(lines + lines2, labels + labels2)
 
     hp_mean = running_mean(iudex_hp, 50)
     hp_std = np.sqrt(running_std(iudex_hp, 50))

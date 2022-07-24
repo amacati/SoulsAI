@@ -65,13 +65,13 @@ class TrainingNode:
         logger.info("Initial model upload successful, startup complete")
 
     def load_config(self):
-        with open(Path(__file__).parent / "config_d.yaml", "r") as f:
-            config_d = yaml.safe_load(f)
-        if (Path(__file__).parent / "config.yaml").is_file():
-            with open(Path(__file__).parent / "config.yaml", "r") as f:
-                config = yaml.safe_load(f)
-            config_d |= config  # Overwrite default config with keys from user config
-        return SimpleNamespace(**config_d)
+        root_path = Path(__file__).parent
+        with open(root_path / "config_d.yaml", "r") as f:
+            config = yaml.safe_load(f)
+        if (root_path / "config.yaml").is_file():
+            with open(root_path / "config.yaml", "r") as f:
+                config |= yaml.safe_load(f)  # Overwrite default config with keys from user config
+        return SimpleNamespace(**config)
 
     def run(self):
         logger.info("Training node running")
@@ -86,6 +86,9 @@ class TrainingNode:
             experience[0] = GameState.from_dict(experience[0])
             experience[3] = GameState.from_dict(experience[3])
             self.buffer.append(experience)
+            if experience[4]:
+                logger.debug(f"episode end: {experience[4]}")
+                self.eps_scheduler.step()
             self.sample_cnt += 1
             if self.sample_cnt >= self.config.update_samples and self.buffer.filled:
                 self.model_update()
@@ -129,7 +132,6 @@ class TrainingNode:
                 next_states = np.array([gamestate2np(next_state) for next_state in next_states])
                 actions, rewards, dones = map(np.array, (actions, rewards, dones))
                 self.agent.train(states, actions, rewards, next_states, dones)
-            self.eps_scheduler.step()
 
     def checkpoint(self):
         self.SAVE_PATH.mkdir(exist_ok=True)

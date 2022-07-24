@@ -2,11 +2,8 @@ import logging
 import json
 from pathlib import Path
 
-from matplotlib import pyplot as plt
-import numpy as np
 import redis
 from googleapiclient.discovery import build
-from googleapiclient.http import HttpError
 from googleapiclient.http import MediaFileUpload
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -41,6 +38,7 @@ class TelemetryNode:
         self.steps = []
         self.boss_hp = []
         self.wins = []
+        self.eps = []
 
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub_telemetry.subscribe("telemetry")
@@ -52,14 +50,16 @@ class TelemetryNode:
         # Set up the Google Drive service and create the Dashboard file if it does not already exist
         try:
             credentials = ServiceAccountCredentials.from_json_keyfile_name(self.GSA_SECRET,
-                                                                            self.GSA_SCOPES)
+                                                                           self.GSA_SCOPES)
             self.gdrive_service = build("drive", 'v3', credentials=credentials).files()
             metadata = {"name": "SoulsAIDashboard.png", "parents": [self.GDRIVE_FOLDER]}
             self.update_dashboard(drive_update=False)
             media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
             logger.info("Authentication successful")
             # During training the file is only updated, so we have to make sure the file exists
-            rsp = self.gdrive_service.list(q=f"name='SoulsAIDashboard.png' and mimeType='image/png' and '{self.GDRIVE_FOLDER}' in parents").execute()
+            q = ("name='SoulsAIDashboard.png' and mimeType='image/png'"
+                 f"and '{self.GDRIVE_FOLDER}' in parents")
+            rsp = self.gdrive_service.list(q=q).execute()
             if rsp["files"]:
                 self.file_id = rsp["files"][0]["id"]
             else:
@@ -87,22 +87,23 @@ class TelemetryNode:
             self.steps.append(sample["steps"])
             self.boss_hp.append(sample["boss_hp"])
             self.wins.append(sample["win"])
+            self.eps.append(sample["eps"])
 
             if len(self.rewards) % 5 == 0:
                 self.update_dashboard()
 
     def update_dashboard(self, drive_update=True):
         self.figure_path.parent.mkdir(parents=True, exist_ok=True)
-        save_plots(self.rewards, self.steps, self.boss_hp, self.wins, self.figure_path)
+        save_plots(self.rewards, self.steps, self.boss_hp, self.wins, self.figure_path, self.eps)
         with open(self.stats_path, "w") as f:
             json.dump({"rewards": self.rewards, "steps": self.steps, "boss_hp": self.boss_hp,
-                       "wins": self.wins}, f)
+                       "wins": self.wins, "eps": self.eps}, f)
         if self.gdrive_service is not None and drive_update:
             try:
                 media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
                 self.gdrive_service.update(fileId=self.file_id, media_body=media).execute()
                 logger.info("Google Drive upload successful")
-            except:
+            except:  # noqa: E722
                 logger.info("Google Drive error, deactivating cloud saves")
                 self.gdrive_service = None
         logger.info("Dashboard updated")

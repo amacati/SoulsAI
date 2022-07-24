@@ -1,7 +1,9 @@
 import random
+import multiprocessing as mp
+import io
+
 import torch
 import torch.nn as nn
-import io
 
 
 class DQNAgent:
@@ -50,6 +52,15 @@ class DQNAgent:
         self.dqn1 = torch.load(path / "actor_dqn1.pt").to(self.dev)
         self.dqn2 = torch.load(path / "actor_dqn2.pt").to(self.dev)
 
+    def load_state_dict(self, state_dicts):
+        self.dqn1.load_state_dict(state_dicts["dqn1"])
+        self.dqn2.load_state_dict(state_dicts["dqn2"])
+        self.model_id = state_dicts["model_id"]
+
+    def state_dict(self):
+        return {"dqn1": self.dqn1.state_dict(), "dqn2": self.dqn2.state_dict(),
+                "model_id": self.model_id}
+
     def serialize(self):
         assert self.model_id is not None
         dqn1_buff = io.BytesIO()
@@ -75,6 +86,8 @@ class ClientAgent:
         self.dev = torch.device("cpu")  # CPU is faster for small networks
         self.dqn1 = AdvantageDQN(size_s, size_a).to(self.dev)
         self.dqn2 = AdvantageDQN(size_s, size_a).to(self.dev)
+        self._model_id = None
+        self.shared = False
 
     def __call__(self, x):
         with torch.no_grad():
@@ -82,6 +95,7 @@ class ClientAgent:
             return torch.argmax(self.dqn1(x)+self.dqn2(x)).item()
 
     def serialize(self):
+        assert self.model_id is not None
         dqn1_buff = io.BytesIO()
         torch.save(self.dqn1, dqn1_buff)
         dqn1_buff.seek(0)
@@ -98,6 +112,34 @@ class ClientAgent:
         dqn2_buff.seek(0)
         self.dqn2 = torch.load(dqn2_buff)
         self.model_id = serialization["model_id"].decode("utf-8")
+
+    def load_state_dict(self, state_dicts):
+        self.dqn1.load_state_dict(state_dicts["dqn1"])
+        self.dqn2.load_state_dict(state_dicts["dqn2"])
+        self.model_id = state_dicts["model_id"]
+
+    def state_dict(self):
+        return {"dqn1": self.dqn1.state_dict(), "dqn2": self.dqn2.state_dict(),
+                "model_id": self.model_id}
+
+    def share_memory(self):
+        self.dqn1.share_memory()
+        self.dqn2.share_memory()
+        self.shared = True
+        self._model_id = mp.Array("B", 36)  # uuid4 string holds 36 chars
+
+    @property
+    def model_id(self) -> str:
+        if self.shared:
+            return bytes(self._model_id[:]).decode("utf-8")
+        return self._model_id
+
+    @model_id.setter
+    def model_id(self, value):
+        if self.shared:
+            self._model_id[:] = bytes(value, encoding="utf-8")
+        else:
+            self._model_id = value
 
 
 class DQN(nn.Module):
