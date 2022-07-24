@@ -153,7 +153,7 @@ class TrainingNode:
         self.SAVE_PATH.mkdir(exist_ok=True)
         buffer_path = self.SAVE_PATH / "random_buffer.pkl"
         if not buffer_path.exists():
-            random_buffer = ExperienceReplayBuffer(maxlen=100)
+            random_buffer = ExperienceReplayBuffer(maxlen=500_000)
             while not random_buffer.filled:
                 msg = self.sub.get_message()
                 if not msg:
