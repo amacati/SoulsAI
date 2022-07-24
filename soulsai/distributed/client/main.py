@@ -1,6 +1,9 @@
 import logging
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
+import yaml
 import gym
 import soulsgym  # noqa: F401
 from soulsgym.core.game_state import GameState
@@ -12,8 +15,31 @@ from soulsai.distributed.client.connector import Connector
 logger = logging.getLogger(__name__)
 
 
+def load_config():
+    root_dir = Path(__file__).parent
+    with open(root_dir / "config_d.yaml", "r") as f:
+        config = yaml.safe_load(f)
+    if (root_dir / "config.yaml").is_file():
+        with open(root_dir / "config.yaml", "r") as f:
+            config |= yaml.safe_load(f)  # Overwrite default config with keys from user config
+    loglvl = config["loglevel"].lower()
+    if loglvl == "debug":
+        config["loglevel"] = logging.DEBUG
+    elif loglvl == "info":
+        config["loglevel"] = logging.INFO
+    elif loglvl == "warning":
+        config["loglevel"] = logging.WARNING
+    elif loglvl == "error":
+        config["loglevel"] = logging.ERROR
+    else:
+        raise RuntimeError(f"Loglevel {config['loglevel']} in config not supported!")
+    return SimpleNamespace(**config)
+
+
 if __name__ == "__main__":
+    config = load_config()
     logging.basicConfig(level=logging.INFO)
+    logging.getLogger("soulsai").setLevel(config.loglevel)
 
     # Enable training interrupt with 'Enter' key
     stop_flag = [False]
@@ -45,11 +71,11 @@ if __name__ == "__main__":
                 state_A = gamestate2np(state)
                 with con:
                     eps = con.eps
+                    model_id = con.model_id
                     if np.random.rand() < eps:
                         action = env.action_space.sample()
                     else:
                         action = con.agent(state_A)
-                    model_id = con.model_id
                 next_state, reward, done, _ = env.step(action)
                 con.push_sample(model_id, [state, action, reward, next_state, done])
                 state = next_state
@@ -62,4 +88,3 @@ if __name__ == "__main__":
     finally:
         env.close()
         con.close()
-        ...

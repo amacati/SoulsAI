@@ -127,6 +127,7 @@ class ClientAgent:
         self.dqn2.share_memory()
         self.shared = True
         self._model_id = mp.Array("B", 36)  # uuid4 string holds 36 chars
+        self._model_id[:] = bytes(36*" ", encoding="utf-8")
 
     @property
     def model_id(self) -> str:
