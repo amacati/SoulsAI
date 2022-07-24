@@ -51,7 +51,7 @@ class TelemetryNode:
         try:
             credentials = ServiceAccountCredentials.from_json_keyfile_name(self.GSA_SECRET,
                                                                            self.GSA_SCOPES)
-            self.gdrive_service = build("drive", 'v3', credentials=credentials).files()
+            self.gdrive_service = build("drive", 'v3', credentials=credentials)
             metadata = {"name": "SoulsAIDashboard.png", "parents": [self.GDRIVE_FOLDER]}
             self.update_dashboard(drive_update=False)
             media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
@@ -59,12 +59,12 @@ class TelemetryNode:
             # During training the file is only updated, so we have to make sure the file exists
             q = ("name='SoulsAIDashboard.png' and mimeType='image/png'"
                  f"and '{self.GDRIVE_FOLDER}' in parents")
-            rsp = self.gdrive_service.list(q=q).execute()
+            rsp = self.gdrive_service.files().list(q=q).execute()
             if rsp["files"]:
                 self.file_id = rsp["files"][0]["id"]
             else:
                 logger.info("Telemetry file does not exist in Drive, creating new file")
-                rsp = self.gdrive_service.create(body=metadata, media_body=media).execute()
+                rsp = self.gdrive_service.files().create(body=metadata, media_body=media).execute()
                 self.file_id = rsp["id"]
             logger.info("Google Drive initialization complete")
         except Exception as e:
@@ -101,9 +101,8 @@ class TelemetryNode:
         if self.gdrive_service is not None and drive_update:
             try:
                 media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
-                self.gdrive_service.update(fileId=self.file_id, media_body=media).execute()
+                self.gdrive_service.files().update(fileId=self.file_id, media_body=media).execute()
                 logger.info("Google Drive upload successful")
-            except:  # noqa: E722
-                logger.info("Google Drive error, deactivating cloud saves")
-                self.gdrive_service = None
+            except Exception as e:  # noqa: E722
+                logger.warning(f"Dashboard upload to Google Drive failed. Error was: {e}")
         logger.info("Dashboard updated")
