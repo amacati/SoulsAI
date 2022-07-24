@@ -21,7 +21,9 @@ def load_config():
         config = yaml.safe_load(f)
     if (root_dir / "config.yaml").is_file():
         with open(root_dir / "config.yaml", "r") as f:
-            config |= yaml.safe_load(f)  # Overwrite default config with keys from user config
+            _config = yaml.safe_load(f)  # Overwrite default config with keys from user config
+        if _config is not None:
+            config |= _config
     loglvl = config["loglevel"].lower()
     if loglvl == "debug":
         config["loglevel"] = logging.DEBUG
