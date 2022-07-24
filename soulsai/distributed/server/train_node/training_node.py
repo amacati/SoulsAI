@@ -84,7 +84,7 @@ class TrainingNode:
             sample = json.loads(msg["data"])
             if not self._check_sample(sample):
                 continue
-            experience = self._unpack_sample(sample.get("sample"))
+            experience = self._unpack_sample(sample)
             self.buffer.append(experience)
             if experience[4]:
                 self.eps_scheduler.step()
@@ -153,7 +153,7 @@ class TrainingNode:
         self.SAVE_PATH.mkdir(exist_ok=True)
         buffer_path = self.SAVE_PATH / "random_buffer.pkl"
         if not buffer_path.exists():
-            random_buffer = ExperienceReplayBuffer(maxlen=500_000)
+            random_buffer = ExperienceReplayBuffer(maxlen=100)
             while not random_buffer.filled:
                 msg = self.sub.get_message()
                 if not msg:
@@ -161,7 +161,7 @@ class TrainingNode:
                 sample = json.loads(msg["data"])
                 if not self._check_sample(sample):
                     continue
-                random_buffer.append(self._unpack_sample(sample.get("sample")))
+                random_buffer.append(self._unpack_sample(sample))
             random_buffer.save(buffer_path)
         self.load_buffer()
 
