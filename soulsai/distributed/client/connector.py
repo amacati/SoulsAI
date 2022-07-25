@@ -122,7 +122,6 @@ class Connector:
         return SimpleNamespace(**config), secret
 
     def _agent_update_callback(self, _):
-        logger.info("update event set")
         self._update_event.set()
 
     @staticmethod

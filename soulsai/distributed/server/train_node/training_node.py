@@ -119,7 +119,7 @@ class TrainingNode:
         if sample.get("model_id") in self.model_ids:
             logger.debug("Sample ID accepted")
             return True
-        logger.debug("Sample ID rejected")
+        logger.warning("Sample ID rejected")
         return False
 
     def train_model(self):
