@@ -53,7 +53,7 @@ class PerformanceBuffer:
         self._b_sn = torch.zeros((maxlen, state_size), dtype=torch.float32)
         self._b_d = torch.zeros((maxlen), dtype=torch.float32)
 
-    def append(self, experience):
+    def append(self, experience: np.ndarray):
         self._b_s[self._idx, :] = torch.from_numpy(experience[0])
         self._b_a[self._idx] = experience[1]
         self._b_r[self._idx] = experience[2]

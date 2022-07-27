@@ -11,7 +11,7 @@ import yaml
 import redis
 from soulsgym.core.game_state import GameState
 
-from soulsai.core.replay_buffer import ExperienceReplayBuffer
+from soulsai.core.replay_buffer import ExperienceReplayBuffer, PerformanceBuffer
 from soulsai.core.agent import DQNAgent
 from soulsai.core.scheduler import EpsilonScheduler
 from soulsai.core.utils import gamestate2np
@@ -53,7 +53,7 @@ class TrainingNode:
         self.model_ids.append(self.model_id)
         logger.info(f"Initial model ID: {self.model_id}")
 
-        self.buffer = ExperienceReplayBuffer(maxlen=self.config.buffer_size)
+        self.buffer = PerformanceBuffer(self.config.buffer_size, self.config.n_states)
         self.eps_scheduler = EpsilonScheduler(self.config.eps_max, self.config.eps_min,
                                               self.config.eps_steps, zero_ending=True)
         if self.config.load_checkpoint:
@@ -85,6 +85,7 @@ class TrainingNode:
             if not self._check_sample(sample):
                 continue
             experience = self._unpack_sample(sample)
+            experience[0], experience[3] = gamestate2np(experience[0]), gamestate2np(experience[3])
             self.buffer.append(experience)
             if experience[4]:
                 self.eps_scheduler.step()
