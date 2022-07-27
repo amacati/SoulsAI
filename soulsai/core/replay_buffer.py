@@ -59,7 +59,7 @@ class PerformanceBuffer:
         self._b_r[self._idx] = experience[2]
         self._b_sn[self._idx, :] = torch.from_numpy(experience[3])
         self._b_d[self._idx] = experience[4]
-        self._idx = self._idx + 1 % self.maxlen
+        self._idx = (self._idx + 1) % self.maxlen
         self._maxidx = min(self._maxidx+1, self.maxlen - 1)
 
     def clear(self):
