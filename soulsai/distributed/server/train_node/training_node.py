@@ -88,7 +88,8 @@ class TrainingNode:
             if sample[4]:
                 self.eps_scheduler.step()
             self.sample_cnt += 1
-            if self.sample_cnt >= self.config.update_samples and self.buffer.filled:
+            sufficient_samples = len(self.buffer) >= self.config.batch_size
+            if self.sample_cnt >= self.config.update_samples and sufficient_samples:
                 self.model_update()
                 self.sample_cnt = 0
 

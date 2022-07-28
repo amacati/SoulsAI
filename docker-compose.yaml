@@ -28,6 +28,6 @@ services:
     volumes:
       - ./soulsai/distributed/server/redis.secret:/home/SoulsAI/soulsai/distributed/server/redis.secret
       - ./soulsai/distributed/server/telemetry_node/gsa.secret:/home/SoulsAI/soulsai/distributed/server/telemetry_node/gsa.secret
-      - ./soulsai/distributed/server/telemetry_node/tmp:/tmp/dashboard
+      - ./soulsai/distributed/server/telemetry_node/save:/home/save
     depends_on:
       - redis
