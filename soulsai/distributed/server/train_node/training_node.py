@@ -90,10 +90,7 @@ class TrainingNode:
                 self.eps_scheduler.step()
             self.sample_cnt += 1
             if self.sample_cnt >= self.config.update_samples and self.buffer.filled:
-                t0 = time.time()
                 self.model_update()
-                t1 = time.time()
-                logger.info(f"Model update time: {t1-t0:.2e}s")
                 self.sample_cnt = 0
 
     def model_update(self):
@@ -127,18 +124,10 @@ class TrainingNode:
 
     def train_model(self):
         if len(self.buffer) > self.config.batch_size:
-            tdata = ttrain = 0
             for _ in range(self.config.train_epochs):
-                t0 = time.time()
                 states, actions, rewards, next_states, dones = self.buffer.sample_batch(
                     self.config.batch_size)
-                t1 = time.time()
                 self.agent.train(states, actions, rewards, next_states, dones)
-                t2 = time.time()
-                tdata += t1 -t0
-                ttrain += t2 - t1
-            logger.info(f"data: {tdata:.2e}, train: {ttrain:.2e}")
-
 
     def checkpoint(self):
         self.SAVE_PATH.mkdir(exist_ok=True)
