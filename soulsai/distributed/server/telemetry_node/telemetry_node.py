@@ -2,6 +2,7 @@ import logging
 import json
 from pathlib import Path
 import time
+import datetime
 
 import redis
 from googleapiclient.discovery import build
@@ -43,8 +44,19 @@ class TelemetryNode:
 
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub_telemetry.subscribe("telemetry")
-        self.figure_path = Path("/tmp") / "dashboard" / "SoulsAIDashboard.png"
-        self.stats_path = Path("/tmp") / "dashboard" / "SoulsAIStats.json"
+
+        save_dir = Path(__file__).parent / "save" / datetime.now().strftime("%Y_%m_%d_%H_%M")
+        if not save_dir.is_dir():
+            save_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            t = 1
+            while save_dir.is_dir():
+                curr_date_unique = datetime.now().strftime("%Y_%m_%d_%H_%M") + f"_({t})"
+                save_dir = self.PATH / "backup" / (curr_date_unique)
+                t += 1
+            self.save_path.mkdir(parents=True, exist_ok=True)
+        self.figure_path = save_dir / "SoulsAIDashboard.png"
+        self.stats_path = save_dir / "SoulsAIStats.json"
 
         logger.info("Authenticating with Google Drive for live telemetry")
 

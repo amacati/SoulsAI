@@ -6,7 +6,6 @@ from collections import deque
 from types import SimpleNamespace
 import time
 
-import numpy as np
 import yaml
 import redis
 from soulsgym.core.game_state import GameState
@@ -145,7 +144,7 @@ class TrainingNode:
             with open(self.SAVE_PATH / "config.json", "r") as f:
                 self.config = SimpleNamespace(**json.load(f))
 
-    def fill_buffer(self):
+    def fill_buffer(self, nsamples=None):
         logger.info("Filling buffer")
         self.SAVE_PATH.mkdir(exist_ok=True)
         buffer_path = self.SAVE_PATH / "random_buffer.pkl"
@@ -160,14 +159,15 @@ class TrainingNode:
                     continue
                 random_buffer.append(self._unpack_sample(sample))
             random_buffer.save(buffer_path)
-        self.load_buffer()
+        self.load_buffer(nsamples)
 
-    def load_buffer(self):
+    def load_buffer(self, nsamples=None):
+        nsamples = nsamples or self.buffer.maxlen
         random_buffer = ExperienceReplayBuffer()
         random_buffer.load(self.SAVE_PATH / "random_buffer.pkl")
-        assert len(random_buffer) >= self.buffer.maxlen
+        assert len(random_buffer) >= nsamples
         self.buffer.clear()
-        while not self.buffer.filled:
+        while not len(self.buffer) == nsamples:
             self.buffer.append(self._numpify_sample(random_buffer.buffer.pop()))
         logger.info("Loaded buffer with neutral samples")
 

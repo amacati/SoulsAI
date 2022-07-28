@@ -24,3 +24,4 @@ load_checkpoint_config: False
 
 # Logging settings:
 loglevel: info
+fill_buffer: False
