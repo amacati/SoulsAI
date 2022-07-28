@@ -1,6 +1,7 @@
 import logging
 import json
 from pathlib import Path
+import time
 
 import redis
 from googleapiclient.discovery import build
@@ -80,6 +81,7 @@ class TelemetryNode:
             # read new samples
             msg = self.sub_telemetry.get_message()
             if not msg:
+                time.sleep(5)
                 continue
             sample = json.loads(msg["data"])
 
