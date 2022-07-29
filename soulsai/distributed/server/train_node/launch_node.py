@@ -45,6 +45,4 @@ if __name__ == "__main__":
     training_node = TrainingNode()
     if config.fill_buffer:
         training_node.fill_buffer()
-    else:  # Only fill with enough random samples to sample batches from the buffer
-        training_node.fill_buffer(config.batch_size)
     training_node.run()
