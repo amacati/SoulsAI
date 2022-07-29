@@ -1,7 +1,3 @@
-import time
-from soulsgym.core.game_interface import Game
-from soulsgym.core.logger import Logger
-from soulsgym.envs.iudex_env import IudexEnv
 from soulsai.utils.visualization import save_plots
 import numpy as np
 from pathlib import Path
