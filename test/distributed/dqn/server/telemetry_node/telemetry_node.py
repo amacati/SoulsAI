@@ -39,14 +39,15 @@ class TelemetryNode:
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub_telemetry.subscribe("telemetry")
 
-        save_dir = Path("/home/save") / datetime.now().strftime("%Y_%m_%d_%H_%M")
+        root_dir = Path(__file__).parent / "save"
+        save_dir = root_dir / datetime.now().strftime("%Y_%m_%d_%H_%M")
         if not save_dir.is_dir():
             save_dir.mkdir(parents=True, exist_ok=True)
         else:
             t = 1
             while save_dir.is_dir():
                 curr_date_unique = datetime.now().strftime("%Y_%m_%d_%H_%M") + f"_({t})"
-                save_dir = save_dir / (curr_date_unique)
+                save_dir = root_dir / (curr_date_unique)
                 t += 1
             save_dir.mkdir(parents=True)
         self.figure_path = save_dir / "dashboard.png"
@@ -69,14 +70,15 @@ class TelemetryNode:
             self.eps.append(sample["eps"])
 
             if len(self.rewards) % 5 == 0:
+                logger.info(f"Current mean reward: {running_mean(self.rewards, 50)[-1]}")
                 self.update_dashboard()
 
     def update_dashboard(self):
         self.figure_path.parent.mkdir(parents=True, exist_ok=True)
         self.save_plots(self.rewards, self.steps, self.wins, self.eps, self.figure_path)
         with open(self.stats_path, "w") as f:
-            json.dump({"rewards": self.rewards, "steps": self.steps, "boss_hp": self.boss_hp,
-                       "wins": self.wins, "eps": self.eps}, f)
+            json.dump({"rewards": self.rewards, "steps": self.steps, "wins": self.wins,
+                       "eps": self.eps}, f)
         logger.info("Dashboard updated")
 
     @staticmethod
@@ -93,8 +95,9 @@ class TelemetryNode:
         ax[0, 0].set_xlabel("Episodes")
         ax[0, 0].set_ylabel("Total reward")
         ax[0, 0].grid(alpha=0.3)
-        if len(t) >= 50:
-            lim = [min(reward_mean - reward_std) - 100, max(reward_mean + reward_std) + 100]
+        if len(t) > 50:
+            lim = [min(reward_mean[50:] - reward_std[50:]) - 100,
+                   max(reward_mean[50:] + reward_std[50:]) + 100]
             ax[0, 0].set_ylim(lim)
 
         steps_mean = running_mean(steps, 50)
@@ -117,19 +120,17 @@ class TelemetryNode:
         ax[1, 0].set_title("Fraction of random moves")
         ax[1, 0].set_xlabel("Episodes")
         ax[1, 0].set_ylabel("Epsilon")
-        ax[1, 0].set_ylim([0, 1])
+        ax[1, 0].set_ylim([-0.05, 1.05])
         ax[1, 0].grid(alpha=0.3)
 
         wins = np.array(wins, dtype=np.float64)
         wins_mean = running_mean(wins, 50)
-        wins_std = np.sqrt(running_std(wins, 50))
         ax[1, 1].plot(t, wins_mean)
-        ax[1, 1].fill_between(t, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
-        ax[1, 1].legend(["Mean wins", "Std deviation wins"])
+        ax[1, 1].legend(["Mean wins"])
         ax[1, 1].set_title("Success rate vs Episodes")
         ax[1, 1].set_xlabel("Episodes")
         ax[1, 1].set_ylabel("Success rate")
-        ax[1, 1].set_ylim([0, 1])
+        ax[1, 1].set_ylim([-0.05, 1.05])
         ax[1, 1].grid(alpha=0.3)
 
         fig.savefig(path)

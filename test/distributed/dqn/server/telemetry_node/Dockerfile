@@ -4,7 +4,7 @@ WORKDIR /home
 COPY test/distributed/dqn/server/telemetry_node/requirements.txt /home/requirements.txt
 RUN pip install -r /home/requirements.txt
 RUN rm /home/requirements.txt
-COPY . /home/SoulsAI
+COPY . /home/SoulsAI/
 # Remove all secret files from the container
 RUN find /home/SoulsAI -type f -name '*.secret' -delete
 WORKDIR /home/SoulsAI

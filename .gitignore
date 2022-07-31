@@ -11,6 +11,8 @@ soulsai/distributed/server/redis.secret
 soulsai/distributed/client/redis.secret
 soulsai/distributed/server/train_node/config.yaml
 soulsai/distributed/client/config.yaml
+test/distributed/dqn/client/config.yaml
+test/distributed/dqn/server/train_node/config.yaml
 
 # Disable all secret files. Additional guard against accidental leaking of secrets
 **/*.secret

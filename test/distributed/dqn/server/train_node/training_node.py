@@ -12,6 +12,7 @@ import numpy as np
 
 from soulsai.core.replay_buffer import ExperienceReplayBuffer, PerformanceBuffer
 from soulsai.core.agent import DQNAgent
+from soulsai.core.normalizer import Normalizer
 from soulsai.core.scheduler import EpsilonScheduler
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,10 @@ class TrainingNode:
         self.agent.model_id = self.model_id
         self.model_ids.append(self.model_id)
         logger.info(f"Initial model ID: {self.model_id}")
-
+        if self.config.idx_range:
+            self.normalizer = Normalizer(self.config.n_states, idx_range=self.config.idx_range)
+        else:
+            self.normalizer = Normalizer(self.config.n_states)
         self.buffer = PerformanceBuffer(self.config.buffer_size, self.config.n_states)
         self.eps_scheduler = EpsilonScheduler(self.config.eps_max, self.config.eps_min,
                                               self.config.eps_steps, zero_ending=True)
@@ -110,6 +114,10 @@ class TrainingNode:
         logger.info(f"Publishing new model with ID {self.model_id}")
         model_params = self.agent.serialize()
         model_params["eps"] = self.eps_scheduler.epsilon
+        model_params["normalize"] = 0
+        if self.config.normalize:
+            model_params["normalize"] = 1
+            model_params |= self.normalizer.serialize()
         self.red.hmset("model_params", model_params)
         self.red.publish("model_update", self.model_id)
         logger.info("Model update successful")
@@ -122,10 +130,15 @@ class TrainingNode:
         return False
 
     def train_model(self):
-        if len(self.buffer) > self.config.batch_size:
+        if len(self.buffer) >= self.config.batch_size:
             for _ in range(self.config.train_epochs):
                 states, actions, rewards, next_states, dones = self.buffer.sample_batch(
                     self.config.batch_size)
+                # Update only in case normalization is enabled. Otherwise default scaling will leave
+                # states as they are
+                if self.config.normalize:
+                    self.normalizer.update(states)
+                    states, next_states = self.normalizer(states), self.normalizer(next_states)
                 self.agent.train(states, actions, rewards, next_states, dones)
 
     def checkpoint(self):
@@ -133,11 +146,13 @@ class TrainingNode:
         self.agent.save(self.SAVE_PATH)  # Agent only takes the save directory
         with open(self.SAVE_PATH / "config.json", "w") as f:
             json.dump(vars(self.config), f)
+        self.normalizer.save(self.SAVE_PATH / "normalizer.json")
         self.buffer.save(self.SAVE_PATH / "buffer.pkl")
         self.eps_scheduler.save(self.SAVE_PATH / "eps_scheduler.json")
 
     def load_checkpoint(self):
         self.agent.load(self.SAVE_PATH)
+        self.normalizer.load(self.SAVE_PATH / "normalizer.json")
         self.buffer.load(self.SAVE_PATH / "buffer.pkl")
         self.eps_scheduler.load(self.SAVE_PATH / "eps_scheduler.json")
         if self.config.load_checkpoint_config:

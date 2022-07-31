@@ -1,21 +1,25 @@
 # Create config.yaml file to overwrite default settings
 
 # Environment information
-n_states: 72
-n_actions: 20
+n_states: 8
+n_actions: 4
 
 # Training parameters
 lr: 0.001
 gamma: 0.99
-eps_max: [1.0, 0.1, 0.05]
-eps_min: [0.1, 0.05, 0.01]
-eps_steps: [3_000, 3_000, 3_000]
+eps_max: [0.1, 0.1]
+eps_min: [0.1, 0.01]
+eps_steps: [300, 300]
 grad_clip: 5.
-q_clip: 200
-buffer_size: 100_000
+q_clip: 400
+buffer_size: 30_000
 batch_size: 64
-train_epochs: 50
-update_samples: 50
+train_epochs: 200
+update_samples: 200
+
+# Normalizer
+normalize: True
+idx_range: null
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration

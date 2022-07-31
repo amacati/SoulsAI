@@ -91,48 +91,6 @@ class PerformanceBuffer:
         self.maxlen = self._b_s.shape[0]
 
 
-class ImportanceReplayBuffer:
-
-    def __init__(self, maxlen=1000):
-        self.maxlen = maxlen
-        self.buffer = deque(maxlen=maxlen)
-        self.p = deque(maxlen=maxlen)
-
-    def append(self, experience):
-        self.buffer.append(experience)
-
-    def __len__(self):
-        return len(self.buffer)
-
-    def sample_batch(self, n):
-        if n > len(self.buffer):
-            raise RuntimeError("Asked to sample more elements than available in buffer")
-        indices = np.random.choice(np.arange(len(self.buffer)), size=n, replace=False, p=self.p)
-        batch = [self.buffer[i] for i in indices]
-        return map(np.array, zip(*batch))
-
-    def get_all_samples(self):
-        return map(np.array, zip(*self.buffer))
-
-
-class EpisodeBuffer:
-
-    def __init__(self):
-        self.buffer = []
-
-    def append(self, experience):
-        self.buffer.append(experience)
-
-    def __len__(self):
-        return len(self.buffer)
-
-    def sample(self):
-        return map(np.array, zip(*self.buffer))
-
-    def clear(self):
-        self.buffer = []
-
-
 class MultistepEpisodeBuffer:
 
     def __init__(self, gamma):

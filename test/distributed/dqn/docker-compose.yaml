@@ -11,31 +11,35 @@ services:
 
   train_node:
     build: 
-      dockerfile: ./server/train_node/Dockerfile
-      context: ./
+      dockerfile: test/distributed/dqn/server/train_node/Dockerfile
+      context: ../../..
     # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
     volumes:
-      - ./server/redis.secret:/home/SoulsAI/soulsai/distributed/server/redis.secret
-      - ./server/train_node:/home/SoulsAI/soulsai/distributed/server/train_node
+      - ./server/redis.secret:/home/SoulsAI/test/distributed/dqn/server/redis.secret
+      - ./server/train_node:/home/SoulsAI/test/distributed/dqn/server/train_node
     depends_on:
       - redis
     user: "1000"
 
   telemetry_node:
     build: 
-      dockerfile: ./server/telemetry_node/Dockerfile
-      context: ./
+      dockerfile: test/distributed/dqn/server/telemetry_node/Dockerfile
+      context: ../../..
     # Manually add secrets as volumes during runtime
     volumes:
-      - ./server/redis.secret:/home/SoulsAI/soulsai/distributed/server/redis.secret
-      - ./server/telemetry_node/save:/home/save
+      - ./server/redis.secret:/home/SoulsAI/test/distributed/dqn/server/redis.secret
+      - ./server/telemetry_node/:/home/SoulsAI/test/distributed/dqn/server/telemetry_node
     depends_on:
       - redis
     user: "1000"
 
   client_node:
     build:
-      dockerfile: ./client/Dockerfile
-      context: ./
+      dockerfile: test/distributed/dqn/client/Dockerfile
+      context: ../../..
     volumes:
-      - ./client/redis.sercet:/home/SoulsAI/test/distributed/client/redis.secret
+      - ./client/:/home/SoulsAI/test/distributed/dqn/client/
+    depends_on:
+      - redis
+      - train_node
+    user: "1000"

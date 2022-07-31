@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+import time
 
 import yaml
 import numpy as np
@@ -36,11 +37,12 @@ def load_config():
 
 if __name__ == "__main__":
     config = load_config()
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
 
-    con = Connector()
     env = gym.make("LunarLander-v2")
+    nstates, nactions = len(env.observation_space.low), env.action_space.n
+    con = Connector(nstates, nactions)
 
     try:
         for i in range(config.nepisodes):
@@ -58,6 +60,7 @@ if __name__ == "__main__":
                         action = con.agent(state)
                 next_state, reward, done, _ = env.step(action)
                 con.push_sample(model_id, [state, action, reward, next_state, done])
+                time.sleep(config.time_delay)
                 state = next_state
                 total_reward += reward
                 steps += 1
