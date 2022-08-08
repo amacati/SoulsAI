@@ -2,13 +2,12 @@ import logging
 import json
 from pathlib import Path
 import time
-from datetime import datetime
 
 import redis
 import numpy as np
 import matplotlib.pyplot as plt
 
-from soulsai.utils.utils import running_mean, running_std
+from soulsai.utils.utils import running_mean, running_std, mkdir_date
 
 logger = logging.getLogger(__name__)
 
@@ -30,26 +29,14 @@ class TelemetryNode:
 
         self.red = redis.Redis(host='redis', port=6379, password=secret, db=0,
                                decode_responses=True)
+        self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
+        self.sub_telemetry.subscribe("telemetry")
 
         self.rewards = []
         self.steps = []
         self.wins = []
         self.eps = []
-
-        self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
-        self.sub_telemetry.subscribe("telemetry")
-
-        root_dir = Path(__file__).parent / "save"
-        save_dir = root_dir / datetime.now().strftime("%Y_%m_%d_%H_%M")
-        if not save_dir.is_dir():
-            save_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            t = 1
-            while save_dir.is_dir():
-                curr_date_unique = datetime.now().strftime("%Y_%m_%d_%H_%M") + f"_({t})"
-                save_dir = root_dir / (curr_date_unique)
-                t += 1
-            save_dir.mkdir(parents=True)
+        save_dir = mkdir_date(Path(__file__).parent / "save")
         self.figure_path = save_dir / "dashboard.png"
         self.stats_path = save_dir / "stats.json"
         logger.info("Telemetry node startup complete")
@@ -83,11 +70,12 @@ class TelemetryNode:
 
     @staticmethod
     def save_plots(rewards, steps, wins, eps, path):
+        N = 50
         t = np.arange(len(rewards))
         fig, ax = plt.subplots(2, 2, figsize=(15, 10))
         fig.suptitle("SoulsAI Dashboard")
-        reward_mean = running_mean(rewards, 50)
-        reward_std = np.sqrt(running_std(rewards, 50))
+        reward_mean = running_mean(rewards, N)
+        reward_std = np.sqrt(running_std(rewards, N))
         ax[0, 0].plot(t, reward_mean)
         ax[0, 0].fill_between(t, reward_mean - reward_std, reward_mean + reward_std, alpha=0.4)
         ax[0, 0].legend(["Mean episode reward", "Std deviation episode reward"])
@@ -95,13 +83,10 @@ class TelemetryNode:
         ax[0, 0].set_xlabel("Episodes")
         ax[0, 0].set_ylabel("Total reward")
         ax[0, 0].grid(alpha=0.3)
-        if len(t) > 50:
-            lim = [min(reward_mean[50:] - reward_std[50:]) - 100,
-                   max(reward_mean[50:] + reward_std[50:]) + 100]
-            ax[0, 0].set_ylim(lim)
+        ax[0, 0].set_ylim([-350, 350])
 
-        steps_mean = running_mean(steps, 50)
-        steps_std = np.sqrt(running_std(steps, 50))
+        steps_mean = running_mean(steps, N)
+        steps_std = np.sqrt(running_std(steps, N))
         ax[0, 1].plot(t, steps_mean, label="Mean episode steps")
         lower, upper = steps_mean - steps_std, steps_mean + steps_std
         ax[0, 1].fill_between(t, lower, upper, alpha=0.4, label="Std deviation episode steps")
@@ -110,7 +95,7 @@ class TelemetryNode:
         ax[0, 1].set_xlabel("Episodes")
         ax[0, 1].set_ylabel("Number of steps")
         ax[0, 1].grid(alpha=0.3)
-        if len(t) >= 50:
+        if len(t) >= N:
             lim_low = max((min(steps_mean - steps_std) - 100, 0))
             lim_up = max(steps_mean + steps_std) + 100
             ax[0, 1].set_ylim([lim_low, lim_up])
@@ -124,7 +109,7 @@ class TelemetryNode:
         ax[1, 0].grid(alpha=0.3)
 
         wins = np.array(wins, dtype=np.float64)
-        wins_mean = running_mean(wins, 50)
+        wins_mean = running_mean(wins, N)
         ax[1, 1].plot(t, wins_mean)
         ax[1, 1].legend(["Mean wins"])
         ax[1, 1].set_title("Success rate vs Episodes")

@@ -9,19 +9,20 @@ import yaml
 import redis
 
 from soulsai.core.agent import ClientAgent
+from soulsai.utils import load_config, load_redis_secret
 
 logger = logging.getLogger(__name__)
 
 
 class Connector:
 
-    def __init__(self):
+    def __init__(self, config):
         self._agent = ClientAgent(72, 20)
         self._eps = mp.Value("d", -1.)
         self._lock = mp.Lock()
         self._update_event = mp.Event()
         self._stop_event = mp.Event()
-        self.config, secret = self._read_config()
+        secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
         address = self.config.redis_address
         red_notify = redis.Redis(host=address, password=secret, port=6379, db=0)
         self.pubsub = red_notify.pubsub()
@@ -65,8 +66,8 @@ class Connector:
     def push_sample(self, model_id, sample):
         self._msg_pipe.send(("sample", model_id, sample))
 
-    def push_telemetry(self, total_reward, steps, boss_hp, win, eps):
-        self._msg_pipe.send(("telemetry", total_reward, steps, boss_hp, win, eps))
+    def push_telemetry(self, *args):
+        self._msg_pipe.send(("telemetry", *args))
 
     def close(self):
         self._stop_event.set()
@@ -99,27 +100,6 @@ class Connector:
             with lock:
                 model.load_state_dict(buffer_agent.state_dict())
                 eps.value = float(model_params["eps"].decode("utf-8"))
-
-    def _read_config(self):
-        root_path = Path(__file__).parent
-        with open(root_path / "config_d.yaml") as f:
-            config = yaml.safe_load(f)
-        if (root_path / "config.yaml").is_file():
-            with open(root_path / "config.yaml") as f:
-                _config = yaml.safe_load(f)
-            if _config is not None:
-                config |= _config  # Overwrite default config with keys from user config
-
-        with open(root_path / "redis.secret") as f:
-            _secret_config = f.readlines()
-        secret = None
-        for line in _secret_config:
-            if len(line) > 12 and line[0:12] == "requirepass ":
-                secret = line[12:]
-                break
-        if secret is None:
-            raise RuntimeError("Missing password configuration for redis in redis.secret")
-        return SimpleNamespace(**config), secret
 
     def _agent_update_callback(self, _):
         self._update_event.set()

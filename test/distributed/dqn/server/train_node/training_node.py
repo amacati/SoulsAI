@@ -14,13 +14,12 @@ from soulsai.core.replay_buffer import ExperienceReplayBuffer, PerformanceBuffer
 from soulsai.core.agent import DQNAgent
 from soulsai.core.normalizer import Normalizer
 from soulsai.core.scheduler import EpsilonScheduler
+from soulsai.utils.utils import mkdir_date
 
 logger = logging.getLogger(__name__)
 
 
 class TrainingNode:
-
-    SAVE_PATH = Path(__file__).parent / "save"
 
     def __init__(self):
         logger.info("Training node startup")
@@ -58,6 +57,9 @@ class TrainingNode:
         self.buffer = PerformanceBuffer(self.config.buffer_size, self.config.n_states)
         self.eps_scheduler = EpsilonScheduler(self.config.eps_max, self.config.eps_min,
                                               self.config.eps_steps, zero_ending=True)
+
+        self.save_path = mkdir_date(Path(__file__).parent / "save")
+
         if self.config.load_checkpoint:
             self.load_checkpoint()
             logger.info("Checkpoint loading complete")
@@ -142,32 +144,33 @@ class TrainingNode:
                 self.agent.train(states, actions, rewards, next_states, dones)
 
     def checkpoint(self):
-        self.SAVE_PATH.mkdir(exist_ok=True)
-        self.agent.save(self.SAVE_PATH)  # Agent only takes the save directory
-        with open(self.SAVE_PATH / "config.json", "w") as f:
+        self.save_path.mkdir(exist_ok=True)
+        self.agent.save(self.save_path)  # Agent only takes the save directory
+        with open(self.save_path / "config.json", "w") as f:
             json.dump(vars(self.config), f)
-        self.normalizer.save(self.SAVE_PATH / "normalizer.json")
-        self.buffer.save(self.SAVE_PATH / "buffer.pkl")
-        self.eps_scheduler.save(self.SAVE_PATH / "eps_scheduler.json")
+        self.normalizer.save(self.save_path / "normalizer.json")
+        self.buffer.save(self.save_path / "buffer.pkl")
+        self.eps_scheduler.save(self.save_path / "eps_scheduler.json")
 
     def load_checkpoint(self):
-        self.agent.load(self.SAVE_PATH)
-        self.normalizer.load(self.SAVE_PATH / "normalizer.json")
-        self.buffer.load(self.SAVE_PATH / "buffer.pkl")
-        self.eps_scheduler.load(self.SAVE_PATH / "eps_scheduler.json")
+        self.agent.load(self.save_path)
+        self.normalizer.load(self.save_path / "normalizer.json")
+        self.buffer.load(self.save_path / "buffer.pkl")
+        self.eps_scheduler.load(self.save_path / "eps_scheduler.json")
         if self.config.load_checkpoint_config:
-            with open(self.SAVE_PATH / "config.json", "r") as f:
+            with open(self.save_path / "config.json", "r") as f:
                 self.config = SimpleNamespace(**json.load(f))
 
     def fill_buffer(self, nsamples=None):
         logger.info("Filling buffer")
-        self.SAVE_PATH.mkdir(exist_ok=True)
-        buffer_path = self.SAVE_PATH / "random_buffer.pkl"
+        self.save_path.parent.mkdir(exist_ok=True)
+        buffer_path = self.save_path.parent / "random_buffer.pkl"
         if not buffer_path.exists():
             random_buffer = ExperienceReplayBuffer(maxlen=500_000)
             while not random_buffer.filled:
                 msg = self.sub.get_message()
                 if not msg:
+                    time.sleep(0.01)
                     continue
                 sample = json.loads(msg["data"])
                 if not self._check_sample(sample):
@@ -179,7 +182,7 @@ class TrainingNode:
     def load_buffer(self, nsamples=None):
         nsamples = nsamples or self.buffer.maxlen
         random_buffer = ExperienceReplayBuffer()
-        random_buffer.load(self.SAVE_PATH / "random_buffer.pkl")
+        random_buffer.load(self.save_path.parent / "random_buffer.pkl")
         assert len(random_buffer) >= nsamples
         self.buffer.clear()
         while not len(self.buffer) == nsamples:

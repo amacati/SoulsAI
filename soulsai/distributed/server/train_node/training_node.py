@@ -7,13 +7,14 @@ from types import SimpleNamespace
 import time
 
 import yaml
-import redis
+from redis import Redis
 from soulsgym.core.game_state import GameState
 
 from soulsai.core.replay_buffer import ExperienceReplayBuffer, PerformanceBuffer
 from soulsai.core.agent import DQNAgent
 from soulsai.core.scheduler import EpsilonScheduler
 from soulsai.core.utils import gamestate2np
+from soulsai.utils import load_redis_secret
 
 logger = logging.getLogger(__name__)
 
@@ -22,28 +23,17 @@ class TrainingNode:
 
     SAVE_PATH = Path(__file__).parent / "save"
 
-    def __init__(self):
+    def __init__(self, config):
         logger.info("Training node startup")
+        self.config = config
         # Read redis server secret
-        with open(Path(__file__).parents[1] / "redis.secret") as f:
-            conf = f.readlines()
-        secret = None
-        for line in conf:
-            if len(line) > 12 and line[0:12] == "requirepass ":
-                secret = line[12:]
-                break
-        if secret is None:
-            raise RuntimeError("Missing password configuration for redis in redis.secret")
-
-        self.red = redis.Redis(host='redis', port=6379, password=secret, db=0,
-                               decode_responses=True)
+        secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
+        self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub.subscribe("samples")
         self.sample_cnt = 0  # Track number of samples for training trigger
         self.model_cnt = 0  # Track number of model iterations for checkpoint trigger
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
-
-        self.config = self.load_config()
 
         self.agent = DQNAgent(self.config.n_states, self.config.n_actions, self.config.lr,
                               self.config.gamma, self.config.grad_clip, self.config.q_clip)
@@ -62,17 +52,6 @@ class TrainingNode:
             self.checkpoint()  # Checkpoint to make config accessible for sanity checking
         self.push_model_update()
         logger.info("Initial model upload successful, startup complete")
-
-    def load_config(self):
-        root_path = Path(__file__).parent
-        with open(root_path / "config_d.yaml", "r") as f:
-            config = yaml.safe_load(f)
-        if (root_path / "config.yaml").is_file():
-            with open(root_path / "config.yaml", "r") as f:
-                _config = yaml.safe_load(f)
-            if _config is not None:
-                config |= _config  # Overwrite default config with keys from user config
-        return SimpleNamespace(**config)
 
     def run(self):
         logger.info("Training node running")

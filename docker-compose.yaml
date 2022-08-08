@@ -4,8 +4,8 @@ services:
     image: redis
     command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
-      - ./soulsai/distributed/server/redis.conf:/usr/local/etc/redis/redis.conf
-      - ./soulsai/distributed/server/redis.secret:/usr/local/etc/redis/redis.secret
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./config/redis.secret:/usr/local/etc/redis/redis.secret
     ports:
       - 6379:6379
 
@@ -15,7 +15,7 @@ services:
       context: ./
     # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
     volumes:
-      - ./soulsai/distributed/server/redis.secret:/home/SoulsAI/soulsai/distributed/server/redis.secret
+      - ./config/redis.secret:/home/SoulsAI/config/redis.secret
       - ./soulsai/distributed/server/train_node:/home/SoulsAI/soulsai/distributed/server/train_node
     depends_on:
       - redis
@@ -27,9 +27,9 @@ services:
       context: ./
     # Manually add secrets as volumes during runtime
     volumes:
-      - ./soulsai/distributed/server/redis.secret:/home/SoulsAI/soulsai/distributed/server/redis.secret
-      - ./soulsai/distributed/server/telemetry_node/gsa.secret:/home/SoulsAI/soulsai/distributed/server/telemetry_node/gsa.secret
-      - ./soulsai/distributed/server/telemetry_node/save:/home/save
+      - ./config/redis.secret:/home/SoulsAI/config/redis.secret
+      - ./config/gsa.secret:/home/SoulsAI/config/gsa.secret
+      - ./soulsai/distributed/server/telemetry_node:/home/SoulsAI/soulsai/distributed/server/telemetry_node
     depends_on:
       - redis
     user: "1000"

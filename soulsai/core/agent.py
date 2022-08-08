@@ -1,9 +1,12 @@
+import logging
 import random
 import multiprocessing as mp
 import io
 
 import torch
 import torch.nn as nn
+
+logger = logging.getLogger(__name__)
 
 
 class DQNAgent:
@@ -161,13 +164,13 @@ class DQN(nn.Module):
 
 class AdvantageDQN(nn.Module):
 
-    def __init__(self, size_s, size_a):
+    def __init__(self, size_s, size_a, size_n=128):
         super().__init__()
-        self.linear1 = nn.Linear(size_s, 128)
-        self.linear2 = nn.Linear(128, 128)
-        self.linear3 = nn.Linear(128, 128)
-        self.baseline = nn.Linear(128, 1)
-        self.advantage = nn.Linear(128, size_a)
+        self.linear1 = nn.Linear(size_s, size_n)
+        self.linear2 = nn.Linear(size_n, size_n)
+        self.linear3 = nn.Linear(size_n, size_n)
+        self.baseline = nn.Linear(size_n, 1)
+        self.advantage = nn.Linear(size_n, size_a)
 
     def forward(self, x):
         x = torch.relu(self.linear1(x))

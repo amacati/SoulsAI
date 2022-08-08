@@ -61,8 +61,8 @@ class Normalizer:
         self.sum += np.sum(x, axis=0, dtype=np.float32)
         self.sum_sq += np.sum(x**2, axis=0, dtype=np.float32)
         self.count += x.shape[0]
-        self.mean = self.sum / self.count
-        self.std = (self.sum_sq / self.count - (self.sum / self.count)**2)
+        self.mean = np.float32(self.sum / self.count)
+        self.std = np.float32(self.sum_sq / self.count - (self.sum / self.count)**2)
         np.maximum(self.eps2, self.std, out=self.std)  # Numeric stability
         np.sqrt(self.std, out=self.std)
 
@@ -76,8 +76,8 @@ class Normalizer:
         self.do_normalize = serialization["norm.do_normalize"]
         if self.do_normalize:
             self.idx[:] = np.frombuffer(serialization["norm.idx"], dtype=np.int64)
-            self.mean[:] = np.frombuffer(serialization["norm.mean"])
-            self.std[:] = np.frombuffer(serialization["norm.std"])
+            self.mean[:] = np.frombuffer(serialization["norm.mean"], dtype=np.float32)
+            self.std[:] = np.frombuffer(serialization["norm.std"], dtype=np.float32)
 
     def state_dict(self):
         return {"shared_memory": self.shared_memory, "do_normalize": self.do_normalize,

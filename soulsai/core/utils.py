@@ -91,13 +91,15 @@ def gamestate2np(gamestate: GameState) -> np.ndarray:
     camera_angle = np.arctan2(gamestate.camera_pose[3], gamestate.camera_pose[4])
     camera_rot = _rot2sincos(camera_angle)
     boss_distance = np.linalg.norm(gamestate.boss_pose[:2] - gamestate.player_pose[:2]) / 50  # noqa: E501 Normalization guess
-    boss_rel_angle = _rot2sincos(np.arctan2(*(gamestate.boss_pose[:2] - gamestate.player_pose[:2])))
     # cam_rot_rel = _rot2sincos(wrap2pi(gamestate.boss_pose[3] - camera_angle))
     player_animation = player_animation_encoder(filter_player_animation(gamestate.player_animation))
-    player_animation = player_animation * gamestate.player_animation_duration
+    player_animation = player_animation
+    player_animation_duration = gamestate.player_animation_duration
     boss_animation = boss_animation_encoder(filter_boss_animation(gamestate.boss_animation))
-    boss_animation = boss_animation * gamestate.boss_animation_duration
+    boss_animation = boss_animation
+    boss_animation_duration = gamestate.boss_animation_duration
     combo_counter = gamestate.combo_length
-    return np.concatenate(([player_hp, player_sp, boss_hp, boss_distance, combo_counter],
-                           player_pos, player_rot, boss_pos, boss_rot, camera_rot, boss_rel_angle,
-                           player_animation, boss_animation), dtype=np.float32)
+    return np.concatenate(([player_hp, player_sp, boss_hp, boss_distance, combo_counter,
+                            player_animation_duration, boss_animation_duration],
+                            player_pos, player_rot, boss_pos, boss_rot, camera_rot, 
+                            player_animation, boss_animation), dtype=np.float32)

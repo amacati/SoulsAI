@@ -2,13 +2,14 @@ import logging
 import json
 from pathlib import Path
 import time
-from datetime import datetime
 
 import redis
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from oauth2client.service_account import ServiceAccountCredentials
 
+from soulsai.utils import mkdir_date
+from soulsai.utils import load_redis_secret
 from soulsai.utils.visualization import save_plots
 
 logger = logging.getLogger(__name__)
@@ -17,24 +18,17 @@ logger = logging.getLogger(__name__)
 class TelemetryNode:
 
     GSA_SCOPES = ["https://www.googleapis.com/auth/drive"]
-    GSA_SECRET = "/home/SoulsAI/soulsai/distributed/server/telemetry_node/gsa.secret"
+    GSA_SECRET = "/home/SoulsAI/config/gsa.secret"
     GDRIVE_FOLDER = "1DLtsqv3fUGIMj4moLfGAk7I8QYqh8RIb"
 
     def __init__(self):
         logger.info("Telemetry node startup")
         # Read redis server secret
-        with open(Path(__file__).parents[1] / "redis.secret") as f:
-            conf = f.readlines()
-        secret = None
-        for line in conf:
-            if len(line) > 12 and line[0:12] == "requirepass ":
-                secret = line[12:]
-                break
-        if secret is None:
-            raise RuntimeError("Missing password configuration for redis in redis.secret")
-
+        secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
         self.red = redis.Redis(host='redis', port=6379, password=secret, db=0,
                                decode_responses=True)
+        self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
+        self.sub_telemetry.subscribe("telemetry")
 
         self.rewards = []
         self.steps = []
@@ -42,19 +36,9 @@ class TelemetryNode:
         self.wins = []
         self.eps = []
 
-        self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
-        self.sub_telemetry.subscribe("telemetry")
-
-        save_dir = Path("/home/save") / datetime.now().strftime("%Y_%m_%d_%H_%M")
-        if not save_dir.is_dir():
-            save_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            t = 1
-            while save_dir.is_dir():
-                curr_date_unique = datetime.now().strftime("%Y_%m_%d_%H_%M") + f"_({t})"
-                save_dir = save_dir / (curr_date_unique)
-                t += 1
-            save_dir.mkdir(parents=True)
+        save_root_dir = Path(__file__).parent / "save"
+        save_root_dir.mkdir(exist_ok=True)
+        save_dir = mkdir_date(Path(__file__).parent / "save")
         self.figure_path = save_dir / "SoulsAIDashboard.png"
         self.stats_path = save_dir / "SoulsAIStats.json"
 

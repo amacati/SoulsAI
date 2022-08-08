@@ -1,5 +1,0 @@
-# Create config.yaml file to overwrite default settings
-
-redis_address: "localhost"
-
-loglevel: info

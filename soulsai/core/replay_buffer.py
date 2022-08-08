@@ -46,7 +46,7 @@ class PerformanceBuffer:
     def __init__(self, maxlen, state_size):
         self.maxlen = maxlen
         self._idx = 0
-        self._maxidx = 0
+        self._maxidx = -1
         self._b_s = torch.zeros((maxlen, state_size), dtype=torch.float32)
         self._b_a = torch.zeros((maxlen), dtype=torch.int64)
         self._b_r = torch.zeros((maxlen), dtype=torch.float32)
@@ -60,23 +60,23 @@ class PerformanceBuffer:
         self._b_sn[self._idx, :] = torch.from_numpy(experience[3])
         self._b_d[self._idx] = experience[4]
         self._idx = (self._idx + 1) % self.maxlen
-        self._maxidx = min(self._maxidx+1, self.maxlen - 1)
+        self._maxidx = min(self._maxidx + 1, self.maxlen - 1)
 
     def clear(self):
         self._idx = 0
         self._maxidx = 0
 
     def __len__(self):
-        return self._maxidx
+        return self._maxidx + 1
 
     @property
     def filled(self):
-        return self._maxidx == self.maxlen - 1
+        return self._maxidx + 1 == self.maxlen
 
     def sample_batch(self, n):
         if n > self._maxidx + 1:
             raise RuntimeError("Asked to sample more elements than available in buffer")
-        i = np.random.choice(self._maxidx, n, replace=False)
+        i = np.random.choice(self._maxidx + 1, n, replace=False)
         return self._b_s[i, :], self._b_a[i], self._b_r[i], self._b_sn[i, :], self._b_d[i]
 
     def save(self, path):

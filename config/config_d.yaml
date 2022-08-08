@@ -1,5 +1,11 @@
 # Create config.yaml file to overwrite default settings
 
+# General settings
+loglevel: info
+
+# Redis settings
+redis_address: "localhost"
+
 # Environment information
 n_states: 72
 n_actions: 20
@@ -16,12 +22,9 @@ buffer_size: 100_000
 batch_size: 64
 train_epochs: 50
 update_samples: 50
+fill_buffer: False
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration
 load_checkpoint: False
 load_checkpoint_config: False
-
-# Logging settings:
-loglevel: info
-fill_buffer: False
