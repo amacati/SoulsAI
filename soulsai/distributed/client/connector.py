@@ -1,15 +1,13 @@
-from types import SimpleNamespace
 import json
 import logging
 from pathlib import Path
 import multiprocessing as mp
 import time
 
-import yaml
 import redis
 
 from soulsai.core.agent import ClientAgent
-from soulsai.utils import load_config, load_redis_secret
+from soulsai.utils import load_redis_secret
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +15,7 @@ logger = logging.getLogger(__name__)
 class Connector:
 
     def __init__(self, config):
+        self.config = config
         self._agent = ClientAgent(72, 20)
         self._eps = mp.Value("d", -1.)
         self._lock = mp.Lock()

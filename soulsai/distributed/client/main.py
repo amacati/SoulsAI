@@ -12,6 +12,6 @@ def tel_callback(total_reward, steps, state, eps):
 
 
 if __name__ == "__main__":
-    node_dir = Path(__file__).parent
+    node_dir = Path(__file__).parents[3] / "config"
     config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
     client_node(config, tf_state_callback=gamestate2np, tel_callback=tel_callback)
