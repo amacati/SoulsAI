@@ -15,7 +15,7 @@ services:
       context: ./
     # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
     volumes:
-      - ./config/redis.secret:/home/SoulsAI/config/redis.secret
+      - ./config/:/home/SoulsAI/config/
       - ./soulsai/distributed/server/train_node:/home/SoulsAI/soulsai/distributed/server/train_node
     depends_on:
       - redis
@@ -27,8 +27,7 @@ services:
       context: ./
     # Manually add secrets as volumes during runtime
     volumes:
-      - ./config/redis.secret:/home/SoulsAI/config/redis.secret
-      - ./config/gsa.secret:/home/SoulsAI/config/gsa.secret
+      - ./config/:/home/SoulsAI/config/
       - ./soulsai/distributed/server/telemetry_node:/home/SoulsAI/soulsai/distributed/server/telemetry_node
     depends_on:
       - redis
