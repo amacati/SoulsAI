@@ -19,10 +19,10 @@ class TelemetryNode:
 
     GSA_SCOPES = ["https://www.googleapis.com/auth/drive"]
     GSA_SECRET = "/home/SoulsAI/config/gsa.secret"
-    GDRIVE_FOLDER = "1DLtsqv3fUGIMj4moLfGAk7I8QYqh8RIb"
 
-    def __init__(self):
+    def __init__(self, config):
         logger.info("Telemetry node startup")
+        self.config = config
         # Read redis server secret
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
         self.red = redis.Redis(host='redis', port=6379, password=secret, db=0,
@@ -36,38 +36,42 @@ class TelemetryNode:
         self.wins = []
         self.eps = []
 
-        save_root_dir = Path(__file__).parent / "save"
+        save_root_dir = Path(__file__).parents[4] / "saves"
         save_root_dir.mkdir(exist_ok=True)
-        save_dir = mkdir_date(Path(__file__).parent / "save")
+        save_dir = mkdir_date(save_root_dir)
         self.figure_path = save_dir / "SoulsAIDashboard.png"
         self.stats_path = save_dir / "SoulsAIStats.json"
 
-        logger.info("Authenticating with Google Drive for live telemetry")
-
-        # Set up the Google Drive service and create the Dashboard file if it does not already exist
-        try:
-            credentials = ServiceAccountCredentials.from_json_keyfile_name(self.GSA_SECRET,
-                                                                           self.GSA_SCOPES)
-            self.gdrive_service = build("drive", 'v3', credentials=credentials)
-            metadata = {"name": "SoulsAIDashboard.png", "parents": [self.GDRIVE_FOLDER]}
-            self.update_dashboard(drive_update=False)
-            media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
-            logger.info("Authentication successful")
-            # During training the file is only updated, so we have to make sure the file exists
-            q = ("name='SoulsAIDashboard.png' and mimeType='image/png'"
-                 f"and '{self.GDRIVE_FOLDER}' in parents")
-            rsp = self.gdrive_service.files().list(q=q).execute()
-            if rsp["files"]:
-                self.file_id = rsp["files"][0]["id"]
-            else:
-                logger.info("Telemetry file does not exist in Drive, creating new file")
-                rsp = self.gdrive_service.files().create(body=metadata, media_body=media).execute()
-                self.file_id = rsp["id"]
-            logger.info("Google Drive initialization complete")
-        except Exception as e:
-            self.gdrive_service = None
-            logger.warning(e)
-            logger.warning("Google Drive initialization failed")
+        if self.config.gdrive_sync:
+            logger.info("Authenticating with Google Drive for live telemetry")
+            try:
+                # Set up the Google Drive service and create the Dashboard file if it does not
+                # already exist
+                credentials = ServiceAccountCredentials.from_json_keyfile_name(self.GSA_SECRET,
+                                                                            self.GSA_SCOPES)
+                self.gdrive_srv = build("drive", 'v3', credentials=credentials)
+                metadata = {"name": "SoulsAIDashboard.png", "parents": [self.config.gdrive_dir]}
+                self.update_dashboard(drive_update=False)
+                media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
+                logger.info("Authentication successful")
+                # During training the file is only updated, so we have to make sure the file exists
+                q = ("name='SoulsAIDashboard.png' and mimeType='image/png'"
+                    f"and '{self.config.gdrive_dir}' in parents")
+                rsp = self.gdrive_srv.files().list(q=q).execute()
+                if rsp["files"]:
+                    self.file_id = rsp["files"][0]["id"]
+                else:
+                    logger.info("Telemetry file does not exist in Drive, creating new file")
+                    rsp = self.gdrive_srv.files().create(body=metadata, media_body=media).execute()
+                    self.file_id = rsp["id"]
+                logger.info("Google Drive initialization complete")
+            except Exception as e:
+                self.gdrive_srv = None
+                logger.warning(e)
+                logger.warning("Google Drive initialization failed")
+        else:
+            logger.info("Skipping cloud sync initialization")
+            self.gdrive_srv = None
 
         logger.info("Telemetry node startup complete")
 
@@ -96,10 +100,10 @@ class TelemetryNode:
         with open(self.stats_path, "w") as f:
             json.dump({"rewards": self.rewards, "steps": self.steps, "boss_hp": self.boss_hp,
                        "wins": self.wins, "eps": self.eps}, f)
-        if self.gdrive_service is not None and drive_update:
+        if self.gdrive_srv is not None and drive_update:
             try:
                 media = MediaFileUpload(f"{str(self.figure_path)}", mimetype="image/png")
-                self.gdrive_service.files().update(fileId=self.file_id, media_body=media).execute()
+                self.gdrive_srv.files().update(fileId=self.file_id, media_body=media).execute()
                 logger.info("Google Drive upload successful")
             except Exception as e:  # noqa: E722
                 logger.warning(f"Dashboard upload to Google Drive failed. Error was: {e}")

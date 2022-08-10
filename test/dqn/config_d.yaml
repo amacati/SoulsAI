@@ -4,23 +4,23 @@
 loglevel: info
 
 # Redis settings
-redis_address: "localhost"
+redis_address: "redis"
 
 # Environment information
-env: SoulsGymIudex-v0
-n_states: 72
-n_actions: 20
+env: LunarLander-v2
+n_states: 8
+n_actions: 4
 
 # Training parameters
 lr: 0.001
 gamma: 0.99
-eps_max: [1.0, 0.1, 0.05]
+eps_max: [0.1, 0.1, 0.05]
 eps_min: [0.1, 0.05, 0.01]
-eps_steps: [3_000, 3_000, 3_000]
+eps_steps: [500, 500, 500]
 grad_clip: 5.
 q_clip: 200
 buffer_size: 100_000
-batch_size: 64
+batch_size: 128
 train_epochs: 50
 update_samples: 50
 fill_buffer: False
@@ -31,10 +31,9 @@ load_checkpoint: False
 load_checkpoint_config: False
 
 # Telemetry node settings
-gdrive_sync: True
-gdrive_dir: 1DLtsqv3fUGIMj4moLfGAk7I8QYqh8RIb
+gdrive_sync: False
 
 # Client settings
-max_episodes: -1  # -1 for infinite runs
-enable_interrupt: True
-step_delay: 0
+max_episodes: 200  # -1 for infinite runs
+enable_interrupt: False
+step_delay: 0.02

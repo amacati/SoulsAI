@@ -3,7 +3,7 @@
 *.json
 *.log
 /plots
-/saves
+/saves/*
 *pkl
 **/*__pycache__
 soulsai.egg-info/
@@ -12,6 +12,9 @@ soulsai/distributed/server/train_node/config.yaml
 soulsai/distributed/client/config.yaml
 test/distributed/dqn/client/config.yaml
 test/distributed/dqn/server/train_node/config.yaml
-
+test/**/config.yaml
 # Disable all secret files. Additional guard against accidental leaking of secrets
 **/*.secret
+
+# Force folder saves to be included in repo to make sure docker compose mounts saves as directory, not as file
+!saves/.gitkeep

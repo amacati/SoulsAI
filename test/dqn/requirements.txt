@@ -1,5 +1,8 @@
-matplotlib==3.5.1
 numpy==1.22.4
 redis==3.5.3
+gym==0.21.0
+torch==1.11.0
+pyyaml==6.0
+matplotlib==3.5.1
 google-api-python-client==2.49.0
 oauth2client==4.1.3

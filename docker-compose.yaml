@@ -29,6 +29,7 @@ services:
     volumes:
       - ./config/:/home/SoulsAI/config/
       - ./soulsai/distributed/server/telemetry_node:/home/SoulsAI/soulsai/distributed/server/telemetry_node
+      - ./saves:/home/SoulsAI/saves
     depends_on:
       - redis
     user: "1000"

@@ -18,8 +18,9 @@ def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path, eps=None)
     ax[0, 0].set_ylabel("Total reward")
     ax[0, 0].grid(alpha=0.3)
     if len(t) >= 50:
-        lim = [min(reward_mean - reward_std) - 100, max(reward_mean + reward_std) + 100]
-        ax[0, 0].set_ylim(lim)
+        lim_low = min(reward_mean[49:] - reward_std[49:]) - 100
+        lim_up = max(reward_mean[49:] + reward_std[49:]) + 100
+        ax[0, 0].set_ylim([lim_low, lim_up])
 
     steps_mean = running_mean(episodes_steps, 50)
     steps_std = np.sqrt(running_std(episodes_steps, 50))

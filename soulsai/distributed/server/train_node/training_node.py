@@ -6,14 +6,11 @@ from collections import deque
 from types import SimpleNamespace
 import time
 
-import yaml
 from redis import Redis
-from soulsgym.core.game_state import GameState
 
 from soulsai.core.replay_buffer import ExperienceReplayBuffer, PerformanceBuffer
 from soulsai.core.agent import DQNAgent
 from soulsai.core.scheduler import EpsilonScheduler
-from soulsai.core.utils import gamestate2np
 from soulsai.utils import load_redis_secret
 
 logger = logging.getLogger(__name__)
@@ -23,9 +20,10 @@ class TrainingNode:
 
     SAVE_PATH = Path(__file__).parent / "save"
 
-    def __init__(self, config):
+    def __init__(self, config, decode_sample):
         logger.info("Training node startup")
         self.config = config
+        self.decode_sample = decode_sample
         # Read redis server secret
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
         self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
@@ -58,11 +56,12 @@ class TrainingNode:
         while True:
             msg = self.sub.get_message()
             if not msg:
+                time.sleep(0.01)
                 continue
             sample = json.loads(msg["data"])
             if not self._check_sample(sample):
                 continue
-            sample = self._numpify_sample(self._unpack_sample(sample))
+            sample = self.decode_sample(sample)
             self.buffer.append(sample)
             if sample[4]:
                 self.eps_scheduler.step()
@@ -124,23 +123,6 @@ class TrainingNode:
             with open(self.SAVE_PATH / "config.json", "r") as f:
                 self.config = SimpleNamespace(**json.load(f))
 
-    def fill_buffer(self, nsamples=None):
-        logger.info("Filling buffer")
-        self.SAVE_PATH.mkdir(exist_ok=True)
-        buffer_path = self.SAVE_PATH / "random_buffer.pkl"
-        if not buffer_path.exists():
-            random_buffer = ExperienceReplayBuffer(maxlen=500_000)
-            while not random_buffer.filled:
-                msg = self.sub.get_message()
-                if not msg:
-                    continue
-                sample = json.loads(msg["data"])
-                if not self._check_sample(sample):
-                    continue
-                random_buffer.append(self._unpack_sample(sample))
-            random_buffer.save(buffer_path)
-        self.load_buffer(nsamples)
-
     def load_buffer(self, nsamples=None):
         nsamples = nsamples or self.buffer.maxlen
         random_buffer = ExperienceReplayBuffer()
@@ -150,15 +132,3 @@ class TrainingNode:
         while not len(self.buffer) == nsamples:
             self.buffer.append(self._numpify_sample(random_buffer.buffer.pop()))
         logger.info("Loaded buffer with neutral samples")
-
-    @staticmethod
-    def _unpack_sample(sample):
-        experience = sample.get("sample")
-        experience[0] = GameState.from_dict(experience[0])
-        experience[3] = GameState.from_dict(experience[3])
-        return experience
-
-    @staticmethod
-    def _numpify_sample(sample):
-        sample[0], sample[3] = gamestate2np(sample[0]), gamestate2np(sample[3])
-        return sample

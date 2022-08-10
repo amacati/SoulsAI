@@ -1,0 +1,50 @@
+version: "3.8"
+services:
+  redis:
+    image: redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ../../config/redis.conf:/usr/local/etc/redis/redis.conf
+      - ../../config/redis.secret:/usr/local/etc/redis/redis.secret
+    ports:
+      - 6379:6379
+
+  train_node:
+    build: 
+      dockerfile: test/dqn/train_node.Dockerfile
+      context: ../../.
+    # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
+    volumes:
+      - ../../config/:/home/SoulsAI/config/
+      - ../../soulsai/:/home/SoulsAI/soulsai/
+      - ../../test/:/home/SoulsAI/test/
+    depends_on:
+      - redis
+    user: "1000"
+
+  telemetry_node:
+    build: 
+      dockerfile: test/dqn/telemetry_node.Dockerfile
+      context: ../../.
+    # Manually add secrets as volumes during runtime
+    volumes:
+      - ../../config/:/home/SoulsAI/config/
+      - ../../soulsai/:/home/SoulsAI/soulsai/  # Reflect dev changes in docker containers without rebuilding
+      - ../../test/:/home/SoulsAI/test/
+      - ../../saves/:/home/SoulsAI/saves/
+    depends_on:
+      - redis
+    user: "1000"
+
+  client_node:
+    build:
+      dockerfile: test/dqn/client_node.Dockerfile
+      context: ../../.
+    volumes:
+      - ../../soulsai/:/home/SoulsAI/soulsai/
+      - ../../config/:/home/SoulsAI/config/
+      - ../../test/:/home/SoulsAI/test/
+    depends_on:
+      - redis
+      - train_node
+    user: "1000"

@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 class Connector:
 
-    def __init__(self, config):
+    def __init__(self, config, encode_sample, encode_tel):
         self.config = config
-        self._agent = ClientAgent(72, 20)
+        self._agent = ClientAgent(config.n_states, config.n_actions)
         self._eps = mp.Value("d", -1.)
         self._lock = mp.Lock()
         self._update_event = mp.Event()
@@ -29,11 +29,11 @@ class Connector:
         self.pubsub.run_in_thread(sleep_time=.05, daemon=True)
 
         self._msg_pipe, _msg_pipe = mp.Pipe()
-        args = (_msg_pipe, address, secret, self._stop_event)
+        args = (_msg_pipe, address, secret, self._stop_event, encode_sample, encode_tel)
         self.msg_consumer = mp.Process(target=self._consume_msgs, args=args)
         self._agent.share_memory()
         args = (self._update_event, self._stop_event, self._agent, self._eps, self._lock,
-                address, secret)
+                address, secret, self.config.n_states, self.config.n_actions)
         self.model_updater = mp.Process(target=self.update_agent, args=args)
         self.model_updater.start()
         self.msg_consumer.start()
@@ -75,14 +75,15 @@ class Connector:
         logger.debug("All background processes joined")
 
     @staticmethod
-    def update_agent(update_event, stop_event, model: ClientAgent, eps, lock, address, secret):
+    def update_agent(update_event, stop_event, model: ClientAgent, eps, lock, address, secret,
+                     nstates, nactions):
         red = redis.Redis(host=address, password=secret, port=6379, db=0)
         logger.debug("Background update process startup")
         _params = red.hgetall("model_params")
         model_params = {key.decode("utf-8"): value for key, value in _params.items()}
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
         # first and then overwrite the tensors of the main agent with load_state_dict
-        buffer_agent = ClientAgent(72, 20)
+        buffer_agent = ClientAgent(nstates, nactions)
         buffer_agent.deserialize(model_params)
         with lock:
             model.load_state_dict(buffer_agent.state_dict())
@@ -104,7 +105,7 @@ class Connector:
         self._update_event.set()
 
     @staticmethod
-    def _consume_msgs(msg_pipe, address, secret, stop_event):
+    def _consume_msgs(msg_pipe, address, secret, stop_event, encode_sample, encode_tel):
         logger.debug("Background message consumer process startup")
         red = redis.Redis(host=address, password=secret, port=6379, db=0)
         while not stop_event.is_set():
@@ -112,11 +113,9 @@ class Connector:
                 continue  # Check if stop event has been set
             msg = msg_pipe.recv()
             if msg[0] == "sample":
-                sample = [msg[2][0].as_json(), msg[2][1], msg[2][2], msg[2][3].as_json(), msg[2][4]]
+                sample = encode_sample(msg)
                 red.publish("samples", json.dumps({"model_id": msg[1], "sample": sample}))
             elif msg[0] == "telemetry":
-                telemetry = {"reward": msg[1], "steps": msg[2], "boss_hp": msg[3], "win": msg[4],
-                             "eps": msg[5]}
-                red.publish("telemetry", json.dumps(telemetry))
+                red.publish("telemetry", json.dumps(encode_tel(msg)))
             else:
                 logger.warning(f"Unknown message type {msg[0]}")

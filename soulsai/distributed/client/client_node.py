@@ -1,34 +1,38 @@
 import logging
 from threading import Event
+import time
 
 import numpy as np
 import gym
-import keyboard
 
 from soulsai.distributed.client.connector import Connector
 
 logger = logging.getLogger(__name__)
 
 
-def client_node(config, tf_state_callback, tel_callback):
+def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_tel):
     logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
 
-    # Enable training interrupt with 'Enter' key
     stop_flag = Event()
+    if config.enable_interrupt:
+        import keyboard  # Keyboard should not be imported in Docker during testing
 
-    def exit_callback():
-        stop_flag.set()
+        def exit_callback():
+            stop_flag.set()
 
-    keyboard.add_hotkey("enter", exit_callback)
+        keyboard.add_hotkey("enter", exit_callback)
+        logger.info("Press 'Enter' to end training")
 
     # Connector enables non-blocking server interaction
-    con = Connector(config)
+    con = Connector(config, encode_sample, encode_tel)
     env = gym.make(config.env)
 
-    logger.info("Press 'Enter' to end training")
+    logger.info("Client node running")
     try:
-        while not stop_flag.is_set():
+        episode_id = 0
+        while not stop_flag.is_set() and episode_id != config.max_episodes:
+            episode_id += 1
             state = env.reset()
             done = False
             total_reward = 0.
@@ -47,6 +51,8 @@ def client_node(config, tf_state_callback, tel_callback):
                 state = next_state
                 total_reward += reward
                 steps += 1
+                if config.step_delay:  # Enable Dockerfiles to simulate slow clients
+                    time.sleep(config.step_delay)
             con.push_telemetry(*tel_callback(total_reward, steps, state, eps))
         logger.info("Exiting training")
     finally:
