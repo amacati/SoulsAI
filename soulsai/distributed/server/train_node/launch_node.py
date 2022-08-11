@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 def decode_sample(sample):
     experience = sample.get("sample")
     experience[0] = gamestate2np(GameState.from_dict(experience[0]))
-    experience[3] = gamestate2np(GameState.from_dict(experience[0]))
+    experience[3] = gamestate2np(GameState.from_dict(experience[3]))
     return experience
 
 
