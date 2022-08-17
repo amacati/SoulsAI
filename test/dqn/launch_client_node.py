@@ -19,7 +19,7 @@ def encode_sample(msg):
 
 
 if __name__ == "__main__":
-    node_dir = Path(__file__).parent
-    config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
+    config_dir = Path(__file__).parent
+    config = load_config(config_dir / "config_d.yaml", config_dir / "config.yaml")
     client_node(config, tf_state_callback=lambda x: x, tel_callback=tel_callback,
                 encode_sample=encode_sample, encode_tel=encode_tel)

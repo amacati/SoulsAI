@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-import multiprocessing as mp
+import torch.multiprocessing as mp
 import time
 
 import redis
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class Connector:
 
     def __init__(self, config, encode_sample, encode_tel):
+        mp.set_start_method("spawn")
         self.config = config
         self._agent = ClientAgent(config.n_states, config.n_actions)
         self._eps = mp.Value("d", -1.)
@@ -77,8 +78,8 @@ class Connector:
     @staticmethod
     def update_agent(update_event, stop_event, model: ClientAgent, eps, lock, address, secret,
                      nstates, nactions):
-        red = redis.Redis(host=address, password=secret, port=6379, db=0)
         logger.debug("Background update process startup")
+        red = redis.Redis(host=address, password=secret, port=6379, db=0)
         _params = red.hgetall("model_params")
         model_params = {key.decode("utf-8"): value for key, value in _params.items()}
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
@@ -86,6 +87,7 @@ class Connector:
         buffer_agent = ClientAgent(nstates, nactions)
         buffer_agent.deserialize(model_params)
         with lock:
+            buffer_agent.state_dict()
             model.load_state_dict(buffer_agent.state_dict())
             eps.value = float(model_params["eps"].decode("utf-8"))
         while not stop_event.is_set():

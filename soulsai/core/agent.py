@@ -5,6 +5,7 @@ import io
 
 import torch
 import torch.nn as nn
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,12 @@ class AdvantageDQN(nn.Module):
         self.linear3 = nn.Linear(size_n, size_n)
         self.baseline = nn.Linear(size_n, 1)
         self.advantage = nn.Linear(size_n, size_a)
+        for layer in (self.linear1, self.linear2, self.linear3):
+            torch.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2.))
+            torch.nn.init.constant_(layer.bias, val=0.)
+        for layer in (self.baseline, self.advantage):
+            torch.nn.init.orthogonal_(layer.weight, gain=1.)
+            torch.nn.init.constant_(layer.bias, val=0.)
 
     def forward(self, x):
         x = torch.relu(self.linear1(x))
