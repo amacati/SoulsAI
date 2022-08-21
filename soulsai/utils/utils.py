@@ -4,7 +4,6 @@ from pathlib import Path
 from datetime import datetime
 
 import numpy as np
-import torch
 import yaml
 
 logger = logging.getLogger(__name__)
