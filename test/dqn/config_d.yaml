@@ -24,6 +24,7 @@ batch_size: 128
 train_epochs: 50
 update_samples: 50
 fill_buffer: False
+dqn_multistep: 1
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration
@@ -32,6 +33,8 @@ load_checkpoint_config: False
 
 # Telemetry node settings
 gdrive_sync: False
+moving_average: 50
+telemetry_epochs: 5
 
 # Client settings
 max_episodes: 200  # -1 for infinite runs

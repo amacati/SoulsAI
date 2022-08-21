@@ -31,10 +31,12 @@ class TrainingNode:
         self.sub.subscribe("samples")
         self.sample_cnt = 0  # Track number of samples for training trigger
         self.model_cnt = 0  # Track number of model iterations for checkpoint trigger
+        self.done_cnt = 0  # Track number of completed trajectories for epsilon decay
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
 
         self.agent = DQNAgent(self.config.n_states, self.config.n_actions, self.config.lr,
-                              self.config.gamma, self.config.grad_clip, self.config.q_clip)
+                              self.config.gamma, self.config.dqn_multistep, self.config.grad_clip,
+                              self.config.q_clip)
         self.model_id = str(uuid4())
         self.agent.model_id = self.model_id
         self.model_ids.append(self.model_id)
@@ -64,7 +66,9 @@ class TrainingNode:
             sample = self.decode_sample(sample)
             self.buffer.append(sample)
             self.sample_cnt += 1
-            if sample[4]:
+            self.done_cnt += sample[4]
+            if (self.done_cnt / self.config.dqn_multistep) >= 1:
+                self.done_cnt = 0
                 self.eps_scheduler.step()
             sufficient_samples = len(self.buffer) >= self.config.batch_size
             if self.sample_cnt >= self.config.update_samples and sufficient_samples:

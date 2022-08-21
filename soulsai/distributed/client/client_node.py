@@ -1,6 +1,7 @@
 import logging
 from threading import Event
 import time
+from collections import deque
 
 import numpy as np
 import gym
@@ -31,12 +32,19 @@ def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_t
     logger.info("Client node running")
     try:
         episode_id = 0
+        states = deque(maxlen=config.dqn_multistep + 1)
+        actions = deque(maxlen=config.dqn_multistep)
+        rewards = deque(maxlen=config.dqn_multistep)
         while not stop_flag.is_set() and episode_id != config.max_episodes:
             episode_id += 1
             state = env.reset()
             done = False
             total_reward = 0.
             steps = 1
+            states.clear()
+            actions.clear()
+            rewards.clear()
+            states.append(state)
             while not done and not stop_flag.is_set():
                 tfstate = tf_state_callback(state)
                 with con:
@@ -47,12 +55,20 @@ def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_t
                     else:
                         action = con.agent(tfstate)
                 next_state, reward, done, _ = env.step(action)
-                con.push_sample(model_id, [state, action, reward, next_state, done])
-                state = next_state
+                states.append(next_state)
+                actions.append(action)
+                rewards.append(reward)
                 total_reward += reward
+                if len(rewards) == config.dqn_multistep:
+                    sum_r = sum([rewards[i] * config.gamma**i for i in range(config.dqn_multistep)])
+                    con.push_sample(model_id, [states[0], actions[0], sum_r, states[-1], done])
+                state = next_state
                 steps += 1
                 if config.step_delay:  # Enable Dockerfiles to simulate slow clients
                     time.sleep(config.step_delay)
+            for i in range(1, len(rewards)):
+                sum_r = sum([rewards[i + j] * config.gamma**j for j in range(config.dqn_multistep - i)])
+                con.push_sample(model_id, [states[i], actions[i], sum_r, states[-1], done])
             con.push_telemetry(*tel_callback(total_reward, steps, state, eps))
         logger.info("Exiting training")
     finally:

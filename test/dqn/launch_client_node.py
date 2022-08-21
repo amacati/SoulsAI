@@ -9,6 +9,7 @@ from soulsai.utils import load_config
 def tel_callback(total_reward, steps, state, eps):
     return total_reward, steps, bool(total_reward > 200), eps
 
+
 def encode_tel(msg):
     return {"reward": msg[1], "steps": msg[2], "boss_hp": 0, "win": msg[3], "eps": msg[4]}
 

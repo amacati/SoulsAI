@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class Normalizer:
-    
+
     def __init__(self, size_s, eps: float = 1e-2, clip: float = np.inf,
                  idx_range: Optional[Tuple] = None):
         self.idx = list(idx_range or (0, size_s))

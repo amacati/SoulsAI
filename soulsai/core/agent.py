@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class DQNAgent:
 
-    def __init__(self, size_s, size_a, lr, gamma, grad_clip, q_clip):
+    def __init__(self, size_s, size_a, lr, gamma, multistep, grad_clip, q_clip):
         self.dev = torch.device("cpu")  # CPU is faster for small networks
         self.q_clip = q_clip
         self.dqn1 = AdvantageDQN(size_s, size_a).to(self.dev)
@@ -20,6 +20,7 @@ class DQNAgent:
         self.dqn1_opt = torch.optim.Adam(self.dqn1.parameters(), lr=lr)
         self.dqn2_opt = torch.optim.Adam(self.dqn2.parameters(), lr=lr)
         self.gamma = gamma
+        self.multistep = multistep
         self.grad_clip = grad_clip
         self.model_id = None
 
@@ -42,7 +43,7 @@ class DQNAgent:
             a_next = torch.max(train_net(next_states), 1).indices
             q_a_next = torch.clamp(estimate_net(next_states)[range(batch_size), a_next],
                                    -self.q_clip, self.q_clip)
-            q_td = rewards + self.gamma * q_a_next * (1 - dones)
+            q_td = rewards + self.gamma ** self.multistep * q_a_next * (1 - dones)
         loss = torch.nn.functional.mse_loss(q_a, q_td)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
