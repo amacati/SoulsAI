@@ -69,7 +69,8 @@ def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_t
             for i in range(1, len(rewards)):
                 sum_r = sum([rewards[i + j] * config.gamma**j for j in range(config.dqn_multistep - i)])
                 con.push_sample(model_id, [states[i], actions[i], sum_r, states[-1], done])
-            con.push_telemetry(*tel_callback(total_reward, steps, state, eps))
+            if not stop_flag.is_set():
+                con.push_telemetry(*tel_callback(total_reward, steps, state, eps))
         logger.info("Exiting training")
     finally:
         env.close()

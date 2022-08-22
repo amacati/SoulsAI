@@ -25,6 +25,7 @@ train_epochs: 50
 update_samples: 50
 fill_buffer: False
 dqn_multistep: 1
+layer_width: 128
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration

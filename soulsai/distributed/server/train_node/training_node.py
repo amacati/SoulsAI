@@ -36,7 +36,7 @@ class TrainingNode:
 
         self.agent = DQNAgent(self.config.n_states, self.config.n_actions, self.config.lr,
                               self.config.gamma, self.config.dqn_multistep, self.config.grad_clip,
-                              self.config.q_clip)
+                              self.config.q_clip, config.layer_width)
         self.model_id = str(uuid4())
         self.agent.model_id = self.model_id
         self.model_ids.append(self.model_id)

@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 
 class DQNAgent:
 
-    def __init__(self, size_s, size_a, lr, gamma, multistep, grad_clip, q_clip):
+    def __init__(self, size_s, size_a, lr, gamma, multistep, grad_clip, q_clip, size_n=128):
         self.dev = torch.device("cpu")  # CPU is faster for small networks
         self.q_clip = q_clip
-        self.dqn1 = AdvantageDQN(size_s, size_a).to(self.dev)
-        self.dqn2 = AdvantageDQN(size_s, size_a).to(self.dev)
+        self.dqn1 = AdvantageDQN(size_s, size_a, size_n).to(self.dev)
+        self.dqn2 = AdvantageDQN(size_s, size_a, size_n).to(self.dev)
         self.dqn1_opt = torch.optim.Adam(self.dqn1.parameters(), lr=lr)
         self.dqn2_opt = torch.optim.Adam(self.dqn2.parameters(), lr=lr)
         self.gamma = gamma
@@ -87,10 +87,10 @@ class DQNAgent:
 
 class ClientAgent:
 
-    def __init__(self, size_s, size_a):
+    def __init__(self, size_s, size_a, size_n=128):
         self.dev = torch.device("cpu")  # CPU is faster for small networks
-        self.dqn1 = AdvantageDQN(size_s, size_a).to(self.dev)
-        self.dqn2 = AdvantageDQN(size_s, size_a).to(self.dev)
+        self.dqn1 = AdvantageDQN(size_s, size_a, size_n).to(self.dev)
+        self.dqn2 = AdvantageDQN(size_s, size_a, size_n).to(self.dev)
         self._model_id = None
         self.shared = False
 
@@ -152,10 +152,11 @@ class DQN(nn.Module):
 
     def __init__(self, size_s, size_a):
         super().__init__()
-        self.linear1 = nn.Linear(size_s, 128)
-        self.linear2 = nn.Linear(128, 128)
-        self.linear3 = nn.Linear(128, 128)
-        self.output = nn.Linear(128, size_a)
+        N = 128
+        self.linear1 = nn.Linear(size_s, N)
+        self.linear2 = nn.Linear(N, N)
+        self.linear3 = nn.Linear(N, N)
+        self.output = nn.Linear(N, size_a)
 
     def forward(self, x):
         x = torch.relu(self.linear1(x))
