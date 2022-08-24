@@ -36,7 +36,7 @@ class EpsilonScheduler:
 
     @staticmethod
     def _exponential_decay(epsilon_max, epsilon_min, decay_steps, current_step):
-        eps = epsilon_max*(epsilon_min/epsilon_max)**(current_step/decay_steps)
+        eps = epsilon_max*(epsilon_min/(epsilon_max + 1e-8))**(current_step/decay_steps)
         return np.maximum(epsilon_min, eps)
 
     def save(self, path: Path):

@@ -34,9 +34,9 @@ class TrainingNode:
         self.done_cnt = 0  # Track number of completed trajectories for epsilon decay
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
 
-        self.agent = DQNAgent(self.config.n_states, self.config.n_actions, self.config.lr,
-                              self.config.gamma, self.config.dqn_multistep, self.config.grad_clip,
-                              self.config.q_clip, config.layer_width)
+        self.agent = DQNAgent(self.config.network_type, self.config.n_states, self.config.n_actions,
+                              self.config.lr, self.config.gamma, self.config.dqn_multistep,
+                              self.config.grad_clip, self.config.q_clip, config.layer_width)
         self.model_id = str(uuid4())
         self.agent.model_id = self.model_id
         self.model_ids.append(self.model_id)
@@ -110,6 +110,7 @@ class TrainingNode:
                 states, actions, rewards, next_states, dones = self.buffer.sample_batch(
                     self.config.batch_size)
                 self.agent.train(states, actions, rewards, next_states, dones)
+            self.agent.update_callback()
 
     def checkpoint(self):
         self.SAVE_PATH.mkdir(exist_ok=True)

@@ -17,7 +17,8 @@ class Connector:
     def __init__(self, config, encode_sample, encode_tel):
         mp.set_start_method("spawn")
         self.config = config
-        self._agent = ClientAgent(config.n_states, config.n_actions, config.layer_width)
+        self._agent = ClientAgent(config.network_type, config.n_states, config.n_actions,
+                                  config.layer_width)
         self._eps = mp.Value("d", -1.)
         self._lock = mp.Lock()
         self._update_event = mp.Event()
@@ -34,7 +35,7 @@ class Connector:
         self.msg_consumer = mp.Process(target=self._consume_msgs, args=args)
         self._agent.share_memory()
         args = (self._update_event, self._stop_event, self._agent, self._eps, self._lock,
-                address, secret, config.n_states, config.n_actions, config.layer_width)
+                secret, config)
         self.model_updater = mp.Process(target=self.update_agent, args=args)
         self.model_updater.start()
         self.msg_consumer.start()
@@ -76,15 +77,16 @@ class Connector:
         logger.debug("All background processes joined")
 
     @staticmethod
-    def update_agent(update_event, stop_event, model: ClientAgent, eps, lock, address, secret,
-                     nstates, nactions, layer_width):
+    def update_agent(update_event, stop_event, model: ClientAgent, eps, lock, secret,
+                     config):
         logger.debug("Background update process startup")
-        red = redis.Redis(host=address, password=secret, port=6379, db=0)
+        red = redis.Redis(host=config.redis_address, password=secret, port=6379, db=0)
         _params = red.hgetall("model_params")
         model_params = {key.decode("utf-8"): value for key, value in _params.items()}
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
         # first and then overwrite the tensors of the main agent with load_state_dict
-        buffer_agent = ClientAgent(nstates, nactions, layer_width)
+        buffer_agent = ClientAgent(config.network_type, config.n_states, config.n_actions,
+                                   config.layer_width)
         buffer_agent.deserialize(model_params)
         with lock:
             buffer_agent.state_dict()

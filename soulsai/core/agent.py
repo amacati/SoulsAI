@@ -5,18 +5,32 @@ import io
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
+def get_net_class(network_type):
+    if network_type == "DQN":
+        return DQN
+    if network_type == "AdvantageDQN":
+        return AdvantageDQN
+    if network_type == "NoisyDQN":
+        return NoisyDQN
+    raise ValueError(f"Net type {network_type} not supported!")
+
+
 class DQNAgent:
 
-    def __init__(self, size_s, size_a, lr, gamma, multistep, grad_clip, q_clip, size_n=128):
+    def __init__(self, network_type, size_s, size_a, lr, gamma, multistep, grad_clip, q_clip,
+                 size_n=128):
         self.dev = torch.device("cpu")  # CPU is faster for small networks
         self.q_clip = q_clip
-        self.dqn1 = AdvantageDQN(size_s, size_a, size_n).to(self.dev)
-        self.dqn2 = AdvantageDQN(size_s, size_a, size_n).to(self.dev)
+        self.network_type = network_type
+        Net = get_net_class(network_type)
+        self.dqn1 = Net(size_s, size_a, size_n).to(self.dev)
+        self.dqn2 = Net(size_s, size_a, size_n).to(self.dev)
         self.dqn1_opt = torch.optim.Adam(self.dqn1.parameters(), lr=lr)
         self.dqn2_opt = torch.optim.Adam(self.dqn2.parameters(), lr=lr)
         self.gamma = gamma
@@ -44,7 +58,7 @@ class DQNAgent:
             q_a_next = torch.clamp(estimate_net(next_states)[range(batch_size), a_next],
                                    -self.q_clip, self.q_clip)
             q_td = rewards + self.gamma ** self.multistep * q_a_next * (1 - dones)
-        loss = torch.nn.functional.mse_loss(q_a, q_td)
+        loss = F.mse_loss(q_a, q_td)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
         train_opt.step()
@@ -84,13 +98,19 @@ class DQNAgent:
         dqn2_buff.seek(0)
         self.dqn2 = torch.load(dqn2_buff)
 
+    def update_callback(self):
+        if self.network_type == "NoisyDQN":
+            self.dqn1.reset_noise()
+            self.dqn2.reset_noise()
+
 
 class ClientAgent:
 
-    def __init__(self, size_s, size_a, size_n=128):
+    def __init__(self, network_type, size_s, size_a, size_n=128):
         self.dev = torch.device("cpu")  # CPU is faster for small networks
-        self.dqn1 = AdvantageDQN(size_s, size_a, size_n).to(self.dev)
-        self.dqn2 = AdvantageDQN(size_s, size_a, size_n).to(self.dev)
+        Net = get_net_class(network_type)
+        self.dqn1 = Net(size_s, size_a, size_n).to(self.dev)
+        self.dqn2 = Net(size_s, size_a, size_n).to(self.dev)
         self._model_id = None
         self.shared = False
 
@@ -150,13 +170,12 @@ class ClientAgent:
 
 class DQN(nn.Module):
 
-    def __init__(self, size_s, size_a):
+    def __init__(self, size_s, size_a, size_n=128):
         super().__init__()
-        N = 128
-        self.linear1 = nn.Linear(size_s, N)
-        self.linear2 = nn.Linear(N, N)
-        self.linear3 = nn.Linear(N, N)
-        self.output = nn.Linear(N, size_a)
+        self.linear1 = nn.Linear(size_s, size_n)
+        self.linear2 = nn.Linear(size_n, size_n)
+        self.linear3 = nn.Linear(size_n, size_n)
+        self.output = nn.Linear(size_n, size_a)
 
     def forward(self, x):
         x = torch.relu(self.linear1(x))
@@ -188,3 +207,69 @@ class AdvantageDQN(nn.Module):
         v_s = self.baseline(x)
         a_s = self.advantage(x)
         return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)
+
+
+class NoisyDQN(nn.Module):
+
+    def __init__(self, size_s, size_a, size_n=128):
+        super().__init__()
+        self.linear1 = nn.Linear(size_s, size_n)
+        self.noisy1 = NoisyLinear(size_n, size_n)
+        self.noisy2 = NoisyLinear(size_n, size_a)
+
+    def forward(self, x):
+        x = torch.relu(self.linear1(x))
+        x = torch.relu(self.noisy1(x))
+        return self.noisy2(x)
+
+    def reset_noise(self):
+        self.noisy1.reset_noise()
+        self.noisy2.reset_noise()
+
+
+class NoisyLinear(nn.Module):
+
+    def __init__(self, size_in: int, size_out: int, std_init: float = 0.5):
+        super().__init__()
+        self.size_in = size_in
+        self.size_out = size_out
+        self.std_init = std_init
+
+        self.weight_mu = nn.Parameter(torch.Tensor(size_out, size_in))
+        self.weight_sigma = nn.Parameter(torch.Tensor(size_out, size_in))
+        self.register_buffer("weight_epsilon", torch.Tensor(size_out, size_in))
+
+        self.bias_mu = nn.Parameter(torch.Tensor(size_out))
+        self.bias_sigma = nn.Parameter(torch.Tensor(size_out))
+        self.register_buffer("bias_epsilon", torch.Tensor(size_out))
+
+        self.reset_parameters()
+        self.reset_noise()
+
+    def reset_parameters(self):
+        mu_range = 1 / np.sqrt(self.size_in)
+        self.weight_mu.data.uniform_(-mu_range, mu_range)
+        # torch.nn.init.orthogonal_(self.weight_mu)
+        self.weight_sigma.data.fill_(self.std_init / np.sqrt(self.size_in))
+        # torch.nn.init.constant_(self.weight_sigma, self.std_init / np.sqrt(self.size_in))
+        self.bias_mu.data.uniform_(-mu_range, mu_range)
+        # torch.nn.init.uniform_(self.bias_mu, -mu_range, mu_range)
+        self.bias_sigma.data.fill_(self.std_init / np.sqrt(self.size_out))
+        # torch.nn.init.constant_(self.bias_sigma, self.std_init / np.sqrt(self.size_out))
+
+    def reset_noise(self):
+        epsilon_in = self.scale_noise(self.size_in)
+        epsilon_out = self.scale_noise(self.size_out)
+        # outer product
+        self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))
+        self.bias_epsilon.copy_(epsilon_out)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
+        bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
+        return F.linear(x, weight, bias)
+
+    @staticmethod
+    def scale_noise(size: int) -> torch.Tensor:
+        x = torch.randn(size)
+        return x.sign().mul(x.abs().sqrt())
