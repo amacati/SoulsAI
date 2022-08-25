@@ -81,7 +81,7 @@ def load_config(default_config_path, config_path=None):
 
 
 def load_remote_config(address, secret):
-    red = redis.Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
+    red = redis.Redis(host=address, port=6379, password=secret, db=0, decode_responses=True)
     config = None
     while config is None:
         config = red.get("config")
