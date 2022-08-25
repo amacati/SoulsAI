@@ -17,6 +17,7 @@ services:
     volumes:
       - ./config/:/home/SoulsAI/config/
       - ./soulsai/distributed/server/train_node:/home/SoulsAI/soulsai/distributed/server/train_node
+      - ./saves/:/home/SoulsAI/saves
     depends_on:
       - redis
     user: "1000"

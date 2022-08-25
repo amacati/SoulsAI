@@ -1,10 +1,13 @@
+import json
 from types import SimpleNamespace
 import logging
 from pathlib import Path
 from datetime import datetime
+import time
 
 import numpy as np
 import yaml
+import redis
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,18 @@ def load_config(default_config_path, config_path=None):
             logger.warning("Using noisy nets with epsilon > 0. Setting epsilon to 0")
             config["eps_max"], config["eps_min"], config["eps_steps"] = [0], [0], [1]
     return SimpleNamespace(**config)
+
+
+def load_remote_config(address, secret):
+    red = redis.Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
+    config = None
+    while config is None:
+        config = red.get("config")
+        time.sleep(3)
+        logger.debug("Waiting for remote config")
+    config = SimpleNamespace(**json.loads(config))
+    config.redis_address = address
+    return config
 
 
 def load_redis_secret(path):

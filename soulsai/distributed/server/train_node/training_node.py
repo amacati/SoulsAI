@@ -8,17 +8,15 @@ import time
 
 from redis import Redis
 
-from soulsai.core.replay_buffer import ExperienceReplayBuffer, PerformanceBuffer
+from soulsai.core.replay_buffer import PerformanceBuffer
 from soulsai.core.agent import DQNAgent
 from soulsai.core.scheduler import EpsilonScheduler
-from soulsai.utils import load_redis_secret
+from soulsai.utils import load_redis_secret, mkdir_date
 
 logger = logging.getLogger(__name__)
 
 
 class TrainingNode:
-
-    SAVE_PATH = Path(__file__).parent / "save"
 
     def __init__(self, config, decode_sample):
         logger.info("Training node startup")
@@ -28,6 +26,19 @@ class TrainingNode:
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
         self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
+
+        # Create unique directory
+        save_root_dir = Path(__file__).parents[4] / "saves"
+        save_root_dir.mkdir(exist_ok=True)
+        if config.load_checkpoint:
+            self.save_dir = [f for f in save_root_dir.iterdir() if f.is_dir()][-1]  # Get newest
+        else:
+            self.save_dir = mkdir_date(save_root_dir)
+        config.save_dir = self.save_dir.name
+        # Upload config to redis to share with client and telemetry node
+        logger.info("Saving config to redis for synchronization")
+        self.red.set("config", json.dumps(vars(config)))
+
         self.sub.subscribe("samples")
         self.sample_cnt = 0  # Track number of samples for training trigger
         self.model_cnt = 0  # Track number of model iterations for checkpoint trigger
@@ -113,27 +124,17 @@ class TrainingNode:
             self.agent.update_callback()
 
     def checkpoint(self):
-        self.SAVE_PATH.mkdir(exist_ok=True)
-        self.agent.save(self.SAVE_PATH)  # Agent only takes the save directory
-        with open(self.SAVE_PATH / "config.json", "w") as f:
+        self.save_dir.mkdir(exist_ok=True)
+        self.agent.save(self.save_dir)  # Agent only takes the save directory
+        with open(self.save_dir / "config.json", "w") as f:
             json.dump(vars(self.config), f)
-        self.buffer.save(self.SAVE_PATH / "buffer.pkl")
-        self.eps_scheduler.save(self.SAVE_PATH / "eps_scheduler.json")
+        self.buffer.save(self.save_dir / "buffer.pkl")
+        self.eps_scheduler.save(self.save_dir / "eps_scheduler.json")
 
     def load_checkpoint(self):
-        self.agent.load(self.SAVE_PATH)
-        self.buffer.load(self.SAVE_PATH / "buffer.pkl")
-        self.eps_scheduler.load(self.SAVE_PATH / "eps_scheduler.json")
+        self.agent.load(self.save_dir)
+        self.buffer.load(self.save_dir / "buffer.pkl")
+        self.eps_scheduler.load(self.save_dir / "eps_scheduler.json")
         if self.config.load_checkpoint_config:
-            with open(self.SAVE_PATH / "config.json", "r") as f:
+            with open(self.save_dir / "config.json", "r") as f:
                 self.config = SimpleNamespace(**json.load(f))
-
-    def load_buffer(self, nsamples=None):
-        nsamples = nsamples or self.buffer.maxlen
-        random_buffer = ExperienceReplayBuffer()
-        random_buffer.load(self.SAVE_PATH / "random_buffer.pkl")
-        assert len(random_buffer) >= nsamples
-        self.buffer.clear()
-        while not len(self.buffer) == nsamples:
-            self.buffer.append(self._numpify_sample(random_buffer.buffer.pop()))
-        logger.info("Loaded buffer with neutral samples")

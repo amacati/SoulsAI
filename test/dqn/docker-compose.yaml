@@ -18,6 +18,7 @@ services:
       - ../../config/:/home/SoulsAI/config/
       - ../../soulsai/:/home/SoulsAI/soulsai/
       - ../../test/:/home/SoulsAI/test/
+      - ../../saves/:/home/SoulsAI/saves/
     depends_on:
       - redis
     user: "1000"

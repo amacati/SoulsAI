@@ -8,8 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from oauth2client.service_account import ServiceAccountCredentials
 
-from soulsai.utils import mkdir_date
-from soulsai.utils import load_redis_secret
+from soulsai.utils import load_redis_secret, load_remote_config
 from soulsai.utils.visualization import save_plots
 
 logger = logging.getLogger(__name__)
@@ -22,13 +21,13 @@ class TelemetryNode:
 
     def __init__(self, config):
         logger.info("Telemetry node startup")
-        self.config = config
         # Read redis server secret
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
         self.red = redis.Redis(host='redis', port=6379, password=secret, db=0,
                                decode_responses=True)
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub_telemetry.subscribe("telemetry")
+        self.config = load_remote_config(config.redis_address, secret)
 
         self.rewards = []
         self.steps = []
@@ -36,9 +35,7 @@ class TelemetryNode:
         self.wins = []
         self.eps = []
 
-        save_root_dir = Path(__file__).parents[4] / "saves"
-        save_root_dir.mkdir(exist_ok=True)
-        save_dir = mkdir_date(save_root_dir)
+        save_dir = Path(__file__).parents[4] / "saves" / self.config.save_dir
         self.figure_path = save_dir / "SoulsAIDashboard.png"
         self.stats_path = save_dir / "SoulsAIStats.json"
 
@@ -48,7 +45,7 @@ class TelemetryNode:
                 # Set up the Google Drive service and create the Dashboard file if it does not
                 # already exist
                 credentials = ServiceAccountCredentials.from_json_keyfile_name(self.GSA_SECRET,
-                                                                            self.GSA_SCOPES)
+                                                                               self.GSA_SCOPES)
                 self.gdrive_srv = build("drive", 'v3', credentials=credentials)
                 metadata = {"name": "SoulsAIDashboard.png", "parents": [self.config.gdrive_dir]}
                 self.update_dashboard(drive_update=False)

@@ -1,4 +1,5 @@
 from pathlib import Path
+from soulsai.utils import load_remote_config, load_redis_secret
 
 import soulsgym  # noqa: F401, needs to register SoulsGym envs with gym module
 
@@ -22,5 +23,7 @@ def encode_tel(msg):
 if __name__ == "__main__":
     node_dir = Path(__file__).parents[3] / "config"
     config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
+    secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
+    config = load_remote_config(config.redis_address, secret)
     client_node(config, tf_state_callback=gamestate2np, tel_callback=tel_callback,
                 encode_sample=encode_sample, encode_tel=encode_tel)
