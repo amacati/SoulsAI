@@ -26,6 +26,9 @@ class TrainingNode:
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
         self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
+        self.quicksave_sub = self.red.pubsub()
+        self.quicksave_sub.psubscribe({"manual_save": self.quicksave})
+        self.quicksave_sub.run_in_thread(sleep_time=1.)
 
         # Create unique directory
         save_root_dir = Path(__file__).parents[4] / "saves"
@@ -138,3 +141,6 @@ class TrainingNode:
         if self.config.load_checkpoint_config:
             with open(self.save_dir / "config.json", "r") as f:
                 self.config = SimpleNamespace(**json.load(f))
+
+    def quicksave(self, msg):
+        raise NotImplementedError
