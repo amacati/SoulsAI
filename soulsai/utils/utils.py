@@ -75,8 +75,7 @@ def load_config(default_config_path, config_path=None):
         raise RuntimeError(f"Loglevel {config['loglevel']} in config not supported!")
     if config["network_type"] == "NoisyDQN":
         if not all([eps == 0 for eps in config["eps_max"]]):
-            logger.warning("Using noisy nets with epsilon > 0. Setting epsilon to 0")
-            config["eps_max"], config["eps_min"], config["eps_steps"] = [0], [0], [1]
+            logger.warning("Using noisy nets with epsilon > 0!")
     return SimpleNamespace(**config)
 
 

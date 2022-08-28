@@ -5,6 +5,7 @@ from pathlib import Path
 from collections import deque
 from types import SimpleNamespace
 import time
+from threading import Lock
 
 from redis import Redis
 
@@ -27,20 +28,14 @@ class TrainingNode:
         self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.quicksave_sub = self.red.pubsub()
-        self.quicksave_sub.psubscribe({"manual_save": self.quicksave})
+        self.quicksave_sub.psubscribe(manual_save=self.quicksave)
         self.quicksave_sub.run_in_thread(sleep_time=1.)
+        self.lock = Lock()
 
         # Create unique directory
         save_root_dir = Path(__file__).parents[4] / "saves"
         save_root_dir.mkdir(exist_ok=True)
-        if config.load_checkpoint:
-            self.save_dir = [f for f in save_root_dir.iterdir() if f.is_dir()][-1]  # Get newest
-        else:
-            self.save_dir = mkdir_date(save_root_dir)
-        config.save_dir = self.save_dir.name
-        # Upload config to redis to share with client and telemetry node
-        logger.info("Saving config to redis for synchronization")
-        self.red.set("config", json.dumps(vars(config)))
+        self.save_dir = mkdir_date(save_root_dir)
 
         self.sub.subscribe("samples")
         self.sample_cnt = 0  # Track number of samples for training trigger
@@ -60,10 +55,15 @@ class TrainingNode:
         self.eps_scheduler = EpsilonScheduler(self.config.eps_max, self.config.eps_min,
                                               self.config.eps_steps, zero_ending=True)
         if self.config.load_checkpoint:
-            self.load_checkpoint()
+            self.load_checkpoint(save_root_dir / "checkpoint")
             logger.info("Checkpoint loading complete")
         else:
-            self.checkpoint()  # Checkpoint to make config accessible for sanity checking
+            self.checkpoint(self.save_dir)  # Make config accessible for sanity checking
+        self.config.save_dir = self.save_dir.name
+        # Upload config to redis to share with client and telemetry node
+        logger.info("Saving config to redis for synchronization")
+        self.red.set("config", json.dumps(vars(self.config)))
+
         self.push_model_update()
         logger.info("Initial model upload successful, startup complete")
 
@@ -78,15 +78,18 @@ class TrainingNode:
             if not self._check_sample(sample):
                 continue
             sample = self.decode_sample(sample)
-            self.buffer.append(sample)
+            with self.lock:  # Avoid races when checkpointing
+                self.buffer.append(sample)
             self.sample_cnt += 1
             self.done_cnt += sample[4]
             if (self.done_cnt / self.config.dqn_multistep) >= 1:
                 self.done_cnt = 0
-                self.eps_scheduler.step()
+                with self.lock:  # Avoid races when checkpointing
+                    self.eps_scheduler.step()
             sufficient_samples = len(self.buffer) >= self.config.batch_size
             if self.sample_cnt >= self.config.update_samples and sufficient_samples:
-                self.model_update()
+                with self.lock:  # Avoid races when checkpointing
+                    self.model_update()
                 self.sample_cnt = 0
 
     def model_update(self):
@@ -99,7 +102,7 @@ class TrainingNode:
         self.model_cnt += 1
         if self.model_cnt >= self.config.checkpoint_epochs:
             tstart = time.time()
-            self.checkpoint()
+            self.checkpoint(self.save_dir)
             logger.info(f"Training checkpoint successful, took {time.time() - tstart:.2f}s")
             self.model_cnt = 0
 
@@ -126,21 +129,24 @@ class TrainingNode:
                 self.agent.train(states, actions, rewards, next_states, dones)
             self.agent.update_callback()
 
-    def checkpoint(self):
-        self.save_dir.mkdir(exist_ok=True)
-        self.agent.save(self.save_dir)  # Agent only takes the save directory
-        with open(self.save_dir / "config.json", "w") as f:
+    def checkpoint(self, path):
+        logger.info("Checkpointing...")
+        path.mkdir(exist_ok=True)
+        self.agent.save(path)  # Agent only takes the save directory
+        with open(path / "config.json", "w") as f:
             json.dump(vars(self.config), f)
-        self.buffer.save(self.save_dir / "buffer.pkl")
-        self.eps_scheduler.save(self.save_dir / "eps_scheduler.json")
+        self.buffer.save(path / "buffer.pkl")
+        self.eps_scheduler.save(path / "eps_scheduler.json")
+        logger.info("Checkpoint finished")
 
-    def load_checkpoint(self):
-        self.agent.load(self.save_dir)
-        self.buffer.load(self.save_dir / "buffer.pkl")
-        self.eps_scheduler.load(self.save_dir / "eps_scheduler.json")
+    def load_checkpoint(self, path):
+        self.agent.load(path)
+        self.buffer.load(path / "buffer.pkl")
+        self.eps_scheduler.load(path / "eps_scheduler.json")
         if self.config.load_checkpoint_config:
-            with open(self.save_dir / "config.json", "r") as f:
+            with open(path / "config.json", "r") as f:
                 self.config = SimpleNamespace(**json.load(f))
 
-    def quicksave(self, msg):
-        raise NotImplementedError
+    def quicksave(self, _):
+        with self.lock:
+            self.checkpoint(self.save_dir)

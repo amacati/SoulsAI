@@ -39,6 +39,19 @@ class TelemetryNode:
         self.figure_path = save_dir / "SoulsAIDashboard.png"
         self.stats_path = save_dir / "SoulsAIStats.json"
 
+        if self.config.load_checkpoint:
+            path = Path(__file__).parents[4] / "saves" / "checkpoint" / "SoulsAIStats.json"
+            if path.exists() and path.is_file():
+                with open(path, "r") as f:
+                    stats = json.load(f)
+                self.rewards = stats["rewards"]
+                self.steps = stats["steps"]
+                self.boss_hp = stats["boss_hp"]
+                self.wins = stats["wins"]
+                self.eps = stats["eps"]
+            else:
+                logger.warning("Loading from checkpoint, but no previous telemetry found.")
+
         if self.config.gdrive_sync:
             logger.info("Authenticating with Google Drive for live telemetry")
             try:

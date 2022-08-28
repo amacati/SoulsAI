@@ -3,6 +3,7 @@
 *.json
 *.log
 /plots
+/build
 /saves/*
 *pkl
 **/*__pycache__
@@ -17,4 +18,5 @@ test/**/config.yaml
 **/*.secret
 
 # Force folder saves to be included in repo to make sure docker compose mounts saves as directory, not as file
-!saves/.gitkeep
+!**.gitkeep
+!/saves/checkpoint/
