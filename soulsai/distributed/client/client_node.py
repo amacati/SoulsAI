@@ -5,6 +5,8 @@ from collections import deque
 
 import numpy as np
 import gym
+from soulsai.core.noise import UniformDiscreteNoise
+from soulsai.exception import InvalidConfigError
 
 from soulsai.distributed.client.connector import Connector
 
@@ -28,6 +30,7 @@ def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_t
     # Connector enables non-blocking server interaction
     con = Connector(config, encode_sample, encode_tel)
     env = gym.make(config.env)
+    noise = _get_noise(config)
 
     logger.info("Client node running")
     try:
@@ -51,7 +54,7 @@ def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_t
                     eps = con.eps
                     model_id = con.model_id
                     if np.random.rand() < eps:
-                        action = env.action_space.sample()
+                        action = noise.sample()
                     else:
                         action = con.agent(tfstate)
                 next_state, reward, done, _ = env.step(action)
@@ -66,6 +69,7 @@ def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_t
                 steps += 1
                 if config.step_delay:  # Enable Dockerfiles to simulate slow clients
                     time.sleep(config.step_delay)
+            noise.reset()
             for i in range(1, len(rewards)):
                 sum_r = sum([rewards[i + j] * config.gamma**j for j in range(config.dqn_multistep - i)])
                 con.push_sample(model_id, [states[i], actions[i], sum_r, states[-1], done])
@@ -75,3 +79,11 @@ def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_t
     finally:
         env.close()
         con.close()
+
+
+def _get_noise(config):
+    if config.noise == "UniformDiscreteNoise":
+        noise_cls = UniformDiscreteNoise
+    else:
+        raise InvalidConfigError(f"Noise type {config.noise} not supported.")
+    return noise_cls(**config.noise_kwargs)

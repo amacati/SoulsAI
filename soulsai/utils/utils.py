@@ -9,6 +9,8 @@ import numpy as np
 import yaml
 import redis
 
+from soulsai.exception import InvalidConfigError, MissingConfigError
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,7 +74,7 @@ def load_config(default_config_path, config_path=None):
     elif loglvl == "error":
         config["loglevel"] = logging.ERROR
     else:
-        raise RuntimeError(f"Loglevel {config['loglevel']} in config not supported!")
+        raise InvalidConfigError(f"Loglevel {config['loglevel']} in config not supported!")
     if config["network_type"] == "NoisyDQN":
         if not all([eps == 0 for eps in config["eps_max"]]):
             logger.warning("Using noisy nets with epsilon > 0!")
@@ -101,5 +103,5 @@ def load_redis_secret(path):
             secret = line[12:]
             break
     if secret is None:
-        raise RuntimeError(f"Missing password configuration for redis in {path}")
+        raise MissingConfigError(f"Missing password configuration for redis in {path}")
     return secret

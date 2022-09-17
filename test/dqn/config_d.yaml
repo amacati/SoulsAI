@@ -27,6 +27,9 @@ fill_buffer: False
 dqn_multistep: 1
 layer_width: 128
 network_type: "DQN"
+noise: "UniformDiscreteNoise"
+noise_kwargs:
+  size_n: 4
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration
