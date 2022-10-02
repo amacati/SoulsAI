@@ -91,7 +91,7 @@ class TelemetryNode:
             # read new samples
             msg = self.sub_telemetry.get_message()
             if not msg:
-                time.sleep(5)
+                time.sleep(1)
                 continue
             sample = json.loads(msg["data"])
 

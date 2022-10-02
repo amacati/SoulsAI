@@ -112,9 +112,9 @@ class Connector:
     def _consume_msgs(msg_pipe, address, secret, stop_event, encode_sample, encode_tel):
         logger.debug("Background message consumer process startup")
         red = redis.Redis(host=address, password=secret, port=6379, db=0)
-        while not stop_event.is_set():
+        while not stop_event.is_set() or msg_pipe.poll():
             if not msg_pipe.poll(1):
-                continue  # Check if stop event has been set
+                continue  # Check again if stop event has been set
             msg = msg_pipe.recv()
             if msg[0] == "sample":
                 sample = encode_sample(msg)
