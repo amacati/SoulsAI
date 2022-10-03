@@ -29,6 +29,11 @@ class TelemetryNode:
         self.sub_telemetry.subscribe("telemetry")
         self.config = load_remote_config(config.redis_address, secret)
 
+        self._shutdown = False
+        self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
+        self.cmd_sub.psubscribe(shutdown=self.shutdown)
+        self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
+
         self.rewards = []
         self.steps = []
         self.boss_hp = []
@@ -87,7 +92,7 @@ class TelemetryNode:
 
     def run(self):
         logger.info("Telemetry node running")
-        while True:
+        while not self._shutdown:
             # read new samples
             msg = self.sub_telemetry.get_message()
             if not msg:
@@ -119,3 +124,7 @@ class TelemetryNode:
             except Exception as e:  # noqa: E722
                 logger.warning(f"Dashboard upload to Google Drive failed. Error was: {e}")
         logger.info("Dashboard updated")
+
+    def shutdown(self, _):
+        logger.info("Shutdown signaled")
+        self._shutdown = True

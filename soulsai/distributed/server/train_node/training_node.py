@@ -23,13 +23,14 @@ class TrainingNode:
         logger.info("Training node startup")
         self.config = config
         self.decode_sample = decode_sample
+        self._shutdown = False
         # Read redis server secret
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
         self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.quicksave_sub = self.red.pubsub()
-        self.quicksave_sub.psubscribe(manual_save=self.quicksave)
-        self.quicksave_sub.run_in_thread(sleep_time=1.)
+        self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
+        self.cmd_sub.psubscribe(manual_save=self.quicksave, shutdown=self.shutdown)
+        self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
         self.lock = Lock()
 
         # Create unique directory
@@ -38,9 +39,7 @@ class TrainingNode:
         self.save_dir = mkdir_date(save_root_dir)
 
         self.sub.subscribe("samples")
-        self.sample_cnt = 0  # Track number of samples for training trigger
         self.model_cnt = 0  # Track number of model iterations for checkpoint trigger
-        self.done_cnt = 0  # Track number of completed trajectories for epsilon decay
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
 
         self.agent = DQNAgent(self.config.network_type, self.config.n_states, self.config.n_actions,
@@ -69,7 +68,9 @@ class TrainingNode:
 
     def run(self):
         logger.info("Training node running")
-        while True:
+        sample_cnt = 0
+        done_cnt = 0
+        while not self._shutdown:
             msg = self.sub.get_message()
             if not msg:
                 time.sleep(0.01)
@@ -80,17 +81,19 @@ class TrainingNode:
             sample = self.decode_sample(sample)
             with self.lock:  # Avoid races when checkpointing
                 self.buffer.append(sample)
-            self.sample_cnt += 1
-            self.done_cnt += sample[4]
-            if (self.done_cnt / self.config.dqn_multistep) >= 1:
-                self.done_cnt = 0
+            sample_cnt += 1
+            done_cnt += sample[4]
+            if (done_cnt / self.config.dqn_multistep) >= 1:
+                done_cnt = 0
                 with self.lock:  # Avoid races when checkpointing
                     self.eps_scheduler.step()
             sufficient_samples = len(self.buffer) >= self.config.batch_size
-            if self.sample_cnt >= self.config.update_samples and sufficient_samples:
+            if sample_cnt >= self.config.update_samples and sufficient_samples:
                 with self.lock:  # Avoid races when checkpointing
                     self.model_update()
-                self.sample_cnt = 0
+                logger.info("Model update complete")
+                sample_cnt = 0
+        logger.info("Training node has shut down")
 
     def model_update(self):
         logger.info("Training model")
@@ -118,7 +121,7 @@ class TrainingNode:
         if sample.get("model_id") in self.model_ids:
             logger.debug("Sample ID accepted")
             return True
-        logger.warning("Sample ID rejected")
+        logger.debug("Sample ID rejected")
         return False
 
     def train_model(self):
@@ -150,3 +153,7 @@ class TrainingNode:
     def quicksave(self, _):
         with self.lock:
             self.checkpoint(self.save_dir)
+
+    def shutdown(self, _):
+        logger.info("Shutdown signaled")
+        self._shutdown = True

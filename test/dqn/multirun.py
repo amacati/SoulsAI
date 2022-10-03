@@ -8,33 +8,39 @@ import json
 import docker
 import numpy as np
 import matplotlib.pyplot as plt
+from redis import Redis
 
-from soulsai.utils import mkdir_date
+from soulsai.utils import mkdir_date, load_redis_secret
 
 
 def launch_training(dock, n_clients):
-    subprocess.Popen(['docker', 'compose',  'up', '--scale', 'client_node=' + str(n_clients)],
-                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    while not len(dock.containers.list(filters={"name": "dqn-client_node"})):
+    p = subprocess.Popen(['docker', 'compose',  'up', '--scale', 'client_node=' + str(n_clients)])
+    while not dock.containers.list(filters={"name": "dqn-client_node"}):
         time.sleep(0.1)
+    return p
 
 
-def kill_nodes(dock):
-    if len(dock.containers.list()) != 0:
-        subprocess.Popen(['docker', 'compose', 'stop'])
-        try:
-            while len(dock.containers.list()):
-                try:
-                    for c in dock.containers.list():
-                        c.stop()
-                except:
-                    ...
-                time.sleep(0.1)
-        except:
-            ...
+def shutdown_nodes(dock):
+    if dock.containers.list():
+        if dock.containers.list(filters={"name": "dqn-redis"}):
+            publish_shutdown_cmd()
+            while dock.containers.list(filters={"name": ["dqn-telemetry_node", "dqn-train_node"]}):
+                time.sleep(1)
+        p = subprocess.Popen(['docker', 'compose', 'stop'])
+        while dock.containers.list():
+            time.sleep(1)
+        p.kill()
+
+
+def publish_shutdown_cmd():
+    config_dir = Path(__file__).parents[2] / "config"
+    secret = load_redis_secret(config_dir / "redis.secret")
+    red = Redis(host="localhost", port=6379, password=secret, db=0, decode_responses=True)
+    red.publish("shutdown", 1)
+
 
 def check_training_done(dock):
-    if len(dock.containers.list(filters={"name": "dqn-client_node"})) > 0:
+    if dock.containers.list(filters={"name": "dqn-client_node"}):
         return False
     return True
 
@@ -44,7 +50,7 @@ def save_plots(results, path):
     t = np.arange(nepisodes)
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Dashboard")
-    
+
     rewards = np.array([results[run]["rewards"] for run in results])
     reward_mean = np.mean(rewards, axis=0)
     reward_std = np.std(rewards, axis=0)
@@ -55,9 +61,7 @@ def save_plots(results, path):
     ax[0, 0].set_xlabel("Episodes")
     ax[0, 0].set_ylabel("Total reward")
     ax[0, 0].grid(alpha=0.3)
-    lim_low = max(min(reward_mean) - 100, -300)
-    lim_up = max(reward_mean) + 100
-    ax[0, 0].set_ylim([lim_low, lim_up])
+    ax[0, 0].set_ylim([-350, 350])
 
     steps = np.array([results[run]["steps"] for run in results])
     steps_mean = np.mean(steps, axis=0)
@@ -71,9 +75,7 @@ def save_plots(results, path):
     ax[0, 1].set_xlabel("Episodes")
     ax[0, 1].set_ylabel("Number of steps")
     ax[0, 1].grid(alpha=0.3)
-    lim_low = max(min(steps_mean - steps_std) - 100, 0)
-    lim_up = max(steps_mean + steps_std) + 100
-    ax[0, 1].set_ylim([lim_low, lim_up])
+    ax[0, 1].set_ylim([0, 1100])
 
     if results["run0"]["eps"][0] is not None:
         secax_y = ax[0, 1].twinx()
@@ -114,15 +116,16 @@ def save_plots(results, path):
 def main(args):
     dock = docker.from_env()
     # Check if containers still running, kill them
-    kill_nodes(dock)
+    shutdown_nodes(dock)
     # Spawn containers
     for i in range(args.nruns):
         print(f"Launching job {i+1}")
-        launch_training(dock, args.nclients)
+        train_process = launch_training(dock, args.nclients)
         while not check_training_done(dock):
             time.sleep(1)
-        time.sleep(2)  # Give telemetry node time to process the latest samples
-        kill_nodes(dock)
+        time.sleep(3)  # Give telemetry node time to process the latest samples
+        train_process.kill()
+        shutdown_nodes(dock)
     # Summarize results in multirun experiment save
     if args.nruns:
         save_root = Path(__file__).parents[2] / "saves"
