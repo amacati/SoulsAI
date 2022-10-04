@@ -47,6 +47,8 @@ class DQNAgent:
         batch_size = states.shape[0]
         coin = random.choice([True, False])
         train_net, estimate_net = (self.dqn1, self.dqn2) if coin else (self.dqn2, self.dqn1)
+        self.dqn1_opt.zero_grad()
+        self.dqn2_opt.zero_grad()
         train_opt = self.dqn1_opt if coin else self.dqn2_opt
         states = torch.as_tensor(states, dtype=torch.float32).to(self.dev)
         rewards = torch.as_tensor(rewards, dtype=torch.float32).to(self.dev)

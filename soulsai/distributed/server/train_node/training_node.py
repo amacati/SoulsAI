@@ -70,6 +70,7 @@ class TrainingNode:
         logger.info("Training node running")
         sample_cnt = 0
         done_cnt = 0
+        no_reject = True  # Flag to track if a sample has been rejected during the current iteration
         while not self._shutdown:
             msg = self.sub.get_message()
             if not msg:
@@ -77,6 +78,9 @@ class TrainingNode:
                 continue
             sample = json.loads(msg["data"])
             if not self._check_sample(sample):
+                if no_reject:  # Only warn once to avoid log congestion
+                    logger.warning("Sample ID rejected")
+                    no_reject = False
                 continue
             sample = self.decode_sample(sample)
             with self.lock:  # Avoid races when checkpointing
@@ -93,6 +97,7 @@ class TrainingNode:
                     self.model_update()
                 logger.info("Model update complete")
                 sample_cnt = 0
+                no_reject = True
         logger.info("Training node has shut down")
 
     def model_update(self):
@@ -110,18 +115,16 @@ class TrainingNode:
             self.model_cnt = 0
 
     def push_model_update(self):
-        logger.info(f"Publishing new model with ID {self.model_id}")
+        logger.debug(f"Publishing new model with ID {self.model_id}")
         model_params = self.agent.serialize()
         model_params["eps"] = self.eps_scheduler.epsilon
         self.red.hmset("model_params", model_params)
         self.red.publish("model_update", self.model_id)
-        logger.info("Model update successful")
+        logger.debug("Model upload successful")
 
     def _check_sample(self, sample):
         if sample.get("model_id") in self.model_ids:
-            logger.debug("Sample ID accepted")
             return True
-        logger.debug("Sample ID rejected")
         return False
 
     def train_model(self):
