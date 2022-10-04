@@ -17,8 +17,7 @@ class Connector:
     def __init__(self, config, encode_sample, encode_tel):
         mp.set_start_method("spawn")
         self.config = config
-        self._agent = ClientAgent(config.network_type, config.n_states, config.n_actions,
-                                  config.layer_width)
+        self._agent = ClientAgent(config.network_type, config.network_kwargs)
         self._eps = mp.Value("d", -1.)
         self._lock = mp.Lock()
         self._update_event = mp.Event()
@@ -85,8 +84,7 @@ class Connector:
         model_params = {key.decode("utf-8"): value for key, value in _params.items()}
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
         # first and then overwrite the tensors of the main agent with load_state_dict
-        buffer_agent = ClientAgent(config.network_type, config.n_states, config.n_actions,
-                                   config.layer_width)
+        buffer_agent = ClientAgent(config.network_type, config.network_kwargs)
         buffer_agent.deserialize(model_params)
         with lock:
             buffer_agent.state_dict()

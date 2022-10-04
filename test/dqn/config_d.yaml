@@ -27,6 +27,10 @@ fill_buffer: False
 dqn_multistep: 1
 layer_width: 128
 network_type: "DQN"
+network_kwargs:
+  input_dims: 8
+  output_dims: 4
+  layer_dims: 256
 noise: "UniformDiscreteNoise"
 noise_kwargs:
   size_n: 4

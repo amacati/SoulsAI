@@ -23,14 +23,13 @@ def get_net_class(network_type):
 
 class DQNAgent:
 
-    def __init__(self, network_type, size_s, size_a, lr, gamma, multistep, grad_clip, q_clip,
-                 size_n=128):
+    def __init__(self, network_type, network_kwargs, lr, gamma, multistep, grad_clip, q_clip):
         self.dev = torch.device("cpu")  # CPU is faster for small networks
         self.q_clip = q_clip
         self.network_type = network_type
         Net = get_net_class(network_type)
-        self.dqn1 = Net(size_s, size_a, size_n).to(self.dev)
-        self.dqn2 = Net(size_s, size_a, size_n).to(self.dev)
+        self.dqn1 = Net(**network_kwargs).to(self.dev)
+        self.dqn2 = Net(**network_kwargs).to(self.dev)
         self.dqn1_opt = torch.optim.Adam(self.dqn1.parameters(), lr=lr)
         self.dqn2_opt = torch.optim.Adam(self.dqn2.parameters(), lr=lr)
         self.gamma = gamma
@@ -108,11 +107,11 @@ class DQNAgent:
 
 class ClientAgent:
 
-    def __init__(self, network_type, size_s, size_a, size_n=128):
+    def __init__(self, network_type, network_kwargs):
         self.dev = torch.device("cpu")  # CPU is faster for small networks
         Net = get_net_class(network_type)
-        self.dqn1 = Net(size_s, size_a, size_n).to(self.dev)
-        self.dqn2 = Net(size_s, size_a, size_n).to(self.dev)
+        self.dqn1 = Net(**network_kwargs).to(self.dev)
+        self.dqn2 = Net(**network_kwargs).to(self.dev)
         self._model_id = None
         self.shared = False
 
@@ -172,12 +171,12 @@ class ClientAgent:
 
 class DQN(nn.Module):
 
-    def __init__(self, size_s, size_a, size_n=128):
+    def __init__(self, input_dims, output_dims, layer_dims):
         super().__init__()
-        self.linear1 = nn.Linear(size_s, size_n)
-        self.linear2 = nn.Linear(size_n, size_n)
-        self.linear3 = nn.Linear(size_n, size_n)
-        self.output = nn.Linear(size_n, size_a)
+        self.linear1 = nn.Linear(input_dims, layer_dims)
+        self.linear2 = nn.Linear(layer_dims, layer_dims)
+        self.linear3 = nn.Linear(layer_dims, layer_dims)
+        self.output = nn.Linear(layer_dims, output_dims)
 
     def forward(self, x):
         x = torch.relu(self.linear1(x))
@@ -188,13 +187,13 @@ class DQN(nn.Module):
 
 class AdvantageDQN(nn.Module):
 
-    def __init__(self, size_s, size_a, size_n=128):
+    def __init__(self, input_dims, output_dims, layer_dims):
         super().__init__()
-        self.linear1 = nn.Linear(size_s, size_n)
-        self.linear2 = nn.Linear(size_n, size_n)
-        self.linear3 = nn.Linear(size_n, size_n)
-        self.baseline = nn.Linear(size_n, 1)
-        self.advantage = nn.Linear(size_n, size_a)
+        self.linear1 = nn.Linear(input_dims, layer_dims)
+        self.linear2 = nn.Linear(layer_dims, layer_dims)
+        self.linear3 = nn.Linear(layer_dims, layer_dims)
+        self.baseline = nn.Linear(layer_dims, 1)
+        self.advantage = nn.Linear(layer_dims, output_dims)
         for layer in (self.linear1, self.linear2, self.linear3):
             torch.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2.))
             torch.nn.init.constant_(layer.bias, val=0.)
@@ -213,11 +212,11 @@ class AdvantageDQN(nn.Module):
 
 class NoisyDQN(nn.Module):
 
-    def __init__(self, size_s, size_a, size_n=128):
+    def __init__(self, input_dims, output_dims, layer_dims):
         super().__init__()
-        self.linear1 = nn.Linear(size_s, size_n)
-        self.noisy1 = NoisyLinear(size_n, size_n)
-        self.noisy2 = NoisyLinear(size_n, size_a)
+        self.linear1 = nn.Linear(input_dims, layer_dims)
+        self.noisy1 = NoisyLinear(layer_dims, layer_dims)
+        self.noisy2 = NoisyLinear(layer_dims, output_dims)
 
     def forward(self, x):
         x = torch.relu(self.linear1(x))
@@ -231,37 +230,37 @@ class NoisyDQN(nn.Module):
 
 class NoisyLinear(nn.Module):
 
-    def __init__(self, size_in: int, size_out: int, std_init: float = 0.5):
+    def __init__(self, input_dims: int, output_dims: int, std_init: float = 0.5):
         super().__init__()
-        self.size_in = size_in
-        self.size_out = size_out
+        self.input_dims = input_dims
+        self.output_dims = output_dims
         self.std_init = std_init
 
-        self.weight_mu = nn.Parameter(torch.Tensor(size_out, size_in))
-        self.weight_sigma = nn.Parameter(torch.Tensor(size_out, size_in))
-        self.register_buffer("weight_epsilon", torch.Tensor(size_out, size_in))
+        self.weight_mu = nn.Parameter(torch.Tensor(output_dims, input_dims))
+        self.weight_sigma = nn.Parameter(torch.Tensor(output_dims, input_dims))
+        self.register_buffer("weight_epsilon", torch.Tensor(output_dims, input_dims))
 
-        self.bias_mu = nn.Parameter(torch.Tensor(size_out))
-        self.bias_sigma = nn.Parameter(torch.Tensor(size_out))
-        self.register_buffer("bias_epsilon", torch.Tensor(size_out))
+        self.bias_mu = nn.Parameter(torch.Tensor(output_dims))
+        self.bias_sigma = nn.Parameter(torch.Tensor(output_dims))
+        self.register_buffer("bias_epsilon", torch.Tensor(output_dims))
 
         self.reset_parameters()
         self.reset_noise()
 
     def reset_parameters(self):
-        mu_range = 1 / np.sqrt(self.size_in)
+        mu_range = 1 / np.sqrt(self.input_dims)
         self.weight_mu.data.uniform_(-mu_range, mu_range)
         # torch.nn.init.orthogonal_(self.weight_mu)
-        self.weight_sigma.data.fill_(self.std_init / np.sqrt(self.size_in))
-        # torch.nn.init.constant_(self.weight_sigma, self.std_init / np.sqrt(self.size_in))
+        self.weight_sigma.data.fill_(self.std_init / np.sqrt(self.input_dims))
+        # torch.nn.init.constant_(self.weight_sigma, self.std_init / np.sqrt(self.input_dims))
         self.bias_mu.data.uniform_(-mu_range, mu_range)
         # torch.nn.init.uniform_(self.bias_mu, -mu_range, mu_range)
-        self.bias_sigma.data.fill_(self.std_init / np.sqrt(self.size_out))
-        # torch.nn.init.constant_(self.bias_sigma, self.std_init / np.sqrt(self.size_out))
+        self.bias_sigma.data.fill_(self.std_init / np.sqrt(self.output_dims))
+        # torch.nn.init.constant_(self.bias_sigma, self.std_init / np.sqrt(self.output_dims))
 
     def reset_noise(self):
-        epsilon_in = self.scale_noise(self.size_in)
-        epsilon_out = self.scale_noise(self.size_out)
+        epsilon_in = self.scale_noise(self.input_dims)
+        epsilon_out = self.scale_noise(self.output_dims)
         # outer product
         self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))
         self.bias_epsilon.copy_(epsilon_out)
