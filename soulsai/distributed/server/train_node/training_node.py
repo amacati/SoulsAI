@@ -153,7 +153,7 @@ class TrainingNode:
             with open(path / "config.json", "r") as f:
                 saved_config = SimpleNamespace(**json.load(f))
             assert saved_config.env == self.config.env, "Configs' environments to not match!"
-        self.config = saved_config
+            self.config = saved_config
 
     def quicksave(self, _):
         with self.lock:
