@@ -40,20 +40,19 @@ def plot_comparison(names, results):
         reward_mean = np.mean(rewards, axis=0)
         reward_std = np.std(rewards, axis=0)
         ax[0, 0].plot(t, reward_mean, label="Mean reward " + name)
-        ax[0, 0].fill_between(t, reward_mean - reward_std, reward_mean + reward_std, alpha=0.4)
+        # ax[0, 0].fill_between(t, reward_mean - reward_std, reward_mean + reward_std, alpha=0.4)
 
         steps = np.array([result[run]["steps"] for run in result])
         steps_mean = np.mean(steps, axis=0)
         steps_std = np.std(steps, axis=0)
         ax[0, 1].plot(t, steps_mean, label="Mean steps " + name)
-        lower, upper = steps_mean - steps_std, steps_mean + steps_std
-        ax[0, 1].fill_between(t, lower, upper, alpha=0.4)
+        # ax[0, 1].fill_between(t, steps_mean - steps_std, steps_mean + steps_std, alpha=0.4)
 
         wins = np.array([result[run]["wins"] for run in result], dtype=np.float64)
         wins_mean = np.mean(wins, axis=0)
         wins_std = np.std(wins, axis=0)
         ax[1, 1].plot(t, wins_mean, label="Mean wins " + name)
-        ax[1, 1].fill_between(t, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
+        # ax[1, 1].fill_between(t, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
     # Plot legends
     if results[0]["run0"]["eps"][0] is None:
         ax[0, 1].legend()

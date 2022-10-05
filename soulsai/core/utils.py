@@ -98,8 +98,6 @@ def gamestate2np(gamestate: GameState) -> np.ndarray:
     boss_animation = boss_animation_encoder(filter_boss_animation(gamestate.boss_animation))
     boss_animation = boss_animation
     boss_animation_duration = gamestate.boss_animation_duration * 10.
-    combo_counter = gamestate.combo_length
-    return np.concatenate(([player_hp, player_sp, boss_hp, boss_distance, combo_counter,
-                            player_animation_duration, boss_animation_duration],
-                            player_pos, player_rot, boss_pos, boss_rot, camera_rot, 
-                            player_animation, boss_animation), dtype=np.float32)
+    return np.concatenate(([player_hp, player_sp, boss_hp, boss_distance, player_animation_duration,
+                            boss_animation_duration], player_pos, player_rot, boss_pos, boss_rot,
+                            camera_rot, player_animation, boss_animation), dtype=np.float32)

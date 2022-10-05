@@ -8,7 +8,7 @@ redis_address: "localhost"
 
 # Environment information
 env: SoulsGymIudex-v0
-n_states: 72
+n_states: 71
 n_actions: 20
 
 # Training parameters
