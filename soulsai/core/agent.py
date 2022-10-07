@@ -4,9 +4,8 @@ import multiprocessing as mp
 import io
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
+
+from soulsai.core.networks import DQN, AdvantageDQN, NoisyDQN
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,7 @@ class DQNAgent:
             q_a_next = torch.clamp(estimate_net(next_states)[range(batch_size), a_next],
                                    -self.q_clip, self.q_clip)
             q_td = rewards + self.gamma ** self.multistep * q_a_next * (1 - dones)
-        loss = F.mse_loss(q_a, q_td)
+        loss = torch.nn.functional.mse_loss(q_a, q_td)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
         train_opt.step()
@@ -98,6 +97,7 @@ class DQNAgent:
         dqn2_buff = io.BytesIO(serialization["dqn2"])
         dqn2_buff.seek(0)
         self.dqn2 = torch.load(dqn2_buff)
+        self.model_id = serialization["model_id"].decode("utf-8")
 
     def update_callback(self):
         if self.network_type == "NoisyDQN":
@@ -105,48 +105,12 @@ class DQNAgent:
             self.dqn2.reset_noise()
 
 
-class ClientAgent:
+class DQNClientAgent(DQNAgent):
 
     def __init__(self, network_type, network_kwargs):
-        self.dev = torch.device("cpu")  # CPU is faster for small networks
-        Net = get_net_class(network_type)
-        self.dqn1 = Net(**network_kwargs).to(self.dev)
-        self.dqn2 = Net(**network_kwargs).to(self.dev)
+        self.shared = False  # Shared before super init since model_id property gets called
+        super().__init__(network_type, network_kwargs, 0, 0, 0, 0, 0)
         self._model_id = None
-        self.shared = False
-
-    def __call__(self, x):
-        with torch.no_grad():
-            x = torch.as_tensor(x).to(self.dev)
-            return torch.argmax(self.dqn1(x)+self.dqn2(x)).item()
-
-    def serialize(self):
-        assert self.model_id is not None
-        dqn1_buff = io.BytesIO()
-        torch.save(self.dqn1, dqn1_buff)
-        dqn1_buff.seek(0)
-        dqn2_buff = io.BytesIO()
-        torch.save(self.dqn2, dqn2_buff)
-        dqn2_buff.seek(0)
-        return {"dqn1": dqn1_buff.read(), "dqn2": dqn2_buff.read(), "model_id": self.model_id}
-
-    def deserialize(self, serialization):
-        dqn1_buff = io.BytesIO(serialization["dqn1"])
-        dqn1_buff.seek(0)
-        self.dqn1 = torch.load(dqn1_buff)
-        dqn2_buff = io.BytesIO(serialization["dqn2"])
-        dqn2_buff.seek(0)
-        self.dqn2 = torch.load(dqn2_buff)
-        self.model_id = serialization["model_id"].decode("utf-8")
-
-    def load_state_dict(self, state_dicts):
-        self.dqn1.load_state_dict(state_dicts["dqn1"])
-        self.dqn2.load_state_dict(state_dicts["dqn2"])
-        self.model_id = state_dicts["model_id"]
-
-    def state_dict(self):
-        return {"dqn1": self.dqn1.state_dict(), "dqn2": self.dqn2.state_dict(),
-                "model_id": self.model_id}
 
     def share_memory(self):
         self.dqn1.share_memory()
@@ -154,6 +118,9 @@ class ClientAgent:
         self.shared = True
         self._model_id = mp.Array("B", 36)  # uuid4 string holds 36 chars
         self._model_id[:] = bytes(36*" ", encoding="utf-8")
+
+    def train(self, *_):
+        raise NotImplementedError("Client agent does not support training")
 
     @property
     def model_id(self) -> str:
@@ -169,108 +136,76 @@ class ClientAgent:
             self._model_id = value
 
 
-class DQN(nn.Module):
+class PPOAgent:
 
-    def __init__(self, input_dims, output_dims, layer_dims):
-        super().__init__()
-        self.linear1 = nn.Linear(input_dims, layer_dims)
-        self.linear2 = nn.Linear(layer_dims, layer_dims)
-        self.linear3 = nn.Linear(layer_dims, layer_dims)
-        self.output = nn.Linear(layer_dims, output_dims)
+    def __init__(self, actor_net, actor_net_kwargs, critic_net, critic_net_kwargs, actor_lr,
+                 critic_lr, gamma, grad_clip, q_clip):
+        self.dev = torch.device("cpu")  # CPU is faster for small networks
+        self.q_clip = q_clip
+        self.actor_net_type, self.critic_net_type = actor_net, critic_net
+        self.actor = get_net_class(actor_net)(**actor_net_kwargs)
+        self.critic = get_net_class(critic_net)(**critic_net_kwargs)
 
-    def forward(self, x):
-        x = torch.relu(self.linear1(x))
-        x = torch.relu(self.linear2(x))
-        x = torch.relu(self.linear3(x))
-        return self.output(x)
+        self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=critic_lr)
+        self.gamma = gamma
+        self.grad_clip = grad_clip
+        self.model_id = None
+
+    def get_action(self, x):
+        with torch.no_grad():
+            logits = self.actor(torch.as_tensor(x).to(self.dev))
+        return torch.multinomial(logits, 1)
+
+    def train(self, states, actions, rewards, next_states, dones):
+        ...
+
+    def save(self, path):
+        torch.save(self.actor, path / "actor_ppo.pt")
+        torch.save(self.critic, path / "critic_ppo.pt")
+
+    def load(self, path):
+        self.actor = torch.load(path / "actor_ppo.pt").to(self.dev)
+        self.critic = torch.load(path / "critic_ppo.pt").to(self.dev)
+
+    def load_state_dict(self, state_dicts):
+        self.actor.load_state_dict(state_dicts["actor"])
+        self.critic.load_state_dict(state_dicts["critic"])
+        self.model_id = state_dicts["model_id"]
+
+    def state_dict(self):
+        return {"dqn1": self.actor.state_dict(), "critic": self.critic.state_dict(),
+                "model_id": self.model_id}
+
+    def serialize(self):
+        assert self.model_id is not None
+        actor_buff = io.BytesIO()
+        torch.save(self.actor, actor_buff)
+        actor_buff.seek(0)
+        critic_buff = io.BytesIO()
+        torch.save(self.critic, critic_buff)
+        critic_buff.seek(0)
+        return {"dqn1": actor_buff.read(), "dqn2": critic_buff.read(), "model_id": self.model_id}
+
+    def deserialize(self, serialization):
+        actor_buff = io.BytesIO(serialization["actor"])
+        actor_buff.seek(0)
+        self.actor = torch.load(actor_buff)
+        critic_buff = io.BytesIO(serialization["critic"])
+        critic_buff.seek(0)
+        self.critic = torch.load(critic_buff)
+        self.model_id = serialization["model_id"].decode("utf-8")
+
+    def update_callback(self):
+        if self.actor_net_type == "NoisyNet":
+            self.actor.reset_noise()
+        if self.critic_net_type == "NoisyNet":
+            self.critic.reset_noise()
 
 
-class AdvantageDQN(nn.Module):
+class PPOClientAgent:
 
-    def __init__(self, input_dims, output_dims, layer_dims):
-        super().__init__()
-        self.linear1 = nn.Linear(input_dims, layer_dims)
-        self.linear2 = nn.Linear(layer_dims, layer_dims)
-        self.linear3 = nn.Linear(layer_dims, layer_dims)
-        self.baseline = nn.Linear(layer_dims, 1)
-        self.advantage = nn.Linear(layer_dims, output_dims)
-        for layer in (self.linear1, self.linear2, self.linear3):
-            torch.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2.))
-            torch.nn.init.constant_(layer.bias, val=0.)
-        for layer in (self.baseline, self.advantage):
-            torch.nn.init.orthogonal_(layer.weight, gain=1.)
-            torch.nn.init.constant_(layer.bias, val=0.)
-
-    def forward(self, x):
-        x = torch.relu(self.linear1(x))
-        x = torch.relu(self.linear2(x))
-        x = torch.relu(self.linear3(x))
-        v_s = self.baseline(x)
-        a_s = self.advantage(x)
-        return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)
+    def __init__(self):
+        ...
 
 
-class NoisyDQN(nn.Module):
-
-    def __init__(self, input_dims, output_dims, layer_dims):
-        super().__init__()
-        self.linear1 = nn.Linear(input_dims, layer_dims)
-        self.noisy1 = NoisyLinear(layer_dims, layer_dims)
-        self.noisy2 = NoisyLinear(layer_dims, output_dims)
-
-    def forward(self, x):
-        x = torch.relu(self.linear1(x))
-        x = torch.relu(self.noisy1(x))
-        return self.noisy2(x)
-
-    def reset_noise(self):
-        self.noisy1.reset_noise()
-        self.noisy2.reset_noise()
-
-
-class NoisyLinear(nn.Module):
-
-    def __init__(self, input_dims: int, output_dims: int, std_init: float = 0.5):
-        super().__init__()
-        self.input_dims = input_dims
-        self.output_dims = output_dims
-        self.std_init = std_init
-
-        self.weight_mu = nn.Parameter(torch.Tensor(output_dims, input_dims))
-        self.weight_sigma = nn.Parameter(torch.Tensor(output_dims, input_dims))
-        self.register_buffer("weight_epsilon", torch.Tensor(output_dims, input_dims))
-
-        self.bias_mu = nn.Parameter(torch.Tensor(output_dims))
-        self.bias_sigma = nn.Parameter(torch.Tensor(output_dims))
-        self.register_buffer("bias_epsilon", torch.Tensor(output_dims))
-
-        self.reset_parameters()
-        self.reset_noise()
-
-    def reset_parameters(self):
-        mu_range = 1 / np.sqrt(self.input_dims)
-        self.weight_mu.data.uniform_(-mu_range, mu_range)
-        # torch.nn.init.orthogonal_(self.weight_mu)
-        self.weight_sigma.data.fill_(self.std_init / np.sqrt(self.input_dims))
-        # torch.nn.init.constant_(self.weight_sigma, self.std_init / np.sqrt(self.input_dims))
-        self.bias_mu.data.uniform_(-mu_range, mu_range)
-        # torch.nn.init.uniform_(self.bias_mu, -mu_range, mu_range)
-        self.bias_sigma.data.fill_(self.std_init / np.sqrt(self.output_dims))
-        # torch.nn.init.constant_(self.bias_sigma, self.std_init / np.sqrt(self.output_dims))
-
-    def reset_noise(self):
-        epsilon_in = self.scale_noise(self.input_dims)
-        epsilon_out = self.scale_noise(self.output_dims)
-        # outer product
-        self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))
-        self.bias_epsilon.copy_(epsilon_out)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
-        bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
-        return F.linear(x, weight, bias)
-
-    @staticmethod
-    def scale_noise(size: int) -> torch.Tensor:
-        x = torch.randn(size)
-        return x.sign().mul(x.abs().sqrt())

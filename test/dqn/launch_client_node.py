@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
-from soulsai.distributed.client.client_node import client_node
+from soulsai.distributed.client.dqn_client import dqn_client
 from soulsai.utils import load_config
 
 
@@ -22,5 +22,5 @@ def encode_sample(msg):
 if __name__ == "__main__":
     config_dir = Path(__file__).parent
     config = load_config(config_dir / "config_d.yaml", config_dir / "config.yaml")
-    client_node(config, tf_state_callback=lambda x: x, tel_callback=tel_callback,
-                encode_sample=encode_sample, encode_tel=encode_tel)
+    dqn_client(config, tf_state_callback=lambda x: x, tel_callback=tel_callback,
+               encode_sample=encode_sample, encode_tel=encode_tel)

@@ -8,12 +8,12 @@ import gym
 from soulsai.core.noise import UniformDiscreteNoise
 from soulsai.exception import InvalidConfigError
 
-from soulsai.distributed.client.connector import Connector
+from soulsai.distributed.client.connector import DQNConnector
 
 logger = logging.getLogger(__name__)
 
 
-def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_tel):
+def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel):
     logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
 
@@ -27,8 +27,8 @@ def client_node(config, tf_state_callback, tel_callback, encode_sample, encode_t
         keyboard.add_hotkey("enter", exit_callback)
         logger.info("Press 'Enter' to end training")
 
-    # Connector enables non-blocking server interaction
-    con = Connector(config, encode_sample, encode_tel)
+    # DQNConnector enables non-blocking server interaction
+    con = DQNConnector(config, encode_sample, encode_tel)
     env = gym.make(config.env)
     noise = _get_noise(config)
 

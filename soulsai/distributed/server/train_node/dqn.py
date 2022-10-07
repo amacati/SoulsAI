@@ -17,7 +17,7 @@ from soulsai.utils import load_redis_secret, mkdir_date
 logger = logging.getLogger(__name__)
 
 
-class TrainingNode:
+class DQNTrainingNode:
 
     def __init__(self, config, decode_sample):
         logger.info("Training node startup")
@@ -72,9 +72,8 @@ class TrainingNode:
         done_cnt = 0
         no_reject = True  # Flag to track if a sample has been rejected during the current iteration
         while not self._shutdown:
-            msg = self.sub.get_message()
+            msg = self.sub.get_message(0.01)
             if not msg:
-                time.sleep(0.01)
                 continue
             sample = json.loads(msg["data"])
             if not self._check_sample(sample):
@@ -152,7 +151,8 @@ class TrainingNode:
         if self.config.load_checkpoint_config:
             with open(path / "config.json", "r") as f:
                 saved_config = SimpleNamespace(**json.load(f))
-            assert saved_config.env == self.config.env, "Configs' environments to not match!"
+            assert saved_config.env == self.config.env, "Config environments do not match"
+            assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
             self.config = saved_config
 
     def quicksave(self, _):

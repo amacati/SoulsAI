@@ -3,7 +3,7 @@ from pathlib import Path
 
 from soulsgym.core.game_state import GameState
 
-from soulsai.distributed.server.train_node.training_node import TrainingNode
+from soulsai.distributed.server.train_node.dqn import DQNTrainingNode
 from soulsai.utils import load_config
 from soulsai.core.utils import gamestate2np
 
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     path.parent.mkdir(exist_ok=True)
     logging.basicConfig(level=config.loglevel)
 
-    training_node = TrainingNode(config, decode_sample)
+    training_node = DQNTrainingNode(config, decode_sample)
     if config.fill_buffer:
         training_node.fill_buffer()
     training_node.run()

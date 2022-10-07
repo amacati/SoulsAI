@@ -9,3 +9,11 @@ class InvalidConfigError(SoulsAIException):
 
 class MissingConfigError(SoulsAIException):
     """Raised when a required configuration file is missing."""
+
+
+class ClientRegistrationError(SoulsAIException):
+    """Raised when a client can't connect to the train server."""
+
+
+class ServerTimeoutError(SoulsAIException):
+    """Raised when a response from the server takes too long."""

@@ -3,9 +3,11 @@ from soulsai.utils import load_remote_config, load_redis_secret
 
 import soulsgym  # noqa: F401, needs to register SoulsGym envs with gym module
 
-from soulsai.distributed.client.client_node import client_node
+from soulsai.distributed.client.dqn_client import dqn_client
+from soulsai.distributed.client.ppo_client import ppo_client
 from soulsai.utils import load_config
 from soulsai.core.utils import gamestate2np
+from soulsai.exception import InvalidConfigError
 
 
 def tel_callback(total_reward, steps, state, eps):
@@ -25,5 +27,11 @@ if __name__ == "__main__":
     config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
     secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
     config = load_remote_config(config.redis_address, secret)
-    client_node(config, tf_state_callback=gamestate2np, tel_callback=tel_callback,
-                encode_sample=encode_sample, encode_tel=encode_tel)
+    if config.algorithm == "DQN":
+        dqn_client(config, tf_state_callback=gamestate2np, tel_callback=tel_callback,
+                   encode_sample=encode_sample, encode_tel=encode_tel)
+    elif config.algorithm == "PPO":
+        ppo_client(config, tf_state_callback=gamestate2np, tel_callback=tel_callback,
+                   encode_sample=encode_sample, encode_tel=encode_tel)
+    else:
+        raise InvalidConfigError(f"Algorithm type {config.algorithm} is not supported")
