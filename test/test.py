@@ -1,11 +1,15 @@
-from soulsai.utils.visualization import save_plots
+import torch
 import numpy as np
-from pathlib import Path
-
 
 if __name__ == "__main__":
-    rewards = np.arange(100) + np.random.rand(100)
-    steps = np.random.rand(100)*10 + 200
-    hp = np.random.rand(100) * 1037
-    win = [True if np.random.rand() > 0.5 else False for _ in range(100)]
-    save_plots(rewards, steps, hp, win, Path(__file__).parent / "training_test.png")
+    # TODO: Check last advantage calculation
+    # advantages = torch.zeros(11, dtype=torch.float64)
+    # for t in reversed(range(n_steps)):
+    #     td_error = rewards[t] + gamma * values[t+1] * (1.0 - dones[t]) - values[t]
+    #     advantages[t] = td_error + gamma * gae_lambda * (1.0 - dones[t]) * advantages[t + 1]
+    # returns_2 = (advantages + values)[:10]
+
+    N = 8
+    torch.random.manual_seed(0)
+    mb_advantages = torch.rand(N) - 0.5
+    ratio = torch.rand(N) * 2

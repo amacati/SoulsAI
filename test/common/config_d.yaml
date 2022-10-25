@@ -1,0 +1,13 @@
+# General settings
+loglevel: info
+
+# Redis settings
+redis_address: "redis"
+
+# Telemetry node settings
+gdrive_sync: False
+moving_average: 50
+telemetry_epochs: 5
+
+# Necessary configs for loading correctly
+network_type: None

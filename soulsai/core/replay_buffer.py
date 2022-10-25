@@ -91,27 +91,64 @@ class PerformanceBuffer:
         self.maxlen = self._b_s.shape[0]
 
 
-class MultistepEpisodeBuffer:
+class TrajectoryBuffer:
 
-    def __init__(self, gamma):
-        self.gamma = gamma
-        self.buffer = []
+    def __init__(self, n_trajectories, n_samples, n_states, n_actions, categorical=True):
+        self.n_trajectories = n_trajectories
+        self.n_samples = n_samples
+        self.n_batch_samples = n_trajectories * n_samples
+        self.n_states = n_states
+        self.categorical = categorical
+        self.states = torch.zeros((n_trajectories * n_samples, n_states), dtype=torch.float32)
+        self.actions = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.int64)
+        self.probs = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.float32)
+        self.rewards = torch.zeros(n_trajectories * n_samples, dtype=torch.float32)
+        self.dones = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.float32)
+        self.values = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.float32)
+        self.advantages = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.float32)
+        # For the advantage calculation, we need the next state after the final sample.
+        self._end_states = torch.zeros((n_trajectories, n_states), dtype=torch.float32)
+        self._end_dones = torch.zeros((n_trajectories, 1), dtype=torch.float32)
+        self._end_values = torch.zeros((n_trajectories, 1), dtype=torch.float32)
+        # Create an array that tracks which samples have already been added for fast checking
+        self._complete_flags = np.empty(n_trajectories * (n_samples + 1), dtype=np.bool_)
+        self._complete_flags[:] = False
 
-    def append(self, experience):
-        self.buffer.append(experience)
-
-    def __len__(self):
-        return len(self.buffer)
-
-    def compute_multistep_returns(self, n_steps):
-        np_gamma = np.flip(np.array([self.gamma**t for t in range(n_steps)]))
-        rewards = np.array([exp[2] for exp in self.buffer])
-        multistep_rewards = np.convolve(np_gamma, rewards)[n_steps-1:]
-        for idx in range(len(self.buffer)-n_steps):
-            self.buffer[idx][2] = multistep_rewards[idx]
-            self.buffer[idx][3] = self.buffer[idx+n_steps][3]
-            self.buffer[idx][4] = self.buffer[idx+n_steps][4]
-        self.buffer = self.buffer[:-n_steps]
+    def append(self, sample, trajectory_id, step_id):
+        assert trajectory_id < self.n_trajectories and step_id <= self.n_samples
+        if step_id != self.n_samples:  # Non-terminal sample
+            idx = trajectory_id * self.n_samples + step_id
+            self.states[idx, :] = torch.from_numpy(sample[0])
+            self.actions[idx] = sample[1]
+            self.probs[idx] = sample[2]
+            self.rewards[idx] = sample[3]
+            self.dones[idx] = sample[4]
+        else:
+            self._end_states[trajectory_id] = torch.from_numpy(sample[0])
+            self._end_dones[trajectory_id] = sample[4]
+        self._complete_flags[trajectory_id * (self.n_samples + 1) + step_id] = True
 
     def clear(self):
-        self.buffer = []
+        self._complete_flags[:] = False
+        self.advantages[:] = torch.nan  # Make sure to not accidentally use old advantages
+
+    @property
+    def buffer_complete(self):
+        return np.all(self._complete_flags)
+
+    def compute_advantages_and_values(self, agent, gamma, gae_lambda):
+        self.values = agent.get_values(self.states, requires_grad=False)
+        self._end_values = agent.get_values(self._end_states, requires_grad=False)
+        for trajectory_id in range(self.n_trajectories):
+            last_advantage = 0
+            for step_id in reversed(range(self.n_samples)):
+                idx = trajectory_id * self.n_samples + step_id
+                if step_id == self.n_samples - 1:  # Terminal sample
+                    not_done = (1. - self._end_dones[trajectory_id])
+                    next_value = self._end_values[trajectory_id]
+                else:
+                    not_done = (1. - self.dones[idx])
+                    next_value = self.values[idx + 1]
+                td_error = self.rewards[idx] + gamma * next_value * not_done - self.values[idx]
+                last_advantage = td_error + gamma * gae_lambda * not_done * last_advantage
+                self.advantages[idx] = last_advantage

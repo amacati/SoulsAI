@@ -10,4 +10,4 @@ RUN find /home/SoulsAI -type f -name '*.secret' -delete
 WORKDIR /home/SoulsAI
 RUN git checkout dev
 RUN python setup.py develop
-ENTRYPOINT ["python", "test/dqn/launch_train_node.py"]
+ENTRYPOINT ["python", "test/common/launch_telemetry_node.py"]

@@ -4,6 +4,11 @@ import torch.nn.functional as F
 import numpy as np
 
 
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
+
 
 class DQN(nn.Module):
 
@@ -62,6 +67,34 @@ class NoisyDQN(nn.Module):
     def reset_noise(self):
         self.noisy1.reset_noise()
         self.noisy2.reset_noise()
+
+
+class PPOActor(nn.Module):
+
+    def __init__(self, input_dims, output_dims, layer_dims):
+        super().__init__()
+        self.linear1 = layer_init(nn.Linear(input_dims, layer_dims))
+        self.linear2 = layer_init(nn.Linear(layer_dims, layer_dims))
+        self.output = layer_init(nn.Linear(layer_dims, output_dims), std=0.01)
+
+    def forward(self, x):
+        x = torch.tanh(self.linear1(x))
+        x = torch.tanh(self.linear2(x))
+        return torch.softmax(self.output(x), dim=-1)
+
+
+class PPOCritic(nn.Module):
+
+    def __init__(self, input_dims, layer_dims):
+        super().__init__()
+        self.linear1 = layer_init(nn.Linear(input_dims, layer_dims))
+        self.linear2 = layer_init(nn.Linear(layer_dims, layer_dims))
+        self.output = layer_init(nn.Linear(layer_dims, 1), std=1.)
+
+    def forward(self, x):
+        x = torch.tanh(self.linear1(x))
+        x = torch.tanh(self.linear2(x))
+        return self.output(x)
 
 
 class NoisyLinear(nn.Module):

@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel):
     logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
+    logger.info("Launching DQN client")
 
     stop_flag = Event()
     if config.enable_interrupt:

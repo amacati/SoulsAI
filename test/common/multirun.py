@@ -13,23 +13,25 @@ from redis import Redis
 from soulsai.utils import mkdir_date, load_redis_secret
 
 
-def launch_training(dock, n_clients):
-    p = subprocess.Popen(['docker', 'compose',  'up', '--scale', 'client_node=' + str(n_clients)])
-    while not dock.containers.list(filters={"name": "dqn-client_node"}):
+def launch_training(dock, algorithm, n_clients):
+    path = Path(__file__).parents[1] / algorithm
+    cmd = f"(cd {path}; docker compose up --scale client_node={n_clients})"
+    p = subprocess.Popen(cmd, shell=True)  # Yes, this is hacky af. It works though
+    while not dock.containers.list(filters={"name": "client_node"}):
         time.sleep(0.1)
     return p
 
 
 def shutdown_nodes(dock):
     if dock.containers.list():
-        if dock.containers.list(filters={"name": "dqn-redis"}):
+        if dock.containers.list(filters={"name": "redis"}):
             publish_shutdown_cmd()
-            while dock.containers.list(filters={"name": ["dqn-telemetry_node", "dqn-train_node"]}):
+            while dock.containers.list(filters={"name": ["telemetry_node", "train_node"]}):
                 time.sleep(1)
-        p = subprocess.Popen(['docker', 'compose', 'stop'])
         while dock.containers.list():
+            for container in dock.containers.list():
+                container.kill()
             time.sleep(1)
-        p.kill()
 
 
 def publish_shutdown_cmd():
@@ -40,16 +42,20 @@ def publish_shutdown_cmd():
 
 
 def check_training_done(dock):
-    if dock.containers.list(filters={"name": "dqn-client_node"}):
+    if dock.containers.list(filters={"name": "client_node"}):
         return False
     return True
 
 
 def save_plots(results, path):
-    nepisodes = len(results["run0"]["steps"])
+    nepisodes = min([len(results[run]["rewards"]) for run in results])
     t = np.arange(nepisodes)
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Dashboard")
+    # Restrict results to the shortest experiment length
+    for run in results:
+        for key in ("rewards", "steps", "eps", "wins"):
+            results[run][key] = results[run][key][:nepisodes]
 
     rewards = np.array([results[run]["rewards"] for run in results])
     reward_mean = np.mean(rewards, axis=0)
@@ -120,7 +126,7 @@ def main(args):
     # Spawn containers
     for i in range(args.nruns):
         print(f"Launching job {i+1}")
-        train_process = launch_training(dock, args.nclients)
+        train_process = launch_training(dock, args.algorithm, args.nclients)
         while not check_training_done(dock):
             time.sleep(1)
         time.sleep(3)  # Give telemetry node time to process the latest samples
@@ -146,6 +152,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument('algorithm', type=str, help='Training algorithm', choices=["ppo", "dqn"])
     parser.add_argument('nruns', type=int, help='Number of training runs')
     parser.add_argument('nclients', type=int, default=1, help='Number of client nodes')
     args = parser.parse_args()

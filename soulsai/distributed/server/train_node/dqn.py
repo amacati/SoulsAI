@@ -72,8 +72,9 @@ class DQNTrainingNode:
         done_cnt = 0
         no_reject = True  # Flag to track if a sample has been rejected during the current iteration
         while not self._shutdown:
-            msg = self.sub.get_message(0.01)
+            msg = self.sub.get_message()
             if not msg:
+                time.sleep(0.005)
                 continue
             sample = json.loads(msg["data"])
             if not self._check_sample(sample):

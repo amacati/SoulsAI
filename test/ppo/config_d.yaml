@@ -4,31 +4,44 @@
 loglevel: info
 
 # Redis settings
-redis_address: "localhost"
+redis_address: "redis"
 
 # Environment information
-env: SoulsGymIudex-v0
-n_states: 71
-n_actions: 20
+env: LunarLander-v2
+n_states: 8
+n_actions: 4
 
-# Algorithm settings
-train_algorithm: "DQN"
-
+# PPO settings
+algorithm: "ppo"
 ppo:
+  n_clients: 2
   n_steps: 128
-  n_clients: 1
-
+  actor_net_type: "PPOActor"
+  actor_net_kwargs:
+    input_dims: 8
+    output_dims: 4
+    layer_dims: 64
+  critic_net_type: "PPOCritic"
+  critic_net_kwargs:
+    input_dims: 8
+    layer_dims: 64
+  train_epochs: 8
+  minibatch_size: 64
+  actor_lr: 0.0005
+  critic_lr: 0.0005
+  lambda: 0.95
+  client_sync_timeout: 10
 
 # Training parameters
 lr: 0.001
 gamma: 0.99
 eps_max: [0.1, 0.1, 0.05]
 eps_min: [0.1, 0.05, 0.01]
-eps_steps: [3_000, 3_000, 3_000]
+eps_steps: [500, 500, 500]
 grad_clip: 5.
 q_clip: 200
 buffer_size: 100_000
-batch_size: 64
+batch_size: 128
 train_epochs: 50
 update_samples: 50
 fill_buffer: False
@@ -41,7 +54,7 @@ network_kwargs:
   layer_dims: 256
 noise: "UniformDiscreteNoise"
 noise_kwargs:
-  size_n: 20
+  size_n: 4
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration
@@ -49,12 +62,11 @@ load_checkpoint: False
 load_checkpoint_config: False
 
 # Telemetry node settings
-gdrive_sync: True
-gdrive_dir: 1DLtsqv3fUGIMj4moLfGAk7I8QYqh8RIb
+gdrive_sync: False
 moving_average: 50
 telemetry_epochs: 5
 
 # Client settings
-max_episodes: -1  # -1 for infinite runs
-enable_interrupt: True
+max_episodes: 500  # -1 for infinite runs
+enable_interrupt: False
 step_delay: 0

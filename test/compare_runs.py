@@ -9,8 +9,6 @@ import matplotlib.pyplot as plt
 def plot_comparison(names, results):
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Comparison")
-    nepisodes = len(results[0]["run0"]["steps"])
-    t = np.arange(nepisodes)
     
     # Plot settings
     ax[0, 0].set_title("Total reward vs Episodes")
@@ -35,7 +33,15 @@ def plot_comparison(names, results):
     ax[1, 1].set_ylim([0, 1])
     ax[1, 1].grid(alpha=0.3)
 
+    for experiment in results:
+        nepisodes = min([len(experiment[run]["steps"]) for run in experiment])
+        for run in experiment:
+            for key in ("rewards", "steps", "eps", "wins"):
+                experiment[run][key] = experiment[run][key][:nepisodes]
+
     for name, result in zip(names, results):
+        nepisodes = min([len(result[run]["steps"]) for run in result])
+        t = np.arange(nepisodes)
         rewards = np.array([result[run]["rewards"] for run in result])
         reward_mean = np.mean(rewards, axis=0)
         reward_std = np.std(rewards, axis=0)
@@ -59,6 +65,8 @@ def plot_comparison(names, results):
     else:
         secax_y = ax[0, 1].twinx()
         for name, result in zip(names, results):
+            nepisodes = min([len(result[run]["steps"]) for run in result])
+            t = np.arange(nepisodes)
             secax_y.plot(t, result["run0"]["eps"], label="ε " + name)
         secax_y.set_ylim([-0.05, 1.05])
         secax_y.set_ylabel("Fraction of random actions")
@@ -73,7 +81,7 @@ def plot_comparison(names, results):
 def main(folder_names):
     # Load results
     results = []
-    save_root = Path(__file__).parents[2] / "saves"
+    save_root = Path(__file__).parents[1] / "saves"
     for folder in folder_names:
         save_dir = save_root / folder
         if not save_dir.exists():

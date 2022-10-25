@@ -1,7 +1,7 @@
 FROM python:3.9
 WORKDIR /home
 # Cache requirements install
-COPY test/dqn/requirements.txt /home/requirements.txt
+COPY test/common/requirements.txt /home/requirements.txt
 RUN pip install -r /home/requirements.txt
 RUN rm /home/requirements.txt
 RUN apt update

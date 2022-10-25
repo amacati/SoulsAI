@@ -11,7 +11,7 @@ services:
 
   train_node:
     build: 
-      dockerfile: test/dqn/train_node.Dockerfile
+      dockerfile: test/ppo/train_node.Dockerfile
       context: ../../.
     # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
     volumes:
@@ -39,7 +39,7 @@ services:
 
   client_node:
     build:
-      dockerfile: test/dqn/client_node.Dockerfile
+      dockerfile: test/ppo/client_node.Dockerfile
       context: ../../.
     volumes:
       - ../../soulsai/:/home/SoulsAI/soulsai/

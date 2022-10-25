@@ -4,6 +4,7 @@ from pathlib import Path
 import torch.multiprocessing as mp
 import time
 from uuid import uuid4
+import time
 
 import redis
 
@@ -135,32 +136,41 @@ class PPOConnector:
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
         address = self.config.redis_address
 
-        self.con_id = uuid4()
         self.red = redis.Redis(host=address, password=secret, port=6379, db=0)
-        self.heartbeat_thread = mp.Process()
-        self.update_sub = self.red.pubsub()
+        self.update_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.update_sub.subscribe("model_update")
-        
-        self.heartbeat_p = mp.Process(target=self._heartbeat, args=(address, secret, self.con_id),
-                                      daemon=True)
-        self.heartbeat_p.start()
 
-        discovery_sub = self.red.pubsub()
-        discovery_sub.subscribe(self.con_id)
-        self.red.publish("ppo_discovery", self.con_id)
-        msg = discovery_sub.get_message(timeout=5)
-        if msg[0] != "ACK":
-            logger.error("Server discovery rejected client during. Check if server is already full")
-            raise ClientRegistrationError("Server rejected client during discovery.")
+        # Server discovery and client registration
+        tmp_id = str(uuid4())  # Temporary ID for server registration
+        discovery_sub = self.red.pubsub(ignore_subscribe_messages=True)
+        discovery_sub.subscribe(tmp_id)
+        self.red.publish("ppo_discovery", tmp_id)
+        tstart = time.time()
+        while time.time() - tstart < 60:
+            msg = discovery_sub.get_message(timeout=60.)
+            if not msg:  # ignore_subscribe_messages + timeout doesn't work, so we have to handle it
+                time.sleep(0.5)
+                continue
+            break
+        if msg is None:
+            logger.error("Server discovery failed. Check if server is already full")
+            raise ClientRegistrationError("Server failed to respond")
+        self.con_id = json.loads(msg["data"])
+        logger.info(f"Client registration successful. New client ID: {self.con_id}")
+        
+
+        self.heartbeat = mp.Process(target=self._heartbeat, args=(address, secret, self.con_id, 
+                                                                  self._stop_event),
+                                    daemon=True)
+        self.heartbeat.start()
 
         self._msg_pipe, _msg_pipe = mp.Pipe()
         args = (_msg_pipe, address, secret, self._stop_event, encode_sample, encode_tel)
         self.msg_consumer = mp.Process(target=self._consume_msgs, args=args)
         self.msg_consumer.start()
-        self.sync(300)
 
-    def push_sample(self, model_id, sample):
-        self._msg_pipe.send(("sample", model_id, sample))
+    def push_sample(self, model_id, step_id, sample):
+        self._msg_pipe.send(("sample", self.con_id, model_id, step_id, sample))
 
     def push_telemetry(self, *args):
         self._msg_pipe.send(("telemetry", *args))
@@ -175,10 +185,17 @@ class PPOConnector:
     def _heartbeat(address, secret, con_id, stop_flag):
         red = redis.Redis(host=address, password=secret, port=6379, db=0)
         while not stop_flag.wait(1):
-            red.publish("ppo_heartbeat", con_id)
+            msg = json.dumps({"client_id": con_id, "timestamp": time.time()})
+            red.publish("ppo_heartbeat", msg)
 
     def sync(self, timeout=100.):
-        msg = self.update_sub.get_message(timeout=timeout)
+        tstart = time.time()
+        while not time.time() - tstart > timeout:
+            msg = self.update_sub.get_message()
+            if not msg:  # Redis timeout + ignore subscribe doesn't work properly
+                time.sleep(0.01)
+                continue
+            break
         if not msg:
             raise ServerTimeoutError(f"Timeout of {timeout}s exceeded during synchronization")
         raw_params = self.red.hgetall("model_params")
@@ -195,7 +212,8 @@ class PPOConnector:
             msg = msg_pipe.recv()
             if msg[0] == "sample":
                 sample = encode_sample(msg)
-                red.publish("samples", json.dumps({"model_id": msg[1], "sample": sample}))
+                red.publish("samples", json.dumps({"client_id": msg[1], "model_id": msg[2],
+                                                   "step_id": msg[3], "sample": sample}))
             elif msg[0] == "telemetry":
                 red.publish("telemetry", json.dumps(encode_tel(msg)))
             else:

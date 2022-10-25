@@ -5,7 +5,7 @@ import io
 
 import torch
 
-from soulsai.core.networks import DQN, AdvantageDQN, NoisyDQN
+from soulsai.core.networks import DQN, AdvantageDQN, NoisyDQN, PPOActor, PPOCritic
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,10 @@ def get_net_class(network_type):
         return AdvantageDQN
     if network_type == "NoisyDQN":
         return NoisyDQN
+    if network_type == "PPOActor":
+        return PPOActor
+    if network_type == "PPOCritic":
+        return PPOCritic
     raise ValueError(f"Net type {network_type} not supported!")
 
 
@@ -139,9 +143,8 @@ class DQNClientAgent(DQNAgent):
 class PPOAgent:
 
     def __init__(self, actor_net, actor_net_kwargs, critic_net, critic_net_kwargs, actor_lr,
-                 critic_lr, gamma, grad_clip, q_clip):
+                 critic_lr, gamma, grad_clip):
         self.dev = torch.device("cpu")  # CPU is faster for small networks
-        self.q_clip = q_clip
         self.actor_net_type, self.critic_net_type = actor_net, critic_net
         self.actor = get_net_class(actor_net)(**actor_net_kwargs)
         self.critic = get_net_class(critic_net)(**critic_net_kwargs)
@@ -154,11 +157,18 @@ class PPOAgent:
 
     def get_action(self, x):
         with torch.no_grad():
-            logits = self.actor(torch.as_tensor(x).to(self.dev))
-        return torch.multinomial(logits, 1)
+            probs = self.actor(torch.as_tensor(x).to(self.dev))
+        action = torch.multinomial(probs, 1).item()
+        return action, probs[action].item()
 
-    def train(self, states, actions, rewards, next_states, dones):
-        ...
+    def get_values(self, x, requires_grad=True):
+        if requires_grad:
+            return self.critic(x)
+        with torch.no_grad():
+            return self.critic(x)
+
+    def get_probs(self, x):
+        return self.actor(x)
 
     def save(self, path):
         torch.save(self.actor, path / "actor_ppo.pt")
@@ -174,27 +184,31 @@ class PPOAgent:
         self.model_id = state_dicts["model_id"]
 
     def state_dict(self):
-        return {"dqn1": self.actor.state_dict(), "critic": self.critic.state_dict(),
+        return {"actor": self.actor.state_dict(), "critic": self.critic.state_dict(),
                 "model_id": self.model_id}
 
-    def serialize(self):
+    def serialize(self, serialize_critic=True):
         assert self.model_id is not None
         actor_buff = io.BytesIO()
         torch.save(self.actor, actor_buff)
         actor_buff.seek(0)
-        critic_buff = io.BytesIO()
-        torch.save(self.critic, critic_buff)
-        critic_buff.seek(0)
-        return {"dqn1": actor_buff.read(), "dqn2": critic_buff.read(), "model_id": self.model_id}
+        serialization = {"actor": actor_buff.read(), "model_id": self.model_id}
+        if serialize_critic:
+            critic_buff = io.BytesIO()
+            torch.save(self.critic, critic_buff)
+            critic_buff.seek(0)
+            serialization["critic"] = critic_buff.read()
+        return serialization
 
-    def deserialize(self, serialization):
+    def deserialize(self, serialization, deserialize_critic=True):
         actor_buff = io.BytesIO(serialization["actor"])
         actor_buff.seek(0)
         self.actor = torch.load(actor_buff)
-        critic_buff = io.BytesIO(serialization["critic"])
-        critic_buff.seek(0)
-        self.critic = torch.load(critic_buff)
         self.model_id = serialization["model_id"].decode("utf-8")
+        if deserialize_critic:
+            critic_buff = io.BytesIO(serialization["critic"])
+            critic_buff.seek(0)
+            self.critic = torch.load(critic_buff)
 
     def update_callback(self):
         if self.actor_net_type == "NoisyNet":
@@ -205,7 +219,27 @@ class PPOAgent:
 
 class PPOClientAgent:
 
-    def __init__(self):
-        ...
+    def __init__(self, network_type, network_kwargs):
+        self.dev = torch.device("cpu")  # CPU is faster for small networks
+        self.actor_net_type = network_type
+        self.actor = get_net_class(network_type)(**network_kwargs)
+        self.model_id = None
 
+    def get_action(self, x):
+        with torch.no_grad():
+            probs = self.actor(torch.as_tensor(x).to(self.dev))
+        action = torch.multinomial(probs, 1).item()
+        return action, probs[action].item()
 
+    def serialize(self):
+        assert self.model_id is not None
+        actor_buff = io.BytesIO()
+        torch.save(self.actor, actor_buff)
+        actor_buff.seek(0)
+        return {"actor": actor_buff.read(), "model_id": self.model_id}
+
+    def deserialize(self, serialization):
+        actor_buff = io.BytesIO(serialization["actor"])
+        actor_buff.seek(0)
+        self.actor = torch.load(actor_buff)
+        self.model_id = serialization["model_id"].decode("utf-8")

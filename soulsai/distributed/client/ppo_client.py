@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 def ppo_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel):
     logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
+    logger.info("Launching PPO client")
 
     stop_flag = Event()
     if config.enable_interrupt:
@@ -39,18 +40,21 @@ def ppo_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
             steps = 1
             while not done and not stop_flag.is_set():
                 tfstate = tf_state_callback(state)
-                action = con.agent.get_action(tfstate)
-                next_state, reward, done, _ = env.step(action)
+                action, prob = con.agent.get_action(tfstate)
+                next_state, reward, next_done, _ = env.step(action)
                 total_reward += reward
-                con.push_sample(con.agent.model_id, state, action, reward, next_state, done)
+                con.push_sample(con.agent.model_id, ppo_steps, [state, action, prob, reward, done])
+                logger.debug(f"Pushed sample {ppo_steps} for model {con.agent.model_id}")
                 state = next_state
+                done = next_done
                 steps += 1
                 ppo_steps += 1
                 if config.step_delay:
                     time.sleep(config.step_delay)
-                if ppo_steps == config.ppo_steps:
+                if ppo_steps == config.ppo["n_steps"]:
+                    con.push_sample(con.agent.model_id, ppo_steps, [next_state, 0, [0], 0, done])
                     ppo_steps = 0
-                    con.sync()  # Wait for the new model to download
+                    con.sync(config.ppo["client_sync_timeout"])  # Wait for the new model
             con.push_telemetry(*tel_callback(total_reward, steps, state))
     finally:
         env.close()
