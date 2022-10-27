@@ -2,29 +2,28 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from soulsgym.core.game_state import GameState
 from soulsgym.core.static import actions as soulsgym_actions
 
 from soulsai.distributed.server.train_node.dqn import DQNTrainingNode
 from soulsai.distributed.server.train_node.ppo import PPOTrainingNode
 from soulsai.utils import load_config
-from soulsai.core.utils import gamestate2np
 from soulsai.exception import InvalidConfigError
 
 logger = logging.getLogger(__name__)
 n_actions = len(soulsgym_actions)
 
+
 def decode_dqn_sample(sample):
     sample = sample.get("sample")
-    sample[0] = gamestate2np(GameState.from_dict(sample[0]))
-    sample[3] = gamestate2np(GameState.from_dict(sample[3]))
+    sample[0] = np.array(sample[0])  # State
+    sample[3] = np.array(sample[3])  # Next state
     return sample
 
 
 def decode_ppo_sample(sample):
     sample = sample.get("sample")
-    sample[0] = gamestate2np(GameState.from_dict(sample[0]))
-    sample[2] = np.array(sample[2])  # Decode probabilities
+    sample[0] = np.array(sample[0])  # State
+    sample[2] = np.array(sample[2])  # Action probabilities
     return sample
 
 
