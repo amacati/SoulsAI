@@ -5,10 +5,14 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 
+from soulsai.utils.visualization import running_mean
+
 
 def plot_comparison(names, results):
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Comparison")
+    # Running mean window
+    N = 10
     
     # Plot settings
     ax[0, 0].set_title("Total reward vs Episodes")
@@ -43,22 +47,22 @@ def plot_comparison(names, results):
         nepisodes = min([len(result[run]["steps"]) for run in result])
         t = np.arange(nepisodes)
         rewards = np.array([result[run]["rewards"] for run in result])
-        reward_mean = np.mean(rewards, axis=0)
-        reward_std = np.std(rewards, axis=0)
+        reward_mean = running_mean(np.mean(rewards, axis=0), N)
+        reward_std = running_mean(np.std(rewards, axis=0), N)
         ax[0, 0].plot(t, reward_mean, label="Mean reward " + name)
-        # ax[0, 0].fill_between(t, reward_mean - reward_std, reward_mean + reward_std, alpha=0.4)
+        ax[0, 0].fill_between(t, reward_mean - reward_std, reward_mean + reward_std, alpha=0.4)
 
         steps = np.array([result[run]["steps"] for run in result])
-        steps_mean = np.mean(steps, axis=0)
-        steps_std = np.std(steps, axis=0)
+        steps_mean = running_mean(np.mean(steps, axis=0), N)
+        steps_std = running_mean(np.std(steps, axis=0), N)
         ax[0, 1].plot(t, steps_mean, label="Mean steps " + name)
-        # ax[0, 1].fill_between(t, steps_mean - steps_std, steps_mean + steps_std, alpha=0.4)
+        ax[0, 1].fill_between(t, steps_mean - steps_std, steps_mean + steps_std, alpha=0.4)
 
         wins = np.array([result[run]["wins"] for run in result], dtype=np.float64)
-        wins_mean = np.mean(wins, axis=0)
-        wins_std = np.std(wins, axis=0)
+        wins_mean = running_mean(np.mean(wins, axis=0), N)
+        wins_std = running_mean(np.std(wins, axis=0), N)
         ax[1, 1].plot(t, wins_mean, label="Mean wins " + name)
-        # ax[1, 1].fill_between(t, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
+        ax[1, 1].fill_between(t, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
     # Plot legends
     if results[0]["run0"]["eps"][0] is None:
         ax[0, 1].legend()
