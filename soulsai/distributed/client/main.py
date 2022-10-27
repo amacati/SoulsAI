@@ -10,8 +10,12 @@ from soulsai.data.transformation import GameStateTransformer
 from soulsai.exception import InvalidConfigError
 
 
-def tel_callback(total_reward, steps, state, eps):
-    return total_reward, steps, state.boss_hp, state.boss_hp == 0, eps
+def dqn_tel_callback(total_reward, steps, state, eps):
+    return total_reward, steps, state[2], state[2] == 0, eps
+
+
+def ppo_tel_callback(total_reward, steps, state):
+    return total_reward, steps, float(state[2]), bool(state[2] == 0)
 
 
 def dqn_encode_sample(msg):
@@ -22,8 +26,12 @@ def ppo_encode_sample(msg):
     return [msg[4][0].tolist(), msg[4][1], msg[4][2], msg[4][3], msg[4][4]]
 
 
-def encode_tel(msg):
+def dqn_encode_tel(msg):
     return {"reward": msg[1], "steps": msg[2], "boss_hp": msg[3], "win": msg[4], "eps": msg[5]}
+
+
+def ppo_encode_tel(msg):
+    return {"reward": msg[1], "steps": msg[2], "boss_hp": msg[3], "win": msg[4], "eps": 0}
 
 
 if __name__ == "__main__":
@@ -33,12 +41,12 @@ if __name__ == "__main__":
     config = load_remote_config(config.redis_address, secret)
     tf_transformer = GameStateTransformer()
     if config.algorithm.lower() == "dqn":
-        dqn_client(config, tf_state_callback=tf_transformer.transform, tel_callback=tel_callback,
-                   encode_sample=dqn_encode_sample, encode_tel=encode_tel,
-                   episode_end_callback=tf_transformer.reset)
+        dqn_client(config, tf_state_callback=tf_transformer.transform,
+                   tel_callback=dqn_tel_callback, encode_sample=dqn_encode_sample,
+                   encode_tel=dqn_encode_tel, episode_end_callback=tf_transformer.reset)
     elif config.algorithm.lower() == "ppo":
-        ppo_client(config, tf_state_callback=tf_transformer.transform, tel_callback=tel_callback,
-                   encode_sample=ppo_encode_sample, encode_tel=encode_tel,
-                   episode_end_callback=tf_transformer.reset)
+        ppo_client(config, tf_state_callback=tf_transformer.transform,
+                   tel_callback=ppo_tel_callback, encode_sample=ppo_encode_sample,
+                   encode_tel=ppo_encode_tel, episode_end_callback=tf_transformer.reset)
     else:
         raise InvalidConfigError(f"Algorithm type {config.algorithm} is not supported")

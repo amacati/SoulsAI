@@ -20,7 +20,7 @@ def ppo_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
         import keyboard  # Keyboard should not be imported in Docker during testing
 
         def exit_callback():
-                    stop_flag.set()
+            stop_flag.set()
 
         keyboard.add_hotkey("enter", exit_callback)
         logger.info("Press 'Enter' to end training")
