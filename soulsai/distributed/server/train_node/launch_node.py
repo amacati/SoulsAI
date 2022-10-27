@@ -23,7 +23,6 @@ def decode_dqn_sample(sample):
 def decode_ppo_sample(sample):
     sample = sample.get("sample")
     sample[0] = np.array(sample[0])  # State
-    sample[2] = np.array(sample[2])  # Action probabilities
     return sample
 
 
@@ -34,13 +33,11 @@ if __name__ == "__main__":
     path.parent.mkdir(exist_ok=True)
     logging.basicConfig(level=config.loglevel)
 
-    if config.train_algorithm == "DQN":
+    if config.algorithm.lower() == "dqn":
         training_node = DQNTrainingNode(config, decode_dqn_sample)
-        if config.fill_buffer:
-            training_node.fill_buffer()
-    elif config.train_algorithm == "PPO":
+    elif config.algorithm.lower() == "ppo":
         training_node = PPOTrainingNode(config, decode_ppo_sample)
     else:
-        raise InvalidConfigError(f"Algorithm {config.train_algorithm} specified in config"
+        raise InvalidConfigError(f"Algorithm {config.algorithm} specified in config"
                                  "is not supported")
     training_node.run()
