@@ -116,7 +116,7 @@ class PPOTrainingNode:
                                                       self.config.ppo["lambda"])
             returns = self.buffer.advantages + self.buffer.values
             self.np_random.shuffle(b_idx)
-            for j in range(0, self.config.batch_size, self.config.ppo["minibatch_size"]):
+            for j in range(0, self.buffer.n_batch_samples, self.config.ppo["minibatch_size"]):
                 mb_idx = b_idx[j:j + self.config.ppo["minibatch_size"]]
                 new_prob = self.agent.get_probs(self.buffer.states[mb_idx])
                 new_prob = torch.gather(new_prob, 1, self.buffer.actions[mb_idx])
@@ -124,17 +124,24 @@ class PPOTrainingNode:
                 # Compute policy (actor) loss
                 mb_advantages = self.buffer.advantages[mb_idx]
                 policy_loss_1 = - mb_advantages * ratio
-                policy_loss_2 = - mb_advantages * torch.clamp(ratio, 1 - 0.2, 1 + 0.2)
+                policy_loss_2 = - mb_advantages * torch.clamp(ratio,
+                                                              1 - self.config.ppo["clip_range"],
+                                                              1 + self.config.ppo["clip_range"])
                 policy_loss = torch.max(policy_loss_1, policy_loss_2).mean()
                 # Compute value (critic) loss
                 v_estimate = self.agent.get_values(self.buffer.states[mb_idx])
-                value_loss = 0.5 * ((v_estimate - returns[mb_idx])**2).mean()
+                value_loss = ((v_estimate - returns[mb_idx])**2).mean()
+                value_loss *= 0.5 * self.config.ppo["vf_coef"]
                 # Update agent
                 self.agent.critic_opt.zero_grad()
                 value_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.agent.critic.parameters(),
+                                               self.config.ppo["max_grad_norm"])
                 self.agent.critic_opt.step()
                 self.agent.actor_opt.zero_grad()
                 policy_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.agent.actor.parameters(),
+                                               self.config.ppo["max_grad_norm"])
                 self.agent.actor_opt.step()
         self.agent.model_id = str(uuid4())
         self.push_model_update()

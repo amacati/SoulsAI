@@ -15,7 +15,7 @@ n_actions: 4
 algorithm: "ppo"
 ppo:
   n_clients: 2
-  n_steps: 128
+  n_steps: 2048
   actor_net_type: "PPOActor"
   actor_net_kwargs:
     input_dims: 8
@@ -25,12 +25,15 @@ ppo:
   critic_net_kwargs:
     input_dims: 8
     layer_dims: 64
-  train_epochs: 8
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  clip_range: 0.2
+  train_epochs: 10
   minibatch_size: 64
-  actor_lr: 0.0005
-  critic_lr: 0.0005
+  actor_lr: 0.0003
+  critic_lr: 0.0003
   lambda: 0.95
-  client_sync_timeout: 10
+  client_sync_timeout: 20
 
 # Training parameters
 lr: 0.001
