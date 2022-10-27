@@ -22,6 +22,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=config.loglevel)
 
     training_node = DQNTrainingNode(config, decode_sample=decode_sample)
-    if config.dqn.fill_buffer:
-        training_node.fill_buffer()
     training_node.run()
