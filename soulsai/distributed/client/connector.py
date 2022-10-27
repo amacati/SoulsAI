@@ -9,7 +9,7 @@ import time
 import redis
 
 from soulsai.core.agent import DQNClientAgent, PPOClientAgent
-from soulsai.utils import load_redis_secret
+from soulsai.utils import load_redis_secret, namespace2dict
 from soulsai.exception import ClientRegistrationError, ServerTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ class DQNConnector:
     def __init__(self, config, encode_sample, encode_tel):
         mp.set_start_method("spawn")
         self.config = config
-        self._agent = DQNClientAgent(config.network_type, config.network_kwargs)
+        self._agent = DQNClientAgent(config.network_type, namespace2dict(config.network_kwargs))
         self._eps = mp.Value("d", -1.)
         self._lock = mp.Lock()
         self._update_event = mp.Event()
@@ -87,7 +87,7 @@ class DQNConnector:
         model_params = {key.decode("utf-8"): value for key, value in _params.items()}
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
         # first and then overwrite the tensors of the main agent with load_state_dict
-        buffer_agent = DQNClientAgent(config.network_type, config.network_kwargs)
+        buffer_agent = DQNClientAgent(config.network_type, namespace2dict(config.network_kwargs))
         buffer_agent.deserialize(model_params)
         with lock:
             model.load_state_dict(buffer_agent.state_dict())
@@ -129,8 +129,8 @@ class PPOConnector:
 
     def __init__(self, config, encode_sample, encode_tel):
         self.config = config
-        self.agent = PPOClientAgent(config.network_type, config.network_kwargs)
-
+        self.agent = PPOClientAgent(config.ppo.actor_net_type,
+                                    namespace2dict(config.ppo.actor_net_kwargs))
         self._stop_event = mp.Event()
         self._update_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")

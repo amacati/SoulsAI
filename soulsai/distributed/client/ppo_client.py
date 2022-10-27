@@ -51,10 +51,10 @@ def ppo_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                 ppo_steps += 1
                 if config.step_delay:
                     time.sleep(config.step_delay)
-                if ppo_steps == config.ppo["n_steps"]:
+                if ppo_steps == config.ppo.n_steps:
                     con.push_sample(con.agent.model_id, ppo_steps, [next_state, 0, [0], 0, done])
                     ppo_steps = 0
-                    con.sync(config.ppo["client_sync_timeout"])  # Wait for the new model
+                    con.sync(config.ppo.client_sync_timeout)  # Wait for the new model
             con.push_telemetry(*tel_callback(total_reward, steps, state))
     finally:
         env.close()

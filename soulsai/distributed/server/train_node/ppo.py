@@ -14,7 +14,7 @@ import torch
 
 from soulsai.core.agent import PPOAgent
 from soulsai.core.replay_buffer import TrajectoryBuffer
-from soulsai.utils import load_redis_secret, mkdir_date
+from soulsai.utils import load_redis_secret, mkdir_date, namespace2dict, dict2namespace
 from soulsai.exception import ServerDiscoveryTimeout
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ class PPOTrainingNode:
         self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
         self.lock = Lock()
 
-        args = (self.config.ppo["n_clients"], secret, self._shutdown)
+        args = (self.config.ppo.n_clients, secret, self._shutdown)
         self.client_heartbeat = mp.Process(target=self._client_heartbeat, daemon=True, args=args)
 
         # Create unique directory
@@ -47,17 +47,17 @@ class PPOTrainingNode:
         self.sub.subscribe("samples")
         self.total_env_steps = 0
 
-        self.agent = PPOAgent(self.config.ppo["actor_net_type"],
-                              self.config.ppo["actor_net_kwargs"],
-                              self.config.ppo["critic_net_type"],
-                              self.config.ppo["critic_net_kwargs"],
-                              self.config.ppo["actor_lr"],
-                              self.config.ppo["critic_lr"],
+        self.agent = PPOAgent(self.config.ppo.actor_net_type,
+                              namespace2dict(self.config.ppo.actor_net_kwargs),
+                              self.config.ppo.critic_net_type,
+                              namespace2dict(self.config.ppo.critic_net_kwargs),
+                              self.config.ppo.actor_lr,
+                              self.config.ppo.critic_lr,
                               self.config.gamma,
                               self.config.grad_clip)
         self.agent.model_id = str(uuid4())
         logger.info(f"Initial model ID: {self.agent.model_id}")
-        self.buffer = TrajectoryBuffer(self.config.ppo["n_clients"], self.config.ppo["n_steps"],
+        self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,
                                        self.config.n_states, self.config.n_actions)
         if self.config.load_checkpoint:
             self.load_checkpoint(save_root_dir / "checkpoint")
@@ -68,7 +68,7 @@ class PPOTrainingNode:
         self.np_random = np.random.default_rng()  # https://numpy.org/neps/nep-0019-rng-policy.html
         # Upload config to redis to share with client and telemetry node
         logger.info("Saving config to redis for synchronization")
-        self.red.set("config", json.dumps(vars(self.config)))
+        self.red.set("config", json.dumps(namespace2dict(self.config)))
         logger.info("Startup complete")
 
     def run(self):
@@ -91,7 +91,7 @@ class PPOTrainingNode:
             logger.debug(f"Received sample with client_id: {client_id}, step_id: {step_id}")
             self.buffer.append(sample, trajectory_id=client_id, step_id=step_id)
             if self.buffer.buffer_complete:
-                self.total_env_steps += self.config.ppo["n_clients"] * self.config.ppo["n_steps"]
+                self.total_env_steps += self.config.ppo.n_clients * self.config.ppo.n_steps
                 t_train_start = time.time()
                 with self.lock:
                     self._model_update()
@@ -110,14 +110,14 @@ class PPOTrainingNode:
     def _model_update(self):
         # Training algorithm based on Cx recommendations from https://arxiv.org/pdf/2006.05990.pdf
         b_idx = np.arange(self.buffer.n_batch_samples)
-        for _ in range(self.config.ppo["train_epochs"]):
+        for _ in range(self.config.ppo.train_epochs):
             # Compute GAE advantage (C6) in each epoch (C5)
             self.buffer.compute_advantages_and_values(self.agent, self.config.gamma,
-                                                      self.config.ppo["lambda"])
+                                                      self.config.ppo.gae_lambda)
             returns = self.buffer.advantages + self.buffer.values
             self.np_random.shuffle(b_idx)
-            for j in range(0, self.buffer.n_batch_samples, self.config.ppo["minibatch_size"]):
-                mb_idx = b_idx[j:j + self.config.ppo["minibatch_size"]]
+            for j in range(0, self.buffer.n_batch_samples, self.config.ppo.minibatch_size):
+                mb_idx = b_idx[j:j + self.config.ppo.minibatch_size]
                 new_prob = self.agent.get_probs(self.buffer.states[mb_idx])
                 new_prob = torch.gather(new_prob, 1, self.buffer.actions[mb_idx])
                 ratio = new_prob / self.buffer.probs[mb_idx]
@@ -125,23 +125,23 @@ class PPOTrainingNode:
                 mb_advantages = self.buffer.advantages[mb_idx]
                 policy_loss_1 = - mb_advantages * ratio
                 policy_loss_2 = - mb_advantages * torch.clamp(ratio,
-                                                              1 - self.config.ppo["clip_range"],
-                                                              1 + self.config.ppo["clip_range"])
+                                                              1 - self.config.ppo.clip_range,
+                                                              1 + self.config.ppo.clip_range)
                 policy_loss = torch.max(policy_loss_1, policy_loss_2).mean()
                 # Compute value (critic) loss
                 v_estimate = self.agent.get_values(self.buffer.states[mb_idx])
                 value_loss = ((v_estimate - returns[mb_idx])**2).mean()
-                value_loss *= 0.5 * self.config.ppo["vf_coef"]
+                value_loss *= 0.5 * self.config.ppo.vf_coef
                 # Update agent
                 self.agent.critic_opt.zero_grad()
                 value_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.agent.critic.parameters(),
-                                               self.config.ppo["max_grad_norm"])
+                                               self.config.ppo.max_grad_norm)
                 self.agent.critic_opt.step()
                 self.agent.actor_opt.zero_grad()
                 policy_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.agent.actor.parameters(),
-                                               self.config.ppo["max_grad_norm"])
+                                               self.config.ppo.max_grad_norm)
                 self.agent.actor_opt.step()
         self.agent.model_id = str(uuid4())
         self.push_model_update()
@@ -181,8 +181,8 @@ class PPOTrainingNode:
                 continue
             self.red.publish(msg["data"], n_registered)
             n_registered += 1
-            logger.info(f"Discovered client {n_registered}/{self.config.ppo['n_clients']}")
-            if n_registered == self.config.ppo["n_clients"]:
+            logger.info(f"Discovered client {n_registered}/{self.config.ppo.n_clients}")
+            if n_registered == self.config.ppo.n_clients:
                 return
         raise ServerDiscoveryTimeout("Discovery phase failed to register the required clients")
 
@@ -191,14 +191,14 @@ class PPOTrainingNode:
         path.mkdir(exist_ok=True)
         self.agent.save(path)
         with open(path / "config.json", "w")  as f:
-            json.dump(vars(self.config), f)
+            json.dump(namespace2dict(self.config), f)
         logger.info("Checkpoint finished")
 
     def load_checkpoint(self, path):
         self.agent.load(path)
         if self.config.load_checkpoint_config:
             with open(path / "config.json", "r") as f:
-                saved_config = SimpleNamespace(**json.load(f))
+                saved_config = dict2namespace(json.load(f))
             assert saved_config.env == self.config.env, "Config environments do not match"
             assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
             self.config = saved_config

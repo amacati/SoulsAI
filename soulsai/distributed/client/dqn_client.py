@@ -6,9 +6,9 @@ from collections import deque
 import numpy as np
 import gym
 from soulsai.core.noise import UniformDiscreteNoise
-from soulsai.exception import InvalidConfigError
-
+from soulsai.utils import namespace2dict
 from soulsai.distributed.client.connector import DQNConnector
+from soulsai.exception import InvalidConfigError
 
 logger = logging.getLogger(__name__)
 
@@ -87,4 +87,4 @@ def _get_noise(config):
         noise_cls = UniformDiscreteNoise
     else:
         raise InvalidConfigError(f"Noise type {config.noise} not supported.")
-    return noise_cls(**config.noise_kwargs)
+    return noise_cls(**namespace2dict(config.noise_kwargs))

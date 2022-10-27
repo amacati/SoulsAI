@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 import time
+import copy
 
 import numpy as np
 import yaml
@@ -60,8 +61,7 @@ def load_config(default_config_path, config_path=None):
         if config_path.is_file():
             with open(config_path, "r") as f:
                 _config = yaml.safe_load(f)
-            if _config is not None:
-                config |= _config  # Overwrite default config with keys from user config
+            _overwrite_dicts(config, _config)  # Overwrite default config with keys from user config
         else:
             logger.warning(f"Config file specified at {config_path} does not exist. Using defaults")
     loglvl = config["loglevel"].lower()
@@ -75,10 +75,40 @@ def load_config(default_config_path, config_path=None):
         config["loglevel"] = logging.ERROR
     else:
         raise InvalidConfigError(f"Loglevel {config['loglevel']} in config not supported!")
-    if config["network_type"] == "NoisyDQN":
-        if not all([eps == 0 for eps in config["eps_max"]]):
-            logger.warning("Using noisy nets with epsilon > 0!")
-    return SimpleNamespace(**config)
+    return dict2namespace(config)
+
+
+def _overwrite_dicts(target_dict, source_dict):
+    for key, value in target_dict.items():
+        if not key in source_dict.keys():
+            continue
+        if isinstance(value, dict):
+            _overwrite_dicts(target_dict[key], source_dict[key])
+        else:
+            target_dict[key] = source_dict[key]
+    return target_dict
+
+
+def dict2namespace(dict_, create_copy=True):
+    # Works recursively with nested dicts
+    ns = SimpleNamespace(**dict_)
+    if create_copy:
+        ns = copy.deepcopy(ns)
+    for key, value in dict_.items():
+        if isinstance(value, dict):
+            setattr(ns, key, dict2namespace(value, create_copy=False))
+    return ns
+
+
+def namespace2dict(ns, create_copy=True):
+    # Works recursively with nested namespaces
+    dict_ = vars(ns)
+    if create_copy:
+        dict_ = copy.deepcopy(dict_)
+    for key, value in dict_.items():
+        if isinstance(value, SimpleNamespace):
+            dict_[key] = namespace2dict(getattr(ns, key), create_copy=False)
+    return dict_
 
 
 def load_remote_config(address, secret):
@@ -88,7 +118,7 @@ def load_remote_config(address, secret):
         config = red.get("config")
         time.sleep(3)
         logger.debug("Waiting for remote config")
-    config = SimpleNamespace(**json.loads(config))
+    config = dict2namespace(json.loads(config))
     config.redis_address = address
     return config
 

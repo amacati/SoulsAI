@@ -4,7 +4,6 @@ from pathlib import Path
 import numpy as np
 
 from soulsai.distributed.server.train_node.ppo import PPOTrainingNode
-from soulsai.data.utils import int_to_onehot
 from soulsai.utils import load_config
 
 logger = logging.getLogger(__name__)

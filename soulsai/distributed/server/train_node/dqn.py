@@ -12,7 +12,7 @@ from redis import Redis
 from soulsai.core.replay_buffer import PerformanceBuffer
 from soulsai.core.agent import DQNAgent
 from soulsai.core.scheduler import EpsilonScheduler
-from soulsai.utils import load_redis_secret, mkdir_date
+from soulsai.utils import load_redis_secret, mkdir_date, dict2namespace, namespace2dict
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,9 @@ class DQNTrainingNode:
         self.model_cnt = 0  # Track number of model iterations for checkpoint trigger
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
 
-        self.agent = DQNAgent(self.config.network_type, self.config.network_kwargs, self.config.lr,
-                              self.config.gamma, self.config.dqn_multistep, self.config.grad_clip,
-                              self.config.q_clip)
+        self.agent = DQNAgent(self.config.network_type, namespace2dict(self.config.network_kwargs),
+                              self.config.lr, self.config.gamma, self.config.dqn_multistep,
+                              self.config.grad_clip, self.config.q_clip)
         self.model_id = str(uuid4())
         self.agent.model_id = self.model_id
         self.model_ids.append(self.model_id)
@@ -61,7 +61,7 @@ class DQNTrainingNode:
         self.config.save_dir = self.save_dir.name
         # Upload config to redis to share with client and telemetry node
         logger.info("Saving config to redis for synchronization")
-        self.red.set("config", json.dumps(vars(self.config)))
+        self.red.set("config", json.dumps(namespace2dict(self.config)))
 
         self.push_model_update()
         logger.info("Initial model upload successful, startup complete")
@@ -140,7 +140,7 @@ class DQNTrainingNode:
         path.mkdir(exist_ok=True)
         self.agent.save(path)  # Agent only takes the save directory
         with open(path / "config.json", "w") as f:
-            json.dump(vars(self.config), f)
+            json.dump(namespace2dict(self.config), f)
         self.buffer.save(path / "buffer.pkl")
         self.eps_scheduler.save(path / "eps_scheduler.json")
         logger.info("Checkpoint finished")
@@ -151,7 +151,7 @@ class DQNTrainingNode:
         self.eps_scheduler.load(path / "eps_scheduler.json")
         if self.config.load_checkpoint_config:
             with open(path / "config.json", "r") as f:
-                saved_config = SimpleNamespace(**json.load(f))
+                saved_config = dict2namespace(json.load(f))
             assert saved_config.env == self.config.env, "Config environments do not match"
             assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
             self.config = saved_config
