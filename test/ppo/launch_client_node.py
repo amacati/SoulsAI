@@ -21,7 +21,7 @@ def encode_sample(msg):
 
 
 if __name__ == "__main__":
-    config_dir = Path(__file__).parent
-    config = load_config(config_dir / "config_d.yaml", config_dir / "config.yaml")
+    root_dir = Path(__file__).parents[1]
+    config = load_config(root_dir / "common" / "config_d.yaml", root_dir / "ppo" / "config.yaml")
     ppo_client(config, tf_state_callback=lambda x: x, tel_callback=tel_callback,
                encode_sample=encode_sample, encode_tel=encode_tel)

@@ -52,9 +52,7 @@ class PPOTrainingNode:
                               self.config.ppo.critic_net_type,
                               namespace2dict(self.config.ppo.critic_net_kwargs),
                               self.config.ppo.actor_lr,
-                              self.config.ppo.critic_lr,
-                              self.config.gamma,
-                              self.config.grad_clip)
+                              self.config.ppo.critic_lr)
         self.agent.model_id = str(uuid4())
         logger.info(f"Initial model ID: {self.agent.model_id}")
         self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,

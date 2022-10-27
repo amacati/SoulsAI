@@ -10,38 +10,56 @@ redis_address: "localhost"
 env: SoulsGymIudex-v0
 n_states: 71
 n_actions: 20
-
-# Algorithm settings
-train_algorithm: "DQN"
-
-ppo:
-  n_steps: 128
-  n_clients: 1
-
-
-# Training parameters
-lr: 0.001
 gamma: 0.99
-eps_max: [0.1, 0.1, 0.05]
-eps_min: [0.1, 0.05, 0.01]
-eps_steps: [3_000, 3_000, 3_000]
-grad_clip: 5.
-q_clip: 200
-buffer_size: 100_000
-batch_size: 64
-train_epochs: 50
-update_samples: 50
-fill_buffer: False
-dqn_multistep: 1
-layer_width: 128
-network_type: "DQN"
-network_kwargs:
-  input_dims: 8
-  output_dims: 4
-  layer_dims: 256
-noise: "UniformDiscreteNoise"
-noise_kwargs:
-  size_n: 20
+
+# Algorithm choice
+algorithm: "DQN"
+
+# PPO settings
+ppo:
+  n_clients: 2
+  n_steps: 2048
+  actor_net_type: "PPOActor"
+  actor_net_kwargs:
+    input_dims: 8
+    output_dims: 4
+    layer_dims: 64
+  critic_net_type: "PPOCritic"
+  critic_net_kwargs:
+    input_dims: 8
+    layer_dims: 64
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  clip_range: 0.2
+  train_epochs: 10
+  minibatch_size: 64
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  gae_lambda: 0.95
+  client_sync_timeout: 20
+
+# DQN parameters
+dqn:
+  lr: 0.001
+  eps_max: [0.1, 0.1, 0.05]
+  eps_min: [0.1, 0.05, 0.01]
+  eps_steps: [500, 500, 500]
+  grad_clip: 5.
+  q_clip: 200
+  buffer_size: 100_000
+  batch_size: 64
+  train_epochs: 50
+  update_samples: 25
+  fill_buffer: False
+  multistep: 4
+  network_type: "DQN"
+  network_kwargs:
+    input_dims: 8
+    output_dims: 4
+    layer_dims: 128
+  noise: "UniformDiscreteNoise"
+  noise_kwargs:
+    size_n: 20
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration

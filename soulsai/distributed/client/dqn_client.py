@@ -36,9 +36,9 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
     logger.info("Client node running")
     try:
         episode_id = 0
-        states = deque(maxlen=config.dqn_multistep + 1)
-        actions = deque(maxlen=config.dqn_multistep)
-        rewards = deque(maxlen=config.dqn_multistep)
+        states = deque(maxlen=config.dqn.multistep + 1)
+        actions = deque(maxlen=config.dqn.multistep)
+        rewards = deque(maxlen=config.dqn.multistep)
         while not stop_flag.is_set() and episode_id != config.max_episodes:
             episode_id += 1
             state = env.reset()
@@ -63,8 +63,8 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                 actions.append(action)
                 rewards.append(reward)
                 total_reward += reward
-                if len(rewards) == config.dqn_multistep:
-                    sum_r = sum([rewards[i] * config.gamma**i for i in range(config.dqn_multistep)])
+                if len(rewards) == config.dqn.multistep:
+                    sum_r = sum([rewards[i] * config.gamma**i for i in range(config.dqn.multistep)])
                     con.push_sample(model_id, [states[0], actions[0], sum_r, states[-1], done])
                 state = next_state
                 steps += 1
@@ -72,7 +72,7 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                     time.sleep(config.step_delay)
             if not stop_flag.is_set():
                 for i in range(1, len(rewards)):
-                    sum_r = sum([rewards[i + j] * config.gamma**j for j in range(config.dqn_multistep - i)])
+                    sum_r = sum([rewards[i + j] * config.gamma**j for j in range(config.dqn.multistep - i)])
                     con.push_sample(model_id, [states[i], actions[i], sum_r, states[-1], done])
                 noise.reset()
                 con.push_telemetry(*tel_callback(total_reward, steps, state, eps))
@@ -83,8 +83,8 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
 
 
 def _get_noise(config):
-    if config.noise == "UniformDiscreteNoise":
+    if config.dqn.noise == "UniformDiscreteNoise":
         noise_cls = UniformDiscreteNoise
     else:
-        raise InvalidConfigError(f"Noise type {config.noise} not supported.")
-    return noise_cls(**namespace2dict(config.noise_kwargs))
+        raise InvalidConfigError(f"Noise type {config.dqn.noise} not supported.")
+    return noise_cls(**namespace2dict(config.dqn.noise_kwargs))

@@ -143,7 +143,7 @@ class DQNClientAgent(DQNAgent):
 class PPOAgent:
 
     def __init__(self, actor_net, actor_net_kwargs, critic_net, critic_net_kwargs, actor_lr,
-                 critic_lr, gamma, grad_clip):
+                 critic_lr):
         self.dev = torch.device("cpu")  # CPU is faster for small networks
         self.actor_net_type, self.critic_net_type = actor_net, critic_net
         self.actor = get_net_class(actor_net)(**actor_net_kwargs)
@@ -151,8 +151,6 @@ class PPOAgent:
 
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=critic_lr)
-        self.gamma = gamma
-        self.grad_clip = grad_clip
         self.model_id = None
 
     def get_action(self, x):

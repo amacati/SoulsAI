@@ -27,10 +27,10 @@ if __name__ == "__main__":
     config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
     secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
     config = load_remote_config(config.redis_address, secret)
-    if config.algorithm == "DQN":
+    if config.algorithm.lower() == "dqn":
         dqn_client(config, tf_state_callback=gamestate2np, tel_callback=tel_callback,
                    encode_sample=encode_sample, encode_tel=encode_tel)
-    elif config.algorithm == "PPO":
+    elif config.algorithm.lower() == "ppo":
         ppo_client(config, tf_state_callback=gamestate2np, tel_callback=tel_callback,
                    encode_sample=encode_sample, encode_tel=encode_tel)
     else:

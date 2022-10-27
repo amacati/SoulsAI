@@ -42,17 +42,21 @@ class DQNTrainingNode:
         self.model_cnt = 0  # Track number of model iterations for checkpoint trigger
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
 
-        self.agent = DQNAgent(self.config.network_type, namespace2dict(self.config.network_kwargs),
-                              self.config.lr, self.config.gamma, self.config.dqn_multistep,
-                              self.config.grad_clip, self.config.q_clip)
+        self.agent = DQNAgent(self.config.dqn.network_type,
+                              namespace2dict(self.config.dqn.network_kwargs),
+                              self.config.dqn.lr,
+                              self.config.gamma,
+                              self.config.dqn.multistep,
+                              self.config.dqn.grad_clip,
+                              self.config.dqn.q_clip)
         self.model_id = str(uuid4())
         self.agent.model_id = self.model_id
         self.model_ids.append(self.model_id)
         logger.info(f"Initial model ID: {self.model_id}")
 
-        self.buffer = PerformanceBuffer(self.config.buffer_size, self.config.n_states)
-        self.eps_scheduler = EpsilonScheduler(self.config.eps_max, self.config.eps_min,
-                                              self.config.eps_steps, zero_ending=True)
+        self.buffer = PerformanceBuffer(self.config.dqn.buffer_size, self.config.n_states)
+        self.eps_scheduler = EpsilonScheduler(self.config.dqn.eps_max, self.config.dqn.eps_min,
+                                              self.config.dqn.eps_steps, zero_ending=True)
         if self.config.load_checkpoint:
             self.load_checkpoint(save_root_dir / "checkpoint")
             logger.info("Checkpoint loading complete")
@@ -87,12 +91,12 @@ class DQNTrainingNode:
                 self.buffer.append(sample)
             sample_cnt += 1
             done_cnt += sample[4]
-            if (done_cnt / self.config.dqn_multistep) >= 1:
+            if (done_cnt / self.config.dqn.multistep) >= 1:
                 done_cnt = 0
                 with self.lock:  # Avoid races when checkpointing
                     self.eps_scheduler.step()
-            sufficient_samples = len(self.buffer) >= self.config.batch_size
-            if sample_cnt >= self.config.update_samples and sufficient_samples:
+            sufficient_samples = len(self.buffer) >= self.config.dqn.batch_size
+            if sample_cnt >= self.config.dqn.update_samples and sufficient_samples:
                 with self.lock:  # Avoid races when checkpointing
                     self.model_update()
                 logger.info("Model update complete")
@@ -128,10 +132,10 @@ class DQNTrainingNode:
         return False
 
     def train_model(self):
-        if len(self.buffer) > self.config.batch_size:
-            for _ in range(self.config.train_epochs):
+        if len(self.buffer) > self.config.dqn.batch_size:
+            for _ in range(self.config.dqn.train_epochs):
                 states, actions, rewards, next_states, dones = self.buffer.sample_batch(
-                    self.config.batch_size)
+                    self.config.dqn.batch_size)
                 self.agent.train(states, actions, rewards, next_states, dones)
             self.agent.update_callback()
 

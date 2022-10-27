@@ -17,11 +17,11 @@ def decode_sample(sample):
 
 
 if __name__ == "__main__":
-    config_dir = Path(__file__).parent
-    config = load_config(config_dir / "config_d.yaml", config_dir / "config.yaml")
+    root_dir = Path(__file__).parents[1]
+    config = load_config(root_dir / "common" / "config_d.yaml", root_dir / "dqn" / "config.yaml")
     logging.basicConfig(level=config.loglevel)
 
     training_node = DQNTrainingNode(config, decode_sample=decode_sample)
-    if config.fill_buffer:
+    if config.dqn.fill_buffer:
         training_node.fill_buffer()
     training_node.run()
