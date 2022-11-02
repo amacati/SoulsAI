@@ -11,7 +11,7 @@ from soulsai.exception import InvalidConfigError
 
 
 def dqn_tel_callback(total_reward, steps, state, eps):
-    return total_reward, steps, state[2], state[2] == 0, eps
+    return total_reward, steps, float(state[2]), bool(state[2] == 0), eps
 
 
 def ppo_tel_callback(total_reward, steps, state):
