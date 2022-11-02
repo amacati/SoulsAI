@@ -68,6 +68,7 @@ load_checkpoint_config: False
 
 # Telemetry node settings
 gdrive_sync: False
+gdrive_dir: None
 moving_average: 50
 telemetry_epochs: 5
 
