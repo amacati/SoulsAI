@@ -46,6 +46,7 @@ class PPOTrainingNode:
 
         self.sub.subscribe("samples")
         self.total_env_steps = 0
+        self.n_updates = 0
 
         self.agent = PPOAgent(self.config.ppo.actor_net_type,
                               namespace2dict(self.config.ppo.actor_net_kwargs),
@@ -97,6 +98,10 @@ class PPOTrainingNode:
                 logger.info(f"{time.strftime('%X')}: Model update complete ({t_train:.2f}s)")
                 logger.info(f"Total env steps: {self.total_env_steps}")
                 self.buffer.clear()
+                self.n_updates += 1
+                if self.n_updates % self.config.checkpoint_epochs == 0:
+                    self.checkpoint(self.save_dir)
+        self.checkpoint(self.save_dir)
         logger.info("Training node has shut down")
 
     def push_model_update(self):

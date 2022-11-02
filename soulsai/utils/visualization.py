@@ -55,12 +55,11 @@ def save_plots(episodes_rewards, episodes_steps, iudex_hp, wins, path, eps=None,
     ax[1, 0].set_title("Iudex HP vs Episodes")
     ax[1, 0].set_xlabel("Episodes")
     ax[1, 0].set_ylabel("Iudex HP")
-    ax[1, 0].set_ylim([0, 1100])
+    ax[1, 0].set_ylim([-0.05, 1.05])
     ax[1, 0].grid(alpha=0.3)
 
     wins = np.array(wins, dtype=np.float64)
     wins_mean = running_mean(wins, N_av)
-    wins_std = np.sqrt(running_std(wins, N_av))
     ax[1, 1].plot(t, wins_mean)
     ax[1, 1].legend(["Mean wins"])
     ax[1, 1].set_title("Success rate vs Episodes")
