@@ -1,16 +1,15 @@
 import logging
-from types import SimpleNamespace
 from uuid import uuid4
 from pathlib import Path
 from threading import Lock
 import json
 import multiprocessing as mp
 import time
-import uuid
 
 from redis import Redis
 import numpy as np
 import torch
+from prometheus_client import start_http_server, Info, Counter, Gauge
 
 from soulsai.core.agent import PPOAgent
 from soulsai.core.replay_buffer import TrajectoryBuffer
@@ -24,7 +23,7 @@ class PPOTrainingNode:
 
     def __init__(self, config, decode_sample):
         logger.info("PPO training node startup")
-        self.config = config
+        self.np_random = np.random.default_rng()  # https://numpy.org/neps/nep-0019-rng-policy.html
         self.decode_sample = decode_sample
         self._shutdown = mp.Event()
         # Read redis server secret
@@ -35,18 +34,16 @@ class PPOTrainingNode:
         self.cmd_sub.psubscribe(manual_save=self.quicksave, shutdown=self.shutdown)
         self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
         self.lock = Lock()
-
-        args = (self.config.ppo.n_clients, secret, self._shutdown)
-        self.client_heartbeat = mp.Process(target=self._client_heartbeat, daemon=True, args=args)
-
         # Create unique directory
         save_root_dir = Path(__file__).parents[4] / "saves"
         save_root_dir.mkdir(exist_ok=True)
         self.save_dir = mkdir_date(save_root_dir)
-
-        self.sub.subscribe("samples")
-        self.total_env_steps = 0
-        self.n_updates = 0
+        self.config = config
+        # Load config only if specified
+        if self.config.load_checkpoint_config:
+            self.load_config(save_root_dir / "checkpoint")
+            logger.info("Config loading complete")
+        self.config.save_dir = self.save_dir.name
 
         self.agent = PPOAgent(self.config.ppo.actor_net_type,
                               namespace2dict(self.config.ppo.actor_net_kwargs),
@@ -55,16 +52,36 @@ class PPOTrainingNode:
                               self.config.ppo.actor_lr,
                               self.config.ppo.critic_lr)
         self.agent.model_id = str(uuid4())
-        logger.info(f"Initial model ID: {self.agent.model_id}")
-        self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,
-                                       self.config.n_states, self.config.n_actions)
         if self.config.load_checkpoint:
             self.load_checkpoint(save_root_dir / "checkpoint")
             logger.info("Checkpoint loading complete")
-        else:
-            self.checkpoint(self.save_dir)  # Make config accessible for sanity checking
-        self.config.save_dir = self.save_dir.name
-        self.np_random = np.random.default_rng()  # https://numpy.org/neps/nep-0019-rng-policy.html
+        self.checkpoint(self.save_dir)  # Make config accessible for sanity checking
+
+        logger.info(f"Initial model ID: {self.agent.model_id}")
+        self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,
+                                       self.config.n_states, self.config.n_actions)
+
+        # Initialize monitoring server and metrics
+        if self.config.monitoring.enable:
+            logger.info("Starting prometheus monitoring server")
+            start_http_server(8080)
+            self.prom_num_workers = Counter("soulsai_num_workers",
+                                            "Number of registered client nodes")
+            self.prom_num_samples = Counter("soulsai_num_samples",
+                                            "Total number of received samples")
+            self.prom_update_time = Gauge("soulsai_update_duration",
+                                          "Processing time for a model update")
+            self.prom_config_info = Info("soulsai_config", "SoulsAI configuration")
+            self.prom_config_info.info({str(key): str(val) for key, val in
+                                        namespace2dict(self.config).items()})
+
+        args = (self.config.ppo.n_clients, secret, self._shutdown)
+        self.client_heartbeat = mp.Process(target=self._client_heartbeat, daemon=True, args=args)
+
+        self.sub.subscribe("samples")
+        self.total_env_steps = 0
+        self.n_updates = 0
+
         # Upload config to redis to share with client and telemetry node
         logger.info("Saving config to redis for synchronization")
         self.red.set("config", json.dumps(namespace2dict(self.config)))
@@ -87,13 +104,20 @@ class PPOTrainingNode:
                 continue
             client_id, step_id = sample.get("client_id"), sample.get("step_id")
             sample = self.decode_sample(sample)
+            self.total_env_steps += 1
+            if self.config.monitoring.enable:
+                self.prom_num_samples.inc()
+            self.red.incr("soulsai_total_env_steps")
             logger.debug(f"Received sample with client_id: {client_id}, step_id: {step_id}")
             self.buffer.append(sample, trajectory_id=client_id, step_id=step_id)
             if self.buffer.buffer_complete:
-                self.total_env_steps += self.config.ppo.n_clients * self.config.ppo.n_steps
                 t_train_start = time.time()
                 with self.lock:
-                    self._model_update()
+                    if self.config.monitoring.enable:
+                        with self.prom_update_time.time():
+                            self._model_update()
+                    else:
+                        self._model_update()
                 t_train = time.time() - t_train_start
                 logger.info(f"{time.strftime('%X')}: Model update complete ({t_train:.2f}s)")
                 logger.info(f"Total env steps: {self.total_env_steps}")
@@ -106,7 +130,7 @@ class PPOTrainingNode:
 
     def push_model_update(self):
         logger.debug(f"Publishing new model with ID {self.agent.model_id}")
-        self.red.hmset("model_params", self.agent.serialize(serialize_critic=False))
+        self.red.hset("model_params", mapping=self.agent.serialize(serialize_critic=False))
         self.red.publish("model_update", self.agent.model_id)
         logger.debug("Model upload successful")
 
@@ -184,6 +208,8 @@ class PPOTrainingNode:
                 continue
             self.red.publish(msg["data"], n_registered)
             n_registered += 1
+            if self.config.monitoring.enable:
+                self.prom_num_workers.inc()
             logger.info(f"Discovered client {n_registered}/{self.config.ppo.n_clients}")
             if n_registered == self.config.ppo.n_clients:
                 return
@@ -199,12 +225,13 @@ class PPOTrainingNode:
 
     def load_checkpoint(self, path):
         self.agent.load(path)
-        if self.config.load_checkpoint_config:
-            with open(path / "config.json", "r") as f:
-                saved_config = dict2namespace(json.load(f))
-            assert saved_config.env == self.config.env, "Config environments do not match"
-            assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
-            self.config = saved_config
+
+    def load_config(self, path):
+        with open(path / "config.json", "r") as f:
+            saved_config = dict2namespace(json.load(f))
+        assert saved_config.env == self.config.env, "Config environments do not match"
+        assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
+        self.config = saved_config
 
     def quicksave(self, _):
         with self.lock:

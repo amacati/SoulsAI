@@ -76,3 +76,7 @@ telemetry_epochs: 5
 max_episodes: 500  # -1 for infinite runs
 enable_interrupt: False
 step_delay: 0
+
+# Monitoring
+monitoring:
+  enable: True

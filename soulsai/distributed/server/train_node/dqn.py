@@ -122,7 +122,7 @@ class DQNTrainingNode:
         logger.debug(f"Publishing new model with ID {self.model_id}")
         model_params = self.agent.serialize()
         model_params["eps"] = self.eps_scheduler.epsilon
-        self.red.hmset("model_params", model_params)
+        self.red.hset("model_params", mapping=model_params)
         self.red.publish("model_update", self.model_id)
         logger.debug("Model upload successful")
 
