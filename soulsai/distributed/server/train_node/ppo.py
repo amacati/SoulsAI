@@ -26,15 +26,7 @@ class PPOTrainingNode:
         self.np_random = np.random.default_rng()  # https://numpy.org/neps/nep-0019-rng-policy.html
         self.decode_sample = decode_sample
         self._shutdown = mp.Event()
-        # Read redis server secret
-        secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
-        self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
-        self.sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.cmd_sub.psubscribe(manual_save=self.quicksave, shutdown=self.shutdown)
-        self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
-        self.lock = Lock()
-        # Create unique directory
+        # Create unique directory for saves, save to 
         save_root_dir = Path(__file__).parents[4] / "saves"
         save_root_dir.mkdir(exist_ok=True)
         self.save_dir = mkdir_date(save_root_dir)
@@ -44,6 +36,17 @@ class PPOTrainingNode:
             self.load_config(save_root_dir / "checkpoint")
             logger.info("Config loading complete")
         self.config.save_dir = self.save_dir.name
+
+        # Read redis server secret and create necessary connections and subscribers
+        secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
+        self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
+        self.sub = self.red.pubsub(ignore_subscribe_messages=True)
+        self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
+        self.cmd_sub.subscribe(manual_save=lambda _: self.checkpoint(self.save_dir),
+                               save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),
+                               shutdown=self.shutdown)
+        self._cmd_sub_worker = self.cmd_sub.run_in_thread(sleep_time=.1, daemon=True)
+        self.lock = Lock()
 
         self.agent = PPOAgent(self.config.ppo.actor_net_type,
                               namespace2dict(self.config.ppo.actor_net_kwargs),
@@ -65,10 +68,12 @@ class PPOTrainingNode:
         if self.config.monitoring.enable:
             logger.info("Starting prometheus monitoring server")
             start_http_server(8080)
-            self.prom_num_workers = Counter("soulsai_num_workers",
-                                            "Number of registered client nodes")
+            self.prom_num_workers = Gauge("soulsai_num_workers",
+                                          "Number of registered client nodes")
             self.prom_num_samples = Counter("soulsai_num_samples",
                                             "Total number of received samples")
+            self.prom_num_samples_reject = Counter("soulsai_num_samples_reject",
+                                                   "Total number of rejected samples")
             self.prom_update_time = Gauge("soulsai_update_duration",
                                           "Processing time for a model update")
             self.prom_config_info = Info("soulsai_config", "SoulsAI configuration")
@@ -101,6 +106,8 @@ class PPOTrainingNode:
             sample = json.loads(msg["data"])
             if not sample.get("model_id") == self.agent.model_id:
                 logger.warning("Unexpected sample with outdated model ID")
+                if self.config.monitoring.enable:
+                    self.prom_num_samples_reject.inc()
                 continue
             client_id, step_id = sample.get("client_id"), sample.get("step_id")
             sample = self.decode_sample(sample)
@@ -112,12 +119,11 @@ class PPOTrainingNode:
             self.buffer.append(sample, trajectory_id=client_id, step_id=step_id)
             if self.buffer.buffer_complete:
                 t_train_start = time.time()
-                with self.lock:
-                    if self.config.monitoring.enable:
-                        with self.prom_update_time.time():
-                            self._model_update()
-                    else:
+                if self.config.monitoring.enable:
+                    with self.prom_update_time.time():
                         self._model_update()
+                else:
+                    self._model_update()
                 t_train = time.time() - t_train_start
                 logger.info(f"{time.strftime('%X')}: Model update complete ({t_train:.2f}s)")
                 logger.info(f"Total env steps: {self.total_env_steps}")
@@ -164,12 +170,14 @@ class PPOTrainingNode:
                 value_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.agent.critic.parameters(),
                                                self.config.ppo.max_grad_norm)
-                self.agent.critic_opt.step()
+                with self.lock:
+                    self.agent.critic_opt.step()
                 self.agent.actor_opt.zero_grad()
                 policy_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.agent.actor.parameters(),
                                                self.config.ppo.max_grad_norm)
-                self.agent.actor_opt.step()
+                with self.lock:
+                    self.agent.actor_opt.step()
         self.agent.model_id = str(uuid4())
         self.push_model_update()
 
@@ -186,9 +194,9 @@ class PPOTrainingNode:
                 time.sleep(1)
             else:
                 msg = json.loads(msg["data"])
-                if msg["client_id"] < n_clients:
-                    if time.time() - msg["timestamp"] < 5:  # Ignore stale messages in the queue
-                        last_heartbeat[msg["client_id"]] = msg["timestamp"]
+                # Ignore stale messages in the queue
+                if msg["client_id"] < n_clients and time.time() - msg["timestamp"] < 5:
+                    last_heartbeat[msg["client_id"]] = msg["timestamp"]
             if np.all(time.time() - last_heartbeat < 10):
                 logger.debug(f"{time.strftime('%X')}: Heartbeat ok")
                 continue
@@ -216,12 +224,12 @@ class PPOTrainingNode:
         raise ServerDiscoveryTimeout("Discovery phase failed to register the required clients")
 
     def checkpoint(self, path):
-        logger.info("Checkpointing...")
         path.mkdir(exist_ok=True)
-        self.agent.save(path)
+        with self.lock:
+            self.agent.save(path)
         with open(path / "config.json", "w")  as f:
             json.dump(namespace2dict(self.config), f)
-        logger.info("Checkpoint finished")
+        logger.info("Model checkpoint saved")
 
     def load_checkpoint(self, path):
         self.agent.load(path)
@@ -232,10 +240,6 @@ class PPOTrainingNode:
         assert saved_config.env == self.config.env, "Config environments do not match"
         assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
         self.config = saved_config
-
-    def quicksave(self, _):
-        with self.lock:
-            self.checkpoint(self.save_dir)
 
     def shutdown(self, _):
         logger.info("Shutdown signaled")

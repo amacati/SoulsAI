@@ -13,9 +13,10 @@ from redis import Redis
 from soulsai.utils import mkdir_date, load_redis_secret
 
 
-def launch_training(dock, algorithm, n_clients):
+def launch_training(dock, algorithm, n_clients, profile):
     path = Path(__file__).parents[1] / algorithm
-    cmd = f"(cd {path}; docker compose up --scale client_node={n_clients})"
+    profile_cmd = "--profile " + profile if profile else ""
+    cmd = f"(cd {path}; docker compose {profile_cmd} up --scale client_node={n_clients})"
     p = subprocess.Popen(cmd, shell=True)  # Yes, this is hacky af. It works though
     while not dock.containers.list(filters={"name": "client_node"}):
         time.sleep(0.1)
@@ -126,12 +127,13 @@ def main(args):
     # Spawn containers
     for i in range(args.nruns):
         print(f"Launching job {i+1}")
-        train_process = launch_training(dock, args.algorithm, args.nclients)
+        train_process = launch_training(dock, args.algorithm, args.nclients, args.profile)
         while not check_training_done(dock):
             time.sleep(1)
         time.sleep(3)  # Give telemetry node time to process the latest samples
         train_process.kill()
         shutdown_nodes(dock)
+        time.sleep(2)
     # Summarize results in multirun experiment save
     if args.nruns:
         save_root = Path(__file__).parents[2] / "saves"
@@ -155,5 +157,7 @@ if __name__ == "__main__":
     parser.add_argument('algorithm', type=str, help='Training algorithm', choices=["ppo", "dqn"])
     parser.add_argument('nruns', type=int, help='Number of training runs')
     parser.add_argument('nclients', type=int, default=1, help='Number of client nodes')
+    parser.add_argument('--profile', type=str, default="", help='Docker compose profile',
+                        required=False)
     args = parser.parse_args()
     main(args)

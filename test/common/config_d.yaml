@@ -67,10 +67,10 @@ load_checkpoint: False
 load_checkpoint_config: False
 
 # Telemetry node settings
-gdrive_sync: False
-gdrive_dir: None
-moving_average: 50
-telemetry_epochs: 5
+telemetry:
+  update_interval: 5
+  save_best_interval: 5
+  moving_average: 20
 
 # Client settings
 max_episodes: 500  # -1 for infinite runs

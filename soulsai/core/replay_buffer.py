@@ -79,6 +79,23 @@ class PerformanceBuffer:
         i = np.random.choice(self._maxidx + 1, n, replace=False)
         return self._b_s[i, :], self._b_a[i], self._b_r[i], self._b_sn[i, :], self._b_d[i]
 
+    def sample_batches(self, nsamples, nbatches):
+        if nsamples > self._maxidx + 1:
+            raise RuntimeError("Asked to sample more elements than available in buffer")
+        indices = [np.random.choice(self._maxidx + 1, nsamples, replace=False)
+                   for _ in range(nbatches)]
+        batches = [(self._b_s[i, :], self._b_a[i], self._b_r[i], self._b_sn[i, :], self._b_d[i])
+                   for i in indices]
+        return batches
+
+    def sample_multibatch(self, nsamples, nbatches):
+        if nsamples * nbatches > self._maxidx + 1:
+            raise RuntimeError("Asked to sample more elements than available in buffer")
+        itotal = np.random.choice(self._maxidx + 1, nsamples * nbatches, replace=False)
+        batches = [(self._b_s[i, :], self._b_a[i], self._b_r[i], self._b_sn[i, :], self._b_d[i])
+                   for i in np.split(itotal, nbatches)]
+        return batches
+
     def save(self, path):
         save_dict = {"_b_s": self._b_s, "_b_a": self._b_a, "_b_r": self._b_r, "_b_sn": self._b_sn,
                      "_b_d": self._b_d, "_idx": self._idx, "_maxidx": self._maxidx}

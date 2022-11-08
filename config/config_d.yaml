@@ -48,7 +48,7 @@ dqn:
   q_clip: 200
   buffer_size: 100_000
   batch_size: 64
-  train_epochs: 50
+  train_epochs: 25
   update_samples: 25
   fill_buffer: False
   multistep: 4

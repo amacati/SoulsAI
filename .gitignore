@@ -16,8 +16,10 @@ test/distributed/dqn/server/train_node/config.yaml
 test/**/config.yaml
 test/test.py
 /test/common/grafana/grafana_data/*
+soulsai/distributed/server/reverse-proxy/certbot/*
 # Disable all secret files. Additional guard against accidental leaking of secrets
 **/*.secret
+**/*.pem
 
 # Force folder saves to be included in repo to make sure docker compose mounts saves as directory, not as file
 !**.gitkeep

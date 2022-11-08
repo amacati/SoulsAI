@@ -9,6 +9,8 @@ services:
       - ../../config/redis.secret:/usr/local/etc/redis/redis.secret
     ports:
       - 6379:6379
+    networks:
+      - server_net
 
   train_node:
     build: 
@@ -23,6 +25,8 @@ services:
     depends_on:
       - redis
     user: "1000"
+    networks:
+      - server_net
 
   telemetry_node:
     build: 
@@ -37,6 +41,8 @@ services:
     depends_on:
       - redis
     user: "1000"
+    networks:
+      - server_net
 
   client_node:
     build:
@@ -50,6 +56,8 @@ services:
       - redis
       - train_node
     user: "1000"
+    networks:
+      - server_net
 
   prometheus:
     image: prom/prometheus:v2.39.1
@@ -63,6 +71,8 @@ services:
       - --storage.tsdb.path=/prometheus
     profiles:
       - monitoring
+    networks:
+      - server_net
 
   grafana:
     image: grafana/grafana:8.2.6
@@ -75,10 +85,16 @@ services:
     profiles:
       - monitoring
     user: "1000"
+    networks:
+      - server_net
 
 volumes:
-  #grafana-data:
   prometheus-data:
     driver_opts:
       type: tmpfs
       device: tmpfs
+
+networks:
+  server_net:
+    name: server
+    external: True

@@ -30,7 +30,7 @@ class DQNConnector:
         address = self.config.redis_address
         red_notify = redis.Redis(host=address, password=secret, port=6379, db=0)
         self.pubsub = red_notify.pubsub()
-        self.pubsub.psubscribe(model_update=self._agent_update_callback)
+        self.pubsub.subscribe(model_update=self._agent_update_callback)
         self.pubsub.run_in_thread(sleep_time=.05, daemon=True)
 
         self._msg_pipe, _msg_pipe = mp.Pipe()
@@ -47,6 +47,10 @@ class DQNConnector:
         while self.model_id[0] == " ":
             time.sleep(1)
         logger.info("Download complete, connector initialized")
+        self.heartbeat = mp.Process(target=self._heartbeat, args=(address, secret,
+                                                                  self._stop_event),
+                                    daemon=True)
+        self.heartbeat.start()
 
     def __enter__(self):
         self._lock.acquire()
@@ -125,6 +129,14 @@ class DQNConnector:
                 red.publish("telemetry", json.dumps(encode_tel(msg)))
             else:
                 logger.warning(f"Unknown message type {msg[0]}")
+
+    @staticmethod
+    def _heartbeat(address, secret, stop_flag):
+        red = redis.Redis(host=address, password=secret, port=6379, db=0)
+        con_id = str(uuid4())
+        while not stop_flag.wait(1):
+            msg = json.dumps({"client_id": con_id, "timestamp": time.time()})
+            red.publish("dqn_heartbeat", msg)
 
 
 class PPOConnector:

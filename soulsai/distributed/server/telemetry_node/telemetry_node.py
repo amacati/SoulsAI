@@ -36,7 +36,7 @@ class TelemetryNode:
 
         self._shutdown = False
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.cmd_sub.psubscribe(shutdown=self.shutdown)
+        self.cmd_sub.subscribe(shutdown=self.shutdown)
         self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
 
         self.rewards = []
@@ -48,6 +48,8 @@ class TelemetryNode:
         self.wins = []
         self.wins_av = []
         self.eps = []
+        
+        self._best_reward = float("-inf")
 
         if self.config.monitoring.enable:
             logger.info("Starting Grafana connector server for live monitoring")
@@ -87,14 +89,20 @@ class TelemetryNode:
                 self.wins.append(int(sample["win"]))
                 self.wins_av.append(self._latest_moving_av(self.wins))
                 self.eps.append(sample["eps"])
-            if len(self.rewards) % self.config.telemetry_epochs == 0:
+            n_rewards = len(self.rewards)
+            if n_rewards % self.config.telemetry.update_interval == 0:
                 self.update_stats_and_dashboard()
-                logger.info("Dashboard updated")
+                logger.info((f"Dashboard updated, last av. reward: {self.rewards_av[-1]:.1f}"
+                             f", last av. steps: {self.steps_av[-1]:.0f}"))
+            if n_rewards % self.config.telemetry.save_best_interval == 0:
+                if self.rewards_av[-1] > self._best_reward:
+                    self.red.publish("save_best", "")
+                    self._best_reward = self.rewards_av[-1]
 
     def update_stats_and_dashboard(self):
         self.figure_path.parent.mkdir(parents=True, exist_ok=True)
         save_plots(self.rewards, self.steps, self.boss_hp, self.wins, self.figure_path, self.eps,
-                   self.config.moving_average)
+                   self.config.telemetry.moving_average)
         self._save_stats(self.stats_path)
 
     def _save_stats(self, path):
@@ -116,5 +124,5 @@ class TelemetryNode:
         self._shutdown = True
 
     def _latest_moving_av(self, x):
-        view = x[-self.config.moving_average:]
+        view = x[-self.config.telemetry.moving_average:]
         return sum(view) / len(view)  # len(view) can be smaller than N
