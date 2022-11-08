@@ -3,3 +3,4 @@ numpy==1.23.1
 redis==4.3.4
 pyyaml==6.0
 flask==2.1.3
+prometheus_client==0.15.0

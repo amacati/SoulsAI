@@ -17,6 +17,8 @@ test/**/config.yaml
 test/test.py
 /test/common/grafana/grafana_data/*
 soulsai/distributed/server/reverse-proxy/certbot/*
+soulsai/distributed/server/reverse-proxy/nginx/*
+soulsai/distributed/server/monitoring/grafana/grafana_data
 # Disable all secret files. Additional guard against accidental leaking of secrets
 **/*.secret
 **/*.pem

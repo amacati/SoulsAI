@@ -8,6 +8,8 @@ services:
       - ./config/redis.secret:/usr/local/etc/redis/redis.secret
     ports:
       - 6379:6379
+    networks:
+      - train_server_net
 
   train_node:
     build: 
@@ -21,6 +23,9 @@ services:
     depends_on:
       - redis
     user: "1000"
+    networks:
+      - monitoring_net
+      - train_server_net
 
   telemetry_node:
     build: 
@@ -34,3 +39,12 @@ services:
     depends_on:
       - redis
     user: "1000"
+    networks:
+      - monitoring_net
+      - train_server_net
+
+networks:
+  monitoring_net:
+    external: True
+    name: server
+  train_server_net:

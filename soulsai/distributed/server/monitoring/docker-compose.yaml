@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.39.1
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    networks:
+      - monitoring_net
+
+  grafana:
+    image: grafana/grafana:8.2.6
+    restart: unless-stopped
+    volumes:
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/grafana_data:/var/lib/grafana
+    user: "1000"
+    networks:
+      - monitoring_net
+      - reverse_proxy_net
+
+volumes:
+  prometheus-data:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+
+networks:
+  monitoring_net:
+    external: True
+    name: server
+  reverse_proxy_net:
+    external: True
+    name: reverse_proxy
