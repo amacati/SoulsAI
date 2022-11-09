@@ -82,18 +82,17 @@ class PerformanceBuffer:
     def sample_batches(self, nsamples, nbatches):
         if nsamples > self._maxidx + 1:
             raise RuntimeError("Asked to sample more elements than available in buffer")
-        indices = [np.random.choice(self._maxidx + 1, nsamples, replace=False)
-                   for _ in range(nbatches)]
+        # If the buffer contains more samples than requested in total, indices are chosen such that
+        # no sample is sampled twice across all batches. If more total samples are requested than
+        # available in the buffer, resort to random independent indices in each batch
+        if nsamples * nbatches <= self._maxidx + 1:
+            unique_indices = np.random.choice(self._maxidx + 1, nsamples * nbatches, replace=False)
+            indices = np.split(unique_indices, nbatches)
+        else:
+            indices = [np.random.choice(self._maxidx + 1, nsamples, replace=False) 
+                       for _ in range(nbatches)]
         batches = [(self._b_s[i, :], self._b_a[i], self._b_r[i], self._b_sn[i, :], self._b_d[i])
                    for i in indices]
-        return batches
-
-    def sample_multibatch(self, nsamples, nbatches):
-        if nsamples * nbatches > self._maxidx + 1:
-            raise RuntimeError("Asked to sample more elements than available in buffer")
-        itotal = np.random.choice(self._maxidx + 1, nsamples * nbatches, replace=False)
-        batches = [(self._b_s[i, :], self._b_a[i], self._b_r[i], self._b_sn[i, :], self._b_d[i])
-                   for i in np.split(itotal, nbatches)]
         return batches
 
     def save(self, path):
