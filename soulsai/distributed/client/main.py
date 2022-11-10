@@ -1,5 +1,5 @@
 from pathlib import Path
-from soulsai.utils import load_remote_config, load_redis_secret
+import logging
 
 import soulsgym  # noqa: F401, needs to register SoulsGym envs with gym module
 
@@ -8,6 +8,7 @@ from soulsai.distributed.client.ppo_client import ppo_client
 from soulsai.utils import load_config
 from soulsai.data.transformation import GameStateTransformer
 from soulsai.exception import InvalidConfigError
+from soulsai.utils import load_remote_config, load_redis_secret
 
 
 def dqn_tel_callback(total_reward, steps, state, eps):
@@ -35,6 +36,7 @@ def ppo_encode_tel(msg):
 
 
 if __name__ == "__main__":
+    logging.basicConfig()
     node_dir = Path(__file__).parents[3] / "config"
     config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
     secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
