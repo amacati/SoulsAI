@@ -4,9 +4,9 @@ from pathlib import Path
 import torch.multiprocessing as mp
 import time
 from uuid import uuid4
-import time
 
 import redis
+from redis import Redis
 
 from soulsai.core.agent import DQNClientAgent, PPOClientAgent
 from soulsai.utils import load_redis_secret, namespace2dict
@@ -28,7 +28,7 @@ class DQNConnector:
         self._stop_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
         address = self.config.redis_address
-        red_notify = redis.Redis(host=address, password=secret, port=6379, db=0)
+        red_notify = Redis(host=address, password=secret, port=6379, db=0)
         self.pubsub = red_notify.pubsub()
         self.pubsub.subscribe(model_update=self._agent_update_callback)
         self.pubsub.run_in_thread(sleep_time=.05, daemon=True)
@@ -87,7 +87,7 @@ class DQNConnector:
     def update_agent(update_event, stop_event, model: DQNClientAgent, eps, lock, secret,
                      config):
         logger.debug("Background update process startup")
-        red = redis.Redis(host=config.redis_address, password=secret, port=6379, db=0)
+        red = Redis(host=config.redis_address, password=secret, port=6379, db=0)
         _params = red.hgetall("model_params")
         model_params = {key.decode("utf-8"): value for key, value in _params.items()}
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
@@ -102,14 +102,18 @@ class DQNConnector:
             if not update_event.wait(1):
                 continue  # Check if stop event has been set
             update_event.clear()
-            _params = red.hgetall("model_params")
-            model_params = {key.decode("utf-8"): value for key, value in _params.items()}
-            buffer_agent.deserialize(model_params)
-            # We can use a blocking approach instead of changing references between multiple models
-            # as writing the new parameters typically only requires ~1e-3s
-            with lock:
-                model.load_state_dict(buffer_agent.state_dict())
-                eps.value = float(model_params["eps"].decode("utf-8"))
+            try:
+                _params = red.hgetall("model_params")
+                model_params = {key.decode("utf-8"): value for key, value in _params.items()}
+                buffer_agent.deserialize(model_params)
+                # We can use a blocking approach instead of changing references between multiple
+                # models as writing the new parameters typically only requires ~1e-3s
+                with lock:
+                    model.load_state_dict(buffer_agent.state_dict())
+                    eps.value = float(model_params["eps"].decode("utf-8"))
+            except redis.exceptions.ConnectionError:
+                time.sleep(10)
+                red = Redis(host=config.redis_address, password=secret, port=6379, db=0)
 
     def _agent_update_callback(self, _):
         self._update_event.set()
@@ -117,26 +121,41 @@ class DQNConnector:
     @staticmethod
     def _consume_msgs(msg_pipe, address, secret, stop_event, encode_sample, encode_tel):
         logger.debug("Background message consumer process startup")
-        red = redis.Redis(host=address, password=secret, port=6379, db=0)
+        red = Redis(host=address, password=secret, port=6379, db=0)
         while not stop_event.is_set() or msg_pipe.poll():
             if not msg_pipe.poll(1):
                 continue  # Check again if stop event has been set
             msg = msg_pipe.recv()
-            if msg[0] == "sample":
-                sample = encode_sample(msg)
-                red.publish("samples", json.dumps({"model_id": msg[1], "sample": sample}))
-            elif msg[0] == "telemetry":
-                red.publish("telemetry", json.dumps(encode_tel(msg)))
-            else:
-                logger.warning(f"Unknown message type {msg[0]}")
+            try:
+                if msg[0] == "sample":
+                    sample = json.dumps({"model_id": msg[1], "sample": encode_sample(msg)})
+                    red.publish("samples", sample)
+                elif msg[0] == "telemetry":
+                    red.publish("telemetry", json.dumps(encode_tel(msg)))
+                else:
+                    logger.warning(f"Unknown message type {msg[0]}")
+            except redis.exceptions.ConnectionError:
+                time.sleep(10)
+                red = Redis(host=address, password=secret, port=6379, db=0)
 
     @staticmethod
     def _heartbeat(address, secret, stop_flag):
-        red = redis.Redis(host=address, password=secret, port=6379, db=0)
+        logging.basicConfig(level=logging.INFO)
+        red = Redis(host=address, password=secret, port=6379, db=0)
         con_id = str(uuid4())
+        disconnect = False
         while not stop_flag.wait(1):
             msg = json.dumps({"client_id": con_id, "timestamp": time.time()})
-            red.publish("dqn_heartbeat", msg)
+            try:
+                red.publish("dqn_heartbeat", msg)
+                if disconnect:
+                    logger.info("Connection to server restored")
+                    disconnect = False
+            except redis.exceptions.ConnectionError:
+                logger.warning("Connection to server interrupted. Trying to reconnect")
+                disconnect = True
+                time.sleep(10)
+                red = Redis(host=address, password=secret, port=6379, db=0)
 
 
 class PPOConnector:
@@ -150,7 +169,7 @@ class PPOConnector:
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
         address = self.config.redis_address
 
-        self.red = redis.Redis(host=address, password=secret, port=6379, db=0)
+        self.red = Redis(host=address, password=secret, port=6379, db=0)
         self.update_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.update_sub.subscribe("model_update")
 
@@ -171,9 +190,8 @@ class PPOConnector:
             raise ClientRegistrationError("Server failed to respond")
         self.con_id = json.loads(msg["data"])
         logger.info(f"Client registration successful. New client ID: {self.con_id}")
-        
 
-        self.heartbeat = mp.Process(target=self._heartbeat, args=(address, secret, self.con_id, 
+        self.heartbeat = mp.Process(target=self._heartbeat, args=(address, secret, self.con_id,
                                                                   self._stop_event),
                                     daemon=True)
         self.heartbeat.start()
@@ -197,7 +215,7 @@ class PPOConnector:
 
     @staticmethod
     def _heartbeat(address, secret, con_id, stop_flag):
-        red = redis.Redis(host=address, password=secret, port=6379, db=0)
+        red = Redis(host=address, password=secret, port=6379, db=0)
         while not stop_flag.wait(1):
             msg = json.dumps({"client_id": con_id, "timestamp": time.time()})
             red.publish("ppo_heartbeat", msg)
@@ -219,7 +237,7 @@ class PPOConnector:
     @staticmethod
     def _consume_msgs(msg_pipe, address, secret, stop_event, encode_sample, encode_tel):
         logger.debug("Background message consumer process startup")
-        red = redis.Redis(host=address, password=secret, port=6379, db=0)
+        red = Redis(host=address, password=secret, port=6379, db=0)
         while not stop_event.is_set() or msg_pipe.poll():
             if not msg_pipe.poll(1):
                 continue  # Check again if stop event has been set
