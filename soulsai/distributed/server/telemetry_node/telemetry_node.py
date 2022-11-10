@@ -109,7 +109,7 @@ class TelemetryNode:
         with open(path, "w") as f:
             json.dump({stat: getattr(self, stat) for stat in self.stats}, f)
 
-    def _load_stats(self, path):
+    def _load_stats(self):
         path = Path(__file__).parents[4] / "saves" / "checkpoint" / "SoulsAIStats.json"
         if path.exists() and path.is_file():
             with open(path, "r") as f:

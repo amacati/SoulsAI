@@ -225,7 +225,7 @@ class DQNTrainingNode:
             tnow = time.time()
             heartbeats = {key: t for key, t in heartbeats.items() if tnow - t < 10}
             n_active_clients.value = len(heartbeats)
-            if time.time() - t_last_log > 1:
+            if time.time() - t_last_log > 5:
                 t_last_log = time.time()
                 logger.info(f"n_active_clients: {n_active_clients.value}")
 
