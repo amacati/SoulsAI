@@ -8,6 +8,7 @@ from threading import Lock, Thread
 import multiprocessing as mp
 
 from redis import Redis
+import torch
 from prometheus_client import start_http_server, Counter, Gauge, Info
 
 from soulsai.core.replay_buffer import PerformanceBuffer
@@ -22,6 +23,9 @@ class DQNTrainingNode:
 
     def __init__(self, config, decode_sample):
         logger.info("Training node startup")
+        # Set torch settings: Flush denormal floats. See also:
+        # https://discuss.pytorch.org/t/training-time-gets-slower-and-slower-on-cpu/145483
+        torch.set_flush_denormal(True)
         self.config = config
         self.decode_sample = decode_sample
         self._shutdown_event = mp.Event()

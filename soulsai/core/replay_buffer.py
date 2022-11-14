@@ -3,6 +3,7 @@ import pickle
 
 import numpy as np
 import torch
+from numba import jit
 
 
 class ExperienceReplayBuffer:
@@ -47,24 +48,24 @@ class PerformanceBuffer:
         self.maxlen = maxlen
         self._idx = 0
         self._maxidx = -1
-        self._b_s = torch.zeros((maxlen, state_size), dtype=torch.float32)
-        self._b_a = torch.zeros((maxlen), dtype=torch.int64)
-        self._b_r = torch.zeros((maxlen), dtype=torch.float32)
-        self._b_sn = torch.zeros((maxlen, state_size), dtype=torch.float32)
-        self._b_d = torch.zeros((maxlen), dtype=torch.float32)
+        self._b_s = np.zeros((maxlen, state_size))
+        self._b_a = np.zeros(maxlen, dtype=np.int64)
+        self._b_r = np.zeros(maxlen)
+        self._b_sn = np.zeros((maxlen, state_size))
+        self._b_d = np.zeros(maxlen)
 
-    def append(self, experience: np.ndarray):
-        self._b_s[self._idx, :] = torch.from_numpy(experience[0])
+    def append(self, experience):
+        self._b_s[self._idx] = experience[0]
         self._b_a[self._idx] = experience[1]
         self._b_r[self._idx] = experience[2]
-        self._b_sn[self._idx, :] = torch.from_numpy(experience[3])
+        self._b_sn[self._idx] = experience[3]
         self._b_d[self._idx] = experience[4]
         self._idx = (self._idx + 1) % self.maxlen
         self._maxidx = min(self._maxidx + 1, self.maxlen - 1)
 
     def clear(self):
         self._idx = 0
-        self._maxidx = 0
+        self._maxidx = -1
 
     def __len__(self):
         return self._maxidx + 1
@@ -77,7 +78,7 @@ class PerformanceBuffer:
         if n > self._maxidx + 1:
             raise RuntimeError("Asked to sample more elements than available in buffer")
         i = np.random.choice(self._maxidx + 1, n, replace=False)
-        return self._b_s[i, :], self._b_a[i], self._b_r[i], self._b_sn[i, :], self._b_d[i]
+        return self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i]
 
     def sample_batches(self, nsamples, nbatches):
         if nsamples > self._maxidx + 1:
@@ -86,14 +87,22 @@ class PerformanceBuffer:
         # no sample is sampled twice across all batches. If more total samples are requested than
         # available in the buffer, resort to random independent indices in each batch
         if nsamples * nbatches <= self._maxidx + 1:
-            unique_indices = np.random.choice(self._maxidx + 1, nsamples * nbatches, replace=False)
-            indices = np.split(unique_indices, nbatches)
-        else:
-            indices = [np.random.choice(self._maxidx + 1, nsamples, replace=False) 
-                       for _ in range(nbatches)]
-        batches = [(self._b_s[i, :], self._b_a[i], self._b_r[i], self._b_sn[i, :], self._b_d[i])
+            # For larger buffers, the sampling process gets slow (particularly in Docker). We can
+            # jit the batch generation to improve sampling times
+            return self.__sample_batches_boost(self._maxidx, nsamples, nbatches, self._b_s,
+                                               self._b_a, self._b_r, self._b_sn, self._b_d)
+        indices = [np.random.choice(self._maxidx + 1, nsamples, replace=False)
+                   for _ in range(nbatches)]
+        batches = [(self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i])
                    for i in indices]
         return batches
+
+    @staticmethod
+    @jit
+    def __sample_batches_boost(maxidx, nsamples, nbatches, bs, ba, br, bns, bd):
+        unique_indices = np.random.choice(maxidx + 1, nsamples * nbatches, replace=False)
+        indices = np.split(unique_indices, nbatches)
+        return [(bs[i], ba[i], br[i], bns[i], bd[i]) for i in indices]
 
     def save(self, path):
         save_dict = {"_b_s": self._b_s, "_b_a": self._b_a, "_b_r": self._b_r, "_b_sn": self._b_sn,
