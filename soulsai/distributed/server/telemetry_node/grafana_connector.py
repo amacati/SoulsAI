@@ -2,7 +2,8 @@ import logging
 from threading import Thread
 import json
 
-from flask import Flask, request, jsonify
+import numpy as np
+from flask import Flask, request
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,15 @@ class GrafanaConnector:
         if key not in self.data.keys():
             return ""
         keys = [k for k in self.data.keys() if key.lower() in k]
-        columns = [{"text": key, "type": "number"} for key in keys]
-        # Bound checking not necesary with [-idx:]
-        rows = list(zip(*[self.data[key][-n_samples:] for key in keys]))
+        columns, rows = [], []
+        for key in keys:
+            if len(self.data[key]) <= n_samples:
+                idx = np.arange(0, len(self.data[key]))
+            else:
+                idx = np.linspace(0, len(self.data[key]) - 1, n_samples, dtype=np.int64)
+            columns.append({"text": key, "type": "number"})
+            columns.append({"text": key + "_idx", "type": "number"})
+            rows.append([self.data[key][i] for i in idx])
+            rows.append(idx.tolist())
+        rows = list(zip(*rows))
         return [{"columns": columns, "rows": rows, "type":"table"}]

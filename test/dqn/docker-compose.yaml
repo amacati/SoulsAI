@@ -81,6 +81,7 @@ services:
     volumes:
       - ../common/grafana/datasources:/etc/grafana/provisioning/datasources
       - ../common/grafana/grafana_data:/var/lib/grafana
+      - ../common/grafana/grafana.ini:/etc/grafana/grafana.ini
     profiles:
       - monitoring
     user: "1000"

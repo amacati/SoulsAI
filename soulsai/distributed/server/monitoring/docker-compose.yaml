@@ -18,6 +18,7 @@ services:
     volumes:
       - ./grafana/datasources:/etc/grafana/provisioning/datasources
       - ./grafana/grafana_data:/var/lib/grafana
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
     user: "1000"
     networks:
       - monitoring_net
