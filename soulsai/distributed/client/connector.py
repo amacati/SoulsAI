@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 import torch.multiprocessing as mp
 import time
+import select
 from uuid import uuid4
 
 import redis
@@ -51,6 +52,8 @@ class DQNConnector:
                                                                   self._stop_event),
                                     daemon=True)
         self.heartbeat.start()
+        # Utility attributes
+        self._full_pipe_warn_time = 0
 
     def __enter__(self):
         self._lock.acquire()
@@ -72,9 +75,20 @@ class DQNConnector:
         return self._eps.value
 
     def push_sample(self, model_id, sample):
+        # Check if pipe is full, discard sample if it is
+        if not select.select([], [self._msg_pipe], [], 0.0)[1]:
+            if time.time() - self._full_pipe_warn_time > 5:
+                self._full_pipe_warn_time = time.time()
+                logger.warning("Connector pipe is full")
+            return
         self._msg_pipe.send(("sample", model_id, sample))
 
     def push_telemetry(self, *args):
+        if not select.select([], [self._msg_pipe], [], 0.0)[1]:
+            if time.time() - self._full_pipe_warn_time > 5:
+                self._full_pipe_warn_time = time.time()
+                logger.warning("Connector pipe is full")
+            return
         self._msg_pipe.send(("telemetry", *args))
 
     def close(self):
