@@ -40,12 +40,15 @@ class DQNAgent:
         self.grad_clip = grad_clip
         self.model_id = None
 
-    def __call__(self, x):
+    def __call__(self, x, action_mask=None):
         with torch.no_grad():
             x = torch.as_tensor(x).to(self.dev)
-            return torch.argmax(self.dqn1(x)+self.dqn2(x)).item()
+            qvalues = self.dqn1(x)+self.dqn2(x)
+            if action_mask is not None:
+                qvalues[action_mask == 0] = -torch.inf
+            return torch.argmax(qvalues).item()
 
-    def train(self, states, actions, rewards, next_states, dones):
+    def train(self, states, actions, rewards, next_states, dones, action_masks=None):
         batch_size = states.shape[0]
         coin = random.choice([True, False])
         train_net, estimate_net = (self.dqn1, self.dqn2) if coin else (self.dqn2, self.dqn1)
@@ -56,6 +59,9 @@ class DQNAgent:
         rewards = torch.as_tensor(rewards, dtype=torch.float32).to(self.dev)
         next_states = torch.as_tensor(next_states, dtype=torch.float32).to(self.dev)
         dones = torch.as_tensor(dones, dtype=torch.float32).to(self.dev)
+        if action_masks is not None:
+            action_masks = torch.as_tensor(action_masks, dtype=torch.float32)
+            logger.warning(action_masks)
         q_a = train_net(states)[range(batch_size), actions]
         with torch.no_grad():
             a_next = torch.max(train_net(next_states), 1).indices

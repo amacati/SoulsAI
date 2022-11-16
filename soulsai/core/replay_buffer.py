@@ -3,7 +3,6 @@ import pickle
 
 import numpy as np
 import torch
-from numba import jit
 
 
 class ExperienceReplayBuffer:
@@ -44,15 +43,17 @@ class ExperienceReplayBuffer:
 
 class PerformanceBuffer:
 
-    def __init__(self, maxlen, state_size):
+    def __init__(self, maxlen, state_size, n_actions, action_masking=False):
         self.maxlen = maxlen
         self._idx = 0
         self._maxidx = -1
         self._b_s = np.zeros((maxlen, state_size))
         self._b_a = np.zeros(maxlen, dtype=np.int64)
+        self._b_am = np.zeros((maxlen, n_actions))
         self._b_r = np.zeros(maxlen)
         self._b_sn = np.zeros((maxlen, state_size))
         self._b_d = np.zeros(maxlen)
+        self._action_masking = action_masking
 
     def append(self, experience):
         self._b_s[self._idx] = experience[0]
@@ -60,6 +61,9 @@ class PerformanceBuffer:
         self._b_r[self._idx] = experience[2]
         self._b_sn[self._idx] = experience[3]
         self._b_d[self._idx] = experience[4]
+        if self._action_masking:
+            self._b_am[self._idx] = 0
+            self._b_am[self._idx, np.array(experience[5]["allowed_actions"])] = 1
         self._idx = (self._idx + 1) % self.maxlen
         self._maxidx = min(self._maxidx + 1, self.maxlen - 1)
 
@@ -87,22 +91,18 @@ class PerformanceBuffer:
         # no sample is sampled twice across all batches. If more total samples are requested than
         # available in the buffer, resort to random independent indices in each batch
         if nsamples * nbatches <= self._maxidx + 1:
-            # For larger buffers, the sampling process gets slow (particularly in Docker). We can
-            # jit the batch generation to improve sampling times
-            return self.__sample_batches_boost(self._maxidx, nsamples, nbatches, self._b_s,
-                                               self._b_a, self._b_r, self._b_sn, self._b_d)
-        indices = [np.random.choice(self._maxidx + 1, nsamples, replace=False)
-                   for _ in range(nbatches)]
-        batches = [(self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i])
-                   for i in indices]
+            unique_indices = np.random.choice(self._maxidx + 1, nsamples * nbatches, replace=False)
+            indices = np.split(unique_indices, nbatches)
+        else:
+            indices = [np.random.choice(self._maxidx + 1, nsamples, replace=False)
+                    for _ in range(nbatches)]
+        if self._action_masking:
+            batches = [(self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i],
+                        self._b_am[i]) for i in indices]
+        else:
+            batches = [(self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i])
+                       for i in indices]
         return batches
-
-    @staticmethod
-    @jit
-    def __sample_batches_boost(maxidx, nsamples, nbatches, bs, ba, br, bns, bd):
-        unique_indices = np.random.choice(maxidx + 1, nsamples * nbatches, replace=False)
-        indices = np.split(unique_indices, nbatches)
-        return [(bs[i], ba[i], br[i], bns[i], bd[i]) for i in indices]
 
     def save(self, path):
         save_dict = {"_b_s": self._b_s, "_b_a": self._b_a, "_b_r": self._b_r, "_b_sn": self._b_sn,

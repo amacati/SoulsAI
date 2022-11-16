@@ -60,6 +60,7 @@ dqn:
   noise: "UniformDiscreteNoise"
   noise_kwargs:
     size_n: 4
+  action_masking: False
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration

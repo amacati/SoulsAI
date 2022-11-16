@@ -40,15 +40,19 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
         states = deque(maxlen=config.dqn.multistep + 1)
         actions = deque(maxlen=config.dqn.multistep)
         rewards = deque(maxlen=config.dqn.multistep)
+        infos = deque(maxlen=config.dqn.multistep)
         while not stop_flag.is_set() and episode_id != config.max_episodes:
             episode_id += 1
             state = tf_state_callback(env.reset())
+            if config.dqn.action_masking:
+                action_mask = env.current_action_mask()
             done = False
             total_reward = 0.
             steps = 1
             states.clear()
             actions.clear()
             rewards.clear()
+            infos.clear()
             states.append(state)
             while not done and not stop_flag.is_set():
                 with con:
@@ -56,27 +60,34 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                     model_id = con.model_id
                     if np.random.rand() < eps:
                         action = noise.sample()
+                    elif config.dqn.action_masking:
+                        action = con.agent(state, action_mask)
                     else:
                         action = con.agent(state)
-                next_state, reward, done, _ = env.step(action)
+                next_state, reward, done, info = env.step(action)
                 next_state = tf_state_callback(next_state)
                 states.append(next_state)
                 actions.append(action)
                 rewards.append(reward)
+                infos.append(info)
                 total_reward += reward
                 if len(rewards) == config.dqn.multistep:
                     sum_r = sum([rewards[i] * config.gamma**i for i in range(config.dqn.multistep)])
-                    con.push_sample(model_id, [states[0], actions[0], sum_r, states[-1], done])
+                    sample = [states[0], actions[0], sum_r, states[-1], done, infos[0]]
+                    con.push_msg("sample", model_id, sample)
                 state = next_state
+                if config.dqn.action_masking:
+                    action_mask = info["action_mask"]
                 steps += 1
                 if config.step_delay:  # Enable Dockerfiles to simulate slow clients
                     time.sleep(config.step_delay)
             if not stop_flag.is_set():
                 for i in range(1, len(rewards)):
                     sum_r = sum([rewards[i + j] * config.gamma**j for j in range(config.dqn.multistep - i)])  # noqa: E501
-                    con.push_sample(model_id, [states[i], actions[i], sum_r, states[-1], done])
+                    sample = [states[i], actions[i], sum_r, states[-1], done, infos[i]]
+                    con.push_msg("sample", model_id, sample)
                 noise.reset()
-                con.push_telemetry(*tel_callback(total_reward, steps, state, eps))
+                con.push_msg("telemetry", *tel_callback(total_reward, steps, state, eps))
             if episode_end_callback is not None:
                 episode_end_callback()
         logger.info("Exiting training")

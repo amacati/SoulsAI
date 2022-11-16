@@ -74,22 +74,14 @@ class DQNConnector:
     def eps(self):
         return self._eps.value
 
-    def push_sample(self, model_id, sample):
+    def push_msg(self, msg_type, *args):
         # Check if pipe is full, discard sample if it is
         if not select.select([], [self._msg_pipe], [], 0.0)[1]:
             if time.time() - self._full_pipe_warn_time > 5:
                 self._full_pipe_warn_time = time.time()
                 logger.warning("Connector pipe is full")
             return
-        self._msg_pipe.send(("sample", model_id, sample))
-
-    def push_telemetry(self, *args):
-        if not select.select([], [self._msg_pipe], [], 0.0)[1]:
-            if time.time() - self._full_pipe_warn_time > 5:
-                self._full_pipe_warn_time = time.time()
-                logger.warning("Connector pipe is full")
-            return
-        self._msg_pipe.send(("telemetry", *args))
+        self._msg_pipe.send((msg_type, *args))
 
     def close(self):
         self._stop_event.set()

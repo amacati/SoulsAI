@@ -20,7 +20,8 @@ def ppo_tel_callback(total_reward, steps, state):
 
 
 def dqn_encode_sample(msg):
-    return [msg[2][0].tolist(), msg[2][1], msg[2][2], msg[2][3].tolist(), msg[2][4]]
+    # State, action, reward, next_state, done, info
+    return [msg[2][0].tolist(), msg[2][1], msg[2][2], msg[2][3].tolist(), msg[2][4], msg[2][5]]
 
 
 def ppo_encode_sample(msg):

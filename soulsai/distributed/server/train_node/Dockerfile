@@ -11,6 +11,5 @@ RUN git clone https://github.com/amacati/SoulsGym.git
 WORKDIR /home/SoulsGym
 RUN python setup.py develop
 WORKDIR /home/SoulsAI
-RUN git checkout dev
 RUN python setup.py develop
 ENTRYPOINT ["python", "soulsai/distributed/server/train_node/launch_node.py"]

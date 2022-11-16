@@ -68,7 +68,8 @@ class DQNTrainingNode:
             self.load_checkpoint(save_root_dir / "checkpoint")
             logger.info("Checkpoint loading complete")
         self.model_ids.append(self.agent.model_id)
-        self.buffer = PerformanceBuffer(self.config.dqn.buffer_size, self.config.n_states)
+        self.buffer = PerformanceBuffer(self.config.dqn.buffer_size, self.config.n_states,
+                                        self.config.n_actions, self.config.dqn.action_masking)
         self.eps_scheduler = EpsilonScheduler(self.config.dqn.eps_max, self.config.dqn.eps_min,
                                               self.config.dqn.eps_steps, zero_ending=True)
         logger.info(f"Initial model ID: {self.model_id}")
@@ -176,10 +177,14 @@ class DQNTrainingNode:
 
     def train_model(self):
         batches = self.buffer.sample_batches(self.config.dqn.batch_size,
-                                                self.config.dqn.train_epochs)
+                                             self.config.dqn.train_epochs)
         for i in range(self.config.dqn.train_epochs):
-            states, actions, rewards, next_states, dones = batches[i]
-            self.agent.train(states, actions, rewards, next_states, dones)
+            if self.config.dqn.action_masking:
+                states, actions, rewards, next_states, dones, action_masks = batches[i]
+                self.agent.train(states, actions, rewards, next_states, dones, action_masks)
+            else:
+                states, actions, rewards, next_states, dones = batches[i]
+                self.agent.train(states, actions, rewards, next_states, dones)
         self.agent.update_callback()
 
     def checkpoint(self, path):
