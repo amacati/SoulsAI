@@ -76,7 +76,7 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                 total_reward += reward
                 if len(rewards) == config.dqn.multistep:
                     sum_r = sum([rewards[i] * config.gamma**i for i in range(config.dqn.multistep)])
-                    sample = [states[0], actions[0], sum_r, states[-1], done, infos[0]]
+                    sample = [states[0], actions[0], sum_r, states[-1], done, infos[-1]]
                     con.push_msg("sample", model_id, sample)
                 state = next_state
                 if config.dqn.action_masking:
@@ -88,7 +88,7 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
             if not stop_flag.is_set():
                 for i in range(1, len(rewards)):
                     sum_r = sum([rewards[i + j] * config.gamma**j for j in range(config.dqn.multistep - i)])  # noqa: E501
-                    sample = [states[i], actions[i], sum_r, states[-1], done, infos[i]]
+                    sample = [states[i], actions[i], sum_r, states[-1], done, infos[-1]]
                     con.push_msg("sample", model_id, sample)
                 noise.reset()
                 con.push_msg("telemetry", *tel_callback(total_reward, steps, state, eps))
