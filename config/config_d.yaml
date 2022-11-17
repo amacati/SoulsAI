@@ -11,6 +11,9 @@ env: SoulsGymIudex-v0
 n_states: 71
 n_actions: 20
 gamma: 0.99
+use_env_kwargs: True
+env_kwargs:
+  use_info: True
 
 # Algorithm choice
 algorithm: "DQN"
@@ -60,7 +63,7 @@ dqn:
   noise: "UniformDiscreteNoise"
   noise_kwargs:
     size_n: 20
-  action_masking: True
+  action_masking: False
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration

@@ -63,7 +63,7 @@ class PerformanceBuffer:
         self._b_d[self._idx] = experience[4]
         if self._action_masking:
             self._b_am[self._idx] = 0
-            self._b_am[self._idx, np.array(experience[5]["allowed_actions"])] = 1
+            self._b_am[self._idx, experience[5]["allowed_actions"]] = 1
         self._idx = (self._idx + 1) % self.maxlen
         self._maxidx = min(self._maxidx + 1, self.maxlen - 1)
 
