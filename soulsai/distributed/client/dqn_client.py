@@ -31,7 +31,8 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
 
     # DQNConnector enables non-blocking server interaction
     con = DQNConnector(config, encode_sample, encode_tel)
-    env = gym.make(config.env)
+    env_kwargs = namespace2dict(config.env_kwargs) if config.use_env_kwargs else {}
+    env = gym.make(config.env, **env_kwargs)
     noise = _get_noise(config)
 
     logger.info("Client node running")
@@ -45,7 +46,9 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
             episode_id += 1
             state = tf_state_callback(env.reset())
             if config.dqn.action_masking:
-                action_mask = env.current_action_mask()
+                valid_actions = env.current_valid_actions()
+                action_mask = np.zeros(config.n_actions)
+                action_mask[valid_actions] = 1
             done = False
             total_reward = 0.
             steps = 1
@@ -77,7 +80,8 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                     con.push_msg("sample", model_id, sample)
                 state = next_state
                 if config.dqn.action_masking:
-                    action_mask = info["action_mask"]
+                    action_mask[:] = 0
+                    action_mask[info["allowed_actions"]] = 1
                 steps += 1
                 if config.step_delay:  # Enable Dockerfiles to simulate slow clients
                     time.sleep(config.step_delay)

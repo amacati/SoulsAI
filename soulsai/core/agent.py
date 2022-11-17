@@ -45,7 +45,8 @@ class DQNAgent:
             x = torch.as_tensor(x).to(self.dev)
             qvalues = self.dqn1(x)+self.dqn2(x)
             if action_mask is not None:
-                qvalues[action_mask == 0] = -torch.inf
+                c = torch.as_tensor(action_mask, dtype=torch.bool)
+                qvalues = torch.where(c, qvalues, torch.tensor([-torch.inf], dtype=torch.float32))
             return torch.argmax(qvalues).item()
 
     def train(self, states, actions, rewards, next_states, dones, action_masks=None):

@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import torch.multiprocessing as mp
 import time
-import select
+import queue
 from uuid import uuid4
 
 import redis
@@ -34,8 +34,8 @@ class DQNConnector:
         self.pubsub.subscribe(model_update=self._agent_update_callback)
         self.pubsub.run_in_thread(sleep_time=.05, daemon=True)
 
-        self._msg_pipe, _msg_pipe = mp.Pipe()
-        args = (_msg_pipe, address, secret, self._stop_event, encode_sample, encode_tel)
+        self._msg_queue = mp.Queue(maxsize=100)
+        args = (self._msg_queue, address, secret, self._stop_event, encode_sample, encode_tel)
         self.msg_consumer = mp.Process(target=self._consume_msgs, args=args)
         self._agent.share_memory()
         args = (self._update_event, self._stop_event, self._agent, self._eps, self._lock,
@@ -53,7 +53,7 @@ class DQNConnector:
                                     daemon=True)
         self.heartbeat.start()
         # Utility attributes
-        self._full_pipe_warn_time = 0
+        self._full_queue_warn_time = 0
 
     def __enter__(self):
         self._lock.acquire()
@@ -63,8 +63,8 @@ class DQNConnector:
         if args[0] is None:
             return True
 
-    def agent(self, state):
-        return self._agent(state)
+    def agent(self, *args, **kwargs):
+        return self._agent(*args, **kwargs)
 
     @property
     def model_id(self):
@@ -75,13 +75,12 @@ class DQNConnector:
         return self._eps.value
 
     def push_msg(self, msg_type, *args):
-        # Check if pipe is full, discard sample if it is
-        if not select.select([], [self._msg_pipe], [], 0.0)[1]:
-            if time.time() - self._full_pipe_warn_time > 5:
-                self._full_pipe_warn_time = time.time()
-                logger.warning("Connector pipe is full")
-            return
-        self._msg_pipe.send((msg_type, *args))
+        try:
+            self._msg_queue.put_nowait((msg_type, *args))
+        except queue.Full:
+            if time.time() - self._full_queue_warn_time > 5:
+                self._full_queue_warn_time = time.time()
+                logger.warning("Connector queue is full")
 
     def close(self):
         self._stop_event.set()
@@ -125,13 +124,14 @@ class DQNConnector:
         self._update_event.set()
 
     @staticmethod
-    def _consume_msgs(msg_pipe, address, secret, stop_event, encode_sample, encode_tel):
+    def _consume_msgs(msg_queue, address, secret, stop_event, encode_sample, encode_tel):
         logger.debug("Background message consumer process startup")
         red = Redis(host=address, password=secret, port=6379, db=0)
-        while not stop_event.is_set() or msg_pipe.poll():
-            if not msg_pipe.poll(1):
+        while not stop_event.is_set() or not msg_queue.empty():
+            try:
+                msg = msg_queue.get(block=True, timeout=1.)
+            except queue.Empty:
                 continue  # Check again if stop event has been set
-            msg = msg_pipe.recv()
             try:
                 if msg[0] == "sample":
                     sample = json.dumps({"model_id": msg[1], "sample": encode_sample(msg)})
