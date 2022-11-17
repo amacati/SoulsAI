@@ -61,11 +61,13 @@ class DQNAgent:
         next_states = torch.as_tensor(next_states, dtype=torch.float32).to(self.dev)
         dones = torch.as_tensor(dones, dtype=torch.float32).to(self.dev)
         if action_masks is not None:
-            action_masks = torch.as_tensor(action_masks, dtype=torch.float32)
-            logger.warning(action_masks)
+            action_masks = torch.as_tensor(action_masks, dtype=torch.bool)
         q_a = train_net(states)[range(batch_size), actions]
         with torch.no_grad():
-            a_next = torch.max(train_net(next_states), 1).indices
+            q_next = train_net(next_states)
+            if action_masks is not None:
+                q_next = torch.where(action_masks, q_next, -torch.inf)
+            a_next = torch.max(q_next, 1).indices
             q_a_next = torch.clamp(estimate_net(next_states)[range(batch_size), a_next],
                                    -self.q_clip, self.q_clip)
             q_td = rewards + self.gamma ** self.multistep * q_a_next * (1 - dones)
