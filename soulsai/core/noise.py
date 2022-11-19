@@ -32,3 +32,17 @@ class UniformDiscreteNoise(Noise):
 
     def reset(self):
         ...
+
+
+class MaskedDiscreteNoise(Noise):
+
+    def __init__(self, size_n):
+        super().__init__()
+        assert size_n > 0
+        self.size_n = size_n
+
+    def sample(self, mask):
+        return np.argmax(self.np_random.random(self.size_n) * mask)
+
+    def reset(self):
+        ...

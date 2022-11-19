@@ -5,7 +5,7 @@ from collections import deque
 
 import numpy as np
 import gym
-from soulsai.core.noise import UniformDiscreteNoise
+from soulsai.core.noise import UniformDiscreteNoise, MaskedDiscreteNoise
 from soulsai.utils import namespace2dict
 from soulsai.distributed.client.connector import DQNConnector
 from soulsai.exception import InvalidConfigError
@@ -62,7 +62,10 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                     eps = con.eps
                     model_id = con.model_id
                     if np.random.rand() < eps:
-                        action = noise.sample()
+                        if config.dqn.noise == "MaskedDiscreteNoise":
+                            action = noise.sample(action_mask)
+                        else:
+                            action = noise.sample()
                     elif config.dqn.action_masking:
                         action = con.agent(state, action_mask)
                     else:
@@ -103,6 +106,8 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
 def _get_noise(config):
     if config.dqn.noise == "UniformDiscreteNoise":
         noise_cls = UniformDiscreteNoise
+    elif config.dqn.noise == "MaskedDiscreteNoise":
+        noise_cls = MaskedDiscreteNoise
     else:
         raise InvalidConfigError(f"Noise type {config.dqn.noise} not supported.")
     return noise_cls(**namespace2dict(config.dqn.noise_kwargs))
