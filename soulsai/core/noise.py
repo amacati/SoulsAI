@@ -42,7 +42,7 @@ class MaskedDiscreteNoise(Noise):
         self.size_n = size_n
 
     def sample(self, mask):
-        return np.argmax(self.np_random.random(self.size_n) * mask)
+        return np.argmax(self.np_random.random(self.size_n) * mask).item()
 
     def reset(self):
         ...

@@ -86,6 +86,8 @@ class DQNConnector:
         self._stop_event.set()
         self.msg_consumer.join()
         self.model_updater.join()
+        self.heartbeat.join()
+        self._msg_queue.cancel_join_thread()
         logger.debug("All background processes joined")
 
     @staticmethod
