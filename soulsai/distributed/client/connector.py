@@ -142,7 +142,7 @@ class DQNConnector:
                     red.publish("telemetry", json.dumps(encode_tel(msg)))
                 else:
                     logger.warning(f"Unknown message type {msg[0]}")
-            except redis.exceptions.ConnectionError:
+            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 red = Redis(host=address, password=secret, port=6379, db=0)
 
@@ -159,7 +159,7 @@ class DQNConnector:
                 if disconnect:
                     logger.info("Connection to server restored")
                     disconnect = False
-            except redis.exceptions.ConnectionError:
+            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 logger.warning("Connection to server interrupted. Trying to reconnect")
                 disconnect = True
                 time.sleep(10)
