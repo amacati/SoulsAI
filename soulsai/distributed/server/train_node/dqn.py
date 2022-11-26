@@ -229,8 +229,9 @@ class DQNTrainingNode:
                 if not msg["client_id"] in heartbeats:
                     logger.info("New client registered")
                 # Ignore stale messages in the queue
-                if time.time() - msg["timestamp"] < 5:
-                    heartbeats[msg["client_id"]] = msg["timestamp"]
+                if time.time() - msg["timestamp"] < 1e3:
+                    # Don't use timestamp from message as clocks may have drifted
+                    heartbeats[msg["client_id"]] = time.time()
             tnow = time.time()
             heartbeats = {key: t for key, t in heartbeats.items() if tnow - t < 10}
             n_active_clients.value = len(heartbeats)
