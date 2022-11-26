@@ -45,7 +45,7 @@ class DQNTrainingNode:
         self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
         self.sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.cmd_sub.subscribe(manual_save=lambda _: self.checkpoint(self.save_dir),
+        self.cmd_sub.subscribe(manual_save=lambda _: self.checkpoint(self.save_dir / "manual_save"),
                                save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),
                                shutdown=self.shutdown)
         self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
