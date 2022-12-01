@@ -10,6 +10,7 @@ import redis
 from redis import Redis
 
 from soulsai.core.agent import DQNClientAgent, PPOClientAgent
+from soulsai.core.normalizer import Normalizer
 from soulsai.utils import load_redis_secret, namespace2dict
 from soulsai.exception import ClientRegistrationError, ServerTimeoutError
 
@@ -21,8 +22,13 @@ class DQNConnector:
     def __init__(self, config, encode_sample, encode_tel):
         mp.set_start_method("spawn")
         self.config = config
-        self._agent = DQNClientAgent(config.dqn.network_type,
+        self.agent = DQNClientAgent(config.dqn.network_type,
                                      namespace2dict(config.dqn.network_kwargs))
+        if config.dqn.normalizer_kwargs is not None:
+            norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs) 
+        else:
+            norm_kwargs = {}
+        self.normalizer = Normalizer(config.n_states, **norm_kwargs)
         self._eps = mp.Value("d", -1.)
         self._lock = mp.Lock()
         self._update_event = mp.Event()
@@ -37,10 +43,11 @@ class DQNConnector:
         self._msg_queue = mp.Queue(maxsize=100)
         args = (self._msg_queue, address, secret, self._stop_event, encode_sample, encode_tel)
         self.msg_consumer = mp.Process(target=self._consume_msgs, args=args)
-        self._agent.share_memory()
-        args = (self._update_event, self._stop_event, self._agent, self._eps, self._lock,
-                secret, config)
-        self.model_updater = mp.Process(target=self.update_agent, args=args)
+        self.agent.share_memory()
+        self.normalizer.share_memory()
+        args = (self._update_event, self._stop_event, self.agent, self.normalizer, self._eps,
+                self._lock, secret, config)
+        self.model_updater = mp.Process(target=self.update_model, args=args)
         self.model_updater.start()
         self.msg_consumer.start()
         # Block while first model is not here
@@ -63,12 +70,9 @@ class DQNConnector:
         if args[0] is None:
             return True
 
-    def agent(self, *args, **kwargs):
-        return self._agent(*args, **kwargs)
-
     @property
     def model_id(self):
-        return self._agent.model_id
+        return self.agent.model_id
 
     @property
     def eps(self):
@@ -91,7 +95,7 @@ class DQNConnector:
         logger.debug("All background processes joined")
 
     @staticmethod
-    def update_agent(update_event, stop_event, model: DQNClientAgent, eps, lock, secret,
+    def update_model(update_event, stop_event, agent: DQNClientAgent, normalizer, eps, lock, secret,
                      config):
         logger.debug("Background update process startup")
         red = Redis(host=config.redis_address, password=secret, port=6379, db=0)
@@ -102,9 +106,13 @@ class DQNConnector:
         buffer_agent = DQNClientAgent(config.dqn.network_type,
                                       namespace2dict(config.dqn.network_kwargs))
         buffer_agent.deserialize(model_params)
+        if config.dqn.normalize:
+            norm_params = normalizer.deserialize(model_params)
         with lock:
-            model.load_state_dict(buffer_agent.state_dict())
+            agent.load_state_dict(buffer_agent.state_dict())
             eps.value = float(model_params["eps"].decode("utf-8"))
+            if config.dqn.normalize:
+                normalizer.load_params(*norm_params)
         while not stop_event.is_set():
             if not update_event.wait(1):
                 continue  # Check if stop event has been set
@@ -113,11 +121,15 @@ class DQNConnector:
                 _params = red.hgetall("model_params")
                 model_params = {key.decode("utf-8"): value for key, value in _params.items()}
                 buffer_agent.deserialize(model_params)
+                if config.dqn.normalize:
+                    norm_params = normalizer.deserialize(model_params)
                 # We can use a blocking approach instead of changing references between multiple
                 # models as writing the new parameters typically only requires ~1e-3s
                 with lock:
-                    model.load_state_dict(buffer_agent.state_dict())
+                    agent.load_state_dict(buffer_agent.state_dict())
                     eps.value = float(model_params["eps"].decode("utf-8"))
+                    if config.dqn.normalize:
+                        normalizer.load_params(*norm_params)
             except redis.exceptions.ConnectionError:
                 time.sleep(10)
                 red = Redis(host=config.redis_address, password=secret, port=6379, db=0)

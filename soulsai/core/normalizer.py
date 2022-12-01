@@ -1,34 +1,28 @@
 import logging
-from typing import Optional, Tuple, Union
-import json
-import multiprocessing as mp
-import ctypes
+from typing import Optional, List, Union
+import io
 
 import numpy as np
 import torch
+import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
 
-class Normalizer:
+class Normalizer(nn.Module):
 
     def __init__(self, size_s, eps: float = 1e-2, clip: float = np.inf,
-                 idx_range: Optional[Tuple] = None):
-        self.idx = list(idx_range or (0, size_s))
+                 idx_list: Optional[List] = None):
+        super().__init__()
         self.size = size_s
-        self.eps2 = np.ones(size_s, dtype=np.float32) * eps**2
         self.clip = clip
-        self.sum = np.zeros(size_s, dtype=np.float32)
-        self.sum_sq = np.zeros(size_s, dtype=np.float32)
-        self.count = 1
-        self.mean = np.zeros(size_s, dtype=np.float32)
-        self.std = np.ones(size_s, dtype=np.float32)
-        self._do_normalize = 0  # Disable normalizer if only unit transform is performed
-        self.shared_memory = False
-
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        """Alias for `self.normalize`."""
-        return self.normalize(x)
+        self.idx = nn.Parameter(torch.tensor(idx_list or range(0, size_s), dtype=torch.int64),
+                                requires_grad=False)
+        self.eps2 = torch.ones(size_s, dtype=torch.float32) * eps**2
+        self.count = nn.Parameter(torch.tensor(0, dtype=torch.int64), requires_grad=False)
+        self.mean = nn.Parameter(torch.zeros(size_s, dtype=torch.float32), requires_grad=False)
+        self._m2 = nn.Parameter(torch.zeros(size_s, dtype=torch.float32), requires_grad=False)
+        self.std = nn.Parameter(torch.ones(size_s, dtype=torch.float32), requires_grad=False)
 
     def normalize(self, x: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
         """Normalize the input data with the current mean and variance estimate.
@@ -38,98 +32,54 @@ class Normalizer:
         Returns:
             The normalized data.
         """
-        if not self.do_normalize:
-            return x
-        assert isinstance(x, np.ndarray) or isinstance(x, torch.Tensor)
-        is_tensor = isinstance(x, torch.Tensor)
-        x = x.copy() if isinstance(x, np.ndarray) else x.numpy().copy()
-        if self.shared_memory:  # Convert shared memory arrays to np arrays first
-            mean = np.frombuffer(self.mean.get_obj())[self.idx[0]:self.idx[1]]  # Avoid data copy
-            std = np.frombuffer(self.std.get_obj())[self.idx[0]:self.idx[1]]
-        else:
-            mean, std = self.mean[self.idx[0]:self.idx[1]], self.std[self.idx[0]:self.idx[1]]
-        norm = (x[..., self.idx[0]:self.idx[1]] - mean) / std
-        x[..., self.idx[0]:self.idx[1]] = np.clip(norm, -self.clip, self.clip)
-        return torch.as_tensor(x) if is_tensor else x
+        x = self._sanitize_input(x).clone()
+        norm = (x[..., self.idx] - self.mean[self.idx]) / self.std[self.idx]
+        x[..., self.idx] = torch.clip(norm, -self.clip, self.clip)
+        return x
 
     def update(self, x: Union[np.ndarray, torch.Tensor]):
-        assert isinstance(x, np.ndarray) or isinstance(x, torch.Tensor)
-        if isinstance(x, torch.Tensor):
-            x = x.numpy()
+        # Use a batched version of Welford's algorithm for numerical stability
+        x = self._sanitize_input(x)
         assert x.ndim == 2
-        self.do_normalize = True
-        self.sum += np.sum(x, axis=0, dtype=np.float32)
-        self.sum_sq += np.sum(x**2, axis=0, dtype=np.float32)
         self.count += x.shape[0]
-        self.mean = np.float32(self.sum / self.count)
-        self.std = np.float32(self.sum_sq / self.count - (self.sum / self.count)**2)
-        np.maximum(self.eps2, self.std, out=self.std)  # Numeric stability
-        np.sqrt(self.std, out=self.std)
+        delta = x - self.mean
+        self.mean += torch.sum(delta / self.count, axis=0)
+        self._m2 += torch.sum(delta * (x - self.mean), axis=0)
+        self.std[:] = torch.sqrt(torch.maximum(self.eps2, self._m2 / self.count))
 
     def serialize(self):
-        return {"norm.idx": np.array(self.idx).tobytes(),
-                "norm.mean": self.mean.tobytes(),
-                "norm.std": self.std.tobytes(),
-                "norm.do_normalize": self.do_normalize}
+        idx_buff, mean_buff, std_buff = io.BytesIO(), io.BytesIO(), io.BytesIO()
+        torch.save(self.idx, idx_buff)
+        idx_buff.seek(0)
+        torch.save(self.mean, mean_buff)
+        mean_buff.seek(0)
+        torch.save(self.std, std_buff)
+        std_buff.seek(0)
+        return {"norm.idx": idx_buff.read(),
+                "norm.mean": mean_buff.read(),
+                "norm.std": std_buff.read()}
 
-    def deserialize(self, serialization):
-        self.do_normalize = serialization["norm.do_normalize"]
-        if self.do_normalize:
-            self.idx[:] = np.frombuffer(serialization["norm.idx"], dtype=np.int64)
-            self.mean[:] = np.frombuffer(serialization["norm.mean"], dtype=np.float32)
-            self.std[:] = np.frombuffer(serialization["norm.std"], dtype=np.float32)
+    @staticmethod
+    def deserialize(serialization):
+        idx_buff = io.BytesIO(serialization["norm.idx"])
+        mean_buff = io.BytesIO(serialization["norm.mean"])
+        std_buff = io.BytesIO(serialization["norm.std"])
+        idx_buff.seek(0)
+        mean_buff.seek(0)
+        std_buff.seek(0)
+        return torch.load(idx_buff), torch.load(mean_buff), torch.load(std_buff)
 
-    def state_dict(self):
-        return {"shared_memory": self.shared_memory, "do_normalize": self.do_normalize,
-                "idx": self.idx, "mean": self.mean, "std": self.std}
+    def load_params(self, idx, mean, std):
+        self.idx[:] = idx
+        self.mean[:] = mean
+        self.std[:] = std
 
-    def load_state_dict(self, state_dict):
-        if not self.shared_memory and state_dict["shared_memory"]:
-            self.share_memory()
-        self.do_normalize = state_dict["do_normalize"]
-        self.idx[:] = state_dict["idx"]
-        self.mean[:] = state_dict["mean"]
-        self.std[:] = state_dict["std"]
-
-    def share_memory(self):
-        # Only mean and std have to be shared, the rest is only used for updating, which is not used
-        # on the clients
-        assert not self.shared_memory
-        idx = mp.Array(ctypes.c_int64, 2)
-        idx[:] = self.idx
-        self.idx = idx
-        mean = mp.Array(ctypes.c_double, len(self.mean))
-        mean[:] = self.mean
-        self.mean = mean
-        std = mp.Array(ctypes.c_double, len(self.std))
-        std[:] = self.std
-        self.std = std
-        do_normalize = self.do_normalize
-        self._do_normalize = mp.Value("i", do_normalize)
-        self.shared_memory = True
-
-    def load(self, path):
-        with open(path, "r") as f:
-            save_dict = json.load(f)
-        for key, value in save_dict.items():
-            setattr(self, key[4:], np.array(value))
-
-    def save(self, path):
-        save_dict = {"norm.idx": self.idx, "norm.do_normalize": self.do_normalize}
-        save_dict["norm.mean"] = list(np.float64(self.mean))
-        save_dict["norm.std"] = list(np.float64(self.std))
-        with open(path, "w") as f:
-            json.dump(save_dict, f)
-
-    @property
-    def do_normalize(self):
-        if self.shared_memory:
-            return self._do_normalize.value
-        return self._do_normalize
-
-    @do_normalize.setter
-    def do_normalize(self, value):
-        if self.shared_memory:
-            self._do_normalize.value = int(value)
-        else:
-            self._do_normalize = int(value)
+    @staticmethod
+    def _sanitize_input(x):
+        if isinstance(x, torch.Tensor):
+            return x.float()
+        if isinstance(x, np.ndarray):
+            return torch.from_numpy(x).float()
+        if isinstance(x, List):
+            return torch.tensor(x).float()
+        raise TypeError(f"Unsupported input type {x.__class__.__name__} for normalizer")

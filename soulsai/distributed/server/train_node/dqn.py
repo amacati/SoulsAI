@@ -13,6 +13,7 @@ from prometheus_client import start_http_server, Counter, Gauge, Info
 
 from soulsai.core.replay_buffer import PerformanceBuffer
 from soulsai.core.agent import DQNAgent
+from soulsai.core.normalizer import Normalizer
 from soulsai.core.scheduler import EpsilonScheduler
 from soulsai.utils import load_redis_secret, mkdir_date, dict2namespace, namespace2dict
 
@@ -64,6 +65,11 @@ class DQNTrainingNode:
                               self.config.dqn.q_clip)
         self.model_id = str(uuid4())
         self.agent.model_id = self.model_id
+        if config.dqn.normalizer_kwargs is not None:
+            norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs) 
+        else:
+            norm_kwargs = {}
+        self.normalizer = Normalizer(config.n_states, **norm_kwargs)
         if self.config.load_checkpoint:
             self.load_checkpoint(save_root_dir / "checkpoint")
             logger.info("Checkpoint loading complete")
@@ -166,6 +172,8 @@ class DQNTrainingNode:
         logger.debug(f"Publishing new model with ID {self.model_id}")
         model_params = self.agent.serialize()
         model_params["eps"] = self.eps_scheduler.epsilon
+        if self.config.dqn.normalize:
+            model_params |= self.normalizer.serialize()
         self.red.hset("model_params", mapping=model_params)
         self.red.publish("model_update", self.model_id)
         logger.debug("Model upload successful")
@@ -178,13 +186,14 @@ class DQNTrainingNode:
     def train_model(self):
         batches = self.buffer.sample_batches(self.config.dqn.batch_size,
                                              self.config.dqn.train_epochs)
-        for i in range(self.config.dqn.train_epochs):
-            if self.config.dqn.action_masking:
-                states, actions, rewards, next_states, dones, action_masks = batches[i]
-                self.agent.train(states, actions, rewards, next_states, dones, action_masks)
-            else:
-                states, actions, rewards, next_states, dones = batches[i]
-                self.agent.train(states, actions, rewards, next_states, dones)
+        if self.config.dqn.normalize:
+            for batch in batches:
+                self.normalizer.update(batch[0])  # Use states to update the normalizer
+            for batch in batches:
+                batch[0] = self.normalizer.normalize(batch[0])  # Normalize all states for training
+                batch[3] = self.normalizer.normalize(batch[3])  # Normalize next states as well
+        for batch in batches:
+            self.agent.train(*batch)
         self.agent.update_callback()
 
     def checkpoint(self, path):
@@ -193,6 +202,8 @@ class DQNTrainingNode:
             self.agent.save(path)  # Agent only takes the save directory
             self.buffer.save(path / "buffer.pkl")
             self.eps_scheduler.save(path / "eps_scheduler.json")
+            if self.config.dqn.normalize:
+                torch.save(self.normalizer.state_dict(), path / "normalizer.pt")
         with open(path / "config.json", "w") as f:
             json.dump(namespace2dict(self.config), f)
         logger.info("Model checkpoint saved")
@@ -201,6 +212,8 @@ class DQNTrainingNode:
         self.agent.load(path)
         self.buffer.load(path / "buffer.pkl")
         self.eps_scheduler.load(path / "eps_scheduler.json")
+        if self.config.dqn.normalize:
+            self.normalizer.load_state_dict(torch.load(path / "normalizer.pt"))
 
     def load_config(self, path):
         with open(path / "config.json", "r") as f:

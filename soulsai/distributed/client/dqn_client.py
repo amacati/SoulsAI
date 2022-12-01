@@ -66,10 +66,12 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                             action = noise.sample(action_mask)
                         else:
                             action = noise.sample()
-                    elif config.dqn.action_masking:
-                        action = con.agent(state, action_mask)
                     else:
-                        action = con.agent(state)
+                        state_n = con.normalizer.normalize(state) if config.dqn.normalize else state
+                        if config.dqn.action_masking:
+                            action = con.agent(state_n, action_mask)
+                        else:
+                            action = con.agent(state_n)
                 next_state, reward, done, info = env.step(action)
                 next_state = tf_state_callback(next_state)
                 states.append(next_state)
