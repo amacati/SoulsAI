@@ -39,7 +39,11 @@ class DQNTrainingNode:
             self.load_config(save_root_dir / "checkpoint")
             logger.info("Config loading complete")
         self.config.save_dir = self.save_dir.name
-        self.required_samples = self.config.dqn.batch_size # * self.config.dqn.train_epochs
+        if self.config.dqn.min_samples:
+            assert self.config.dqn.min_samples <= self.config.dqn.buffer_size
+            self.required_samples = max(self.config.dqn.min_samples, self.config.dqn.batch_size)
+        else:
+            self.required_samples = self.config.dqn.batch_size * self.config.dqn.train_epochs
         
         # Read redis server secret
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
@@ -65,11 +69,11 @@ class DQNTrainingNode:
                               self.config.dqn.q_clip)
         self.model_id = str(uuid4())
         self.agent.model_id = self.model_id
-        if config.dqn.normalizer_kwargs is not None:
-            norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs) 
+        if self.config.dqn.normalizer_kwargs is not None:
+            norm_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs) 
         else:
             norm_kwargs = {}
-        self.normalizer = Normalizer(config.n_states, **norm_kwargs)
+        self.normalizer = Normalizer(self.config.n_states, **norm_kwargs)
         if self.config.load_checkpoint:
             self.load_checkpoint(save_root_dir / "checkpoint")
             logger.info("Checkpoint loading complete")

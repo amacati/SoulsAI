@@ -13,6 +13,8 @@ def get_net_class(network_type):
         return NoisyDQN
     if network_type == "NoisyAdvantageDQN":
         return NoisyAdvantageDQN
+    if network_type == "NoisyAdvantageSkipDQN":
+        return NoisyAdvantageSkipDQN
     if network_type == "PPOActor":
         return PPOActor
     if network_type == "PPOCritic":
@@ -99,6 +101,32 @@ class NoisyAdvantageDQN(nn.Module):
         x = torch.relu(self.linear1(x))
         x = torch.relu(self.noisy1(x))
         x = torch.relu(self.noisy2(x))
+        v_s = self.baseline(x)
+        a_s = self.advantage(x)
+        return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)
+
+    def reset_noise(self):
+        self.noisy1.reset_noise()
+        self.noisy2.reset_noise()
+
+
+class NoisyAdvantageSkipDQN(nn.Module):
+    
+    def __init__(self, input_dims, output_dims, layer_dims):
+        super().__init__()
+        self.linear1 = nn.Linear(input_dims, layer_dims)
+        self.skip_layer = nn.Linear(layer_dims, layer_dims)
+        self.noisy1 = NoisyLinear(layer_dims, layer_dims)
+        self.noisy2 = NoisyLinear(layer_dims, layer_dims)
+        self.baseline = nn.Linear(layer_dims * 2, 1)
+        self.advantage = nn.Linear(layer_dims * 2, output_dims)
+
+    def forward(self, x):
+        x = torch.relu(self.linear1(x))
+        skip = self.skip_layer(x)
+        x = torch.relu(self.noisy1(x))
+        x = self.noisy2(x)
+        x = torch.relu(torch.cat((x, skip), dim=-1))
         v_s = self.baseline(x)
         a_s = self.advantage(x)
         return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)
