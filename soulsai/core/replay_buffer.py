@@ -97,8 +97,8 @@ class PerformanceBuffer:
             indices = [np.random.choice(self._maxidx + 1, nsamples, replace=False)
                     for _ in range(nbatches)]
         if self._action_masking:
-            batches = [(self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i],
-                        self._b_am[i]) for i in indices]
+            batches = [[self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i],
+                        self._b_am[i]] for i in indices]
         else:
             batches = [[self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i]]
                        for i in indices]
