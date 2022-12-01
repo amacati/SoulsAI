@@ -5,23 +5,9 @@ import io
 
 import torch
 
-from soulsai.core.networks import DQN, AdvantageDQN, NoisyDQN, PPOActor, PPOCritic
+from soulsai.core.networks import get_net_class
 
 logger = logging.getLogger(__name__)
-
-
-def get_net_class(network_type):
-    if network_type == "DQN":
-        return DQN
-    if network_type == "AdvantageDQN":
-        return AdvantageDQN
-    if network_type == "NoisyDQN":
-        return NoisyDQN
-    if network_type == "PPOActor":
-        return PPOActor
-    if network_type == "PPOCritic":
-        return PPOCritic
-    raise ValueError(f"Net type {network_type} not supported!")
 
 
 class DQNAgent:

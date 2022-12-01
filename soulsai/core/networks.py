@@ -4,6 +4,22 @@ import torch.nn.functional as F
 import numpy as np
 
 
+def get_net_class(network_type):
+    if network_type == "DQN":
+        return DQN
+    if network_type == "AdvantageDQN":
+        return AdvantageDQN
+    if network_type == "NoisyDQN":
+        return NoisyDQN
+    if network_type == "NoisyAdvantageDQN":
+        return NoisyAdvantageDQN
+    if network_type == "PPOActor":
+        return PPOActor
+    if network_type == "PPOCritic":
+        return PPOCritic
+    raise ValueError(f"Net type {network_type} not supported!")
+
+
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
     torch.nn.init.constant_(layer.bias, bias_const)
@@ -63,6 +79,29 @@ class NoisyDQN(nn.Module):
         x = torch.relu(self.linear1(x))
         x = torch.relu(self.noisy1(x))
         return self.noisy2(x)
+
+    def reset_noise(self):
+        self.noisy1.reset_noise()
+        self.noisy2.reset_noise()
+
+
+class NoisyAdvantageDQN(nn.Module):
+    
+    def __init__(self, input_dims, output_dims, layer_dims):
+        super().__init__()
+        self.linear1 = nn.Linear(input_dims, layer_dims)
+        self.noisy1 = NoisyLinear(layer_dims, layer_dims)
+        self.noisy2 = NoisyLinear(layer_dims, layer_dims)
+        self.baseline = nn.Linear(layer_dims, 1)
+        self.advantage = nn.Linear(layer_dims, output_dims)
+
+    def forward(self, x):
+        x = torch.relu(self.linear1(x))
+        x = torch.relu(self.noisy1(x))
+        x = torch.relu(self.noisy2(x))
+        v_s = self.baseline(x)
+        a_s = self.advantage(x)
+        return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)
 
     def reset_noise(self):
         self.noisy1.reset_noise()
