@@ -160,7 +160,7 @@ class DQNTrainingNode:
                     tstart = time.time()
                     self.checkpoint(self.save_dir)
                     logger.info(f"Training checkpoint successful, took {time.time() - tstart:.2f}s")
-            self.model_cnt = 0
+                    self.model_cnt = 0
 
         logger.info("Training node has shut down")
 
