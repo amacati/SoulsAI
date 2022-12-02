@@ -59,6 +59,7 @@ class DQNTrainingNode:
         self.sub.subscribe("samples")
         self.model_cnt = 0  # Track number of model iterations for checkpoint trigger
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
+        self.sample_cnt = 0  # Separate sample counter for Redis
 
         self.agent = DQNAgent(self.config.dqn.network_type,
                               namespace2dict(self.config.dqn.network_kwargs),
@@ -89,6 +90,10 @@ class DQNTrainingNode:
         self.n_active_clients = mp.Value("i", 0)
         args = (secret, self.n_active_clients, self._shutdown_event)
         self.client_heartbeat = mp.Process(target=self._client_heartbeat, daemon=True, args=args)
+        # Start update thread for Redis sample counter. Writing to Redis each time the counter gets
+        # updated increases I/O significantly, so we only update it once every second
+        self._update_sample_count_thread = Thread(target=self._update_sample_count, daemon=True)
+        self._update_sample_count_thread.start()
 
         # Initialize monitoring server and metrics
         if self.config.monitoring.enable:
@@ -116,9 +121,9 @@ class DQNTrainingNode:
 
     def run(self):
         logger.info("Training node running")
-        sample_cnt = 0
-        done_cnt = 0
-        no_reject = True  # Flag to track if a sample has been rejected during the current iteration
+        nsamples_update = 0
+        nsamples_eps = 0
+        rejected = False  # Flag to track if a sample has been rejected during the current iteration
         logger.info("Starting client heartbeat service")
         self.client_heartbeat.start()
         while not self._shutdown_event.is_set():
@@ -128,25 +133,26 @@ class DQNTrainingNode:
                 continue
             sample = json.loads(msg["data"])
             if not self._check_sample(sample):
-                if no_reject:  # Only warn once to avoid log congestion
+                if not rejected:  # Only warn once to avoid log congestion
                     logger.warning("Sample ID rejected")
-                    no_reject = False
-                    if self.config.monitoring.enable:
-                        self.prom_num_samples_reject.inc()
+                    rejected = True
+                if self.config.monitoring.enable:
+                    self.prom_num_samples_reject.inc()
                 continue
             sample = self.decode_sample(sample)
             with self.lock:  # Avoid races when checkpointing
                 self.buffer.append(sample)
-            sample_cnt += 1
+            nsamples_update += 1
+            nsamples_eps += 1
+            self.sample_cnt += 1
             if self.config.monitoring.enable:
                 self.prom_num_samples.inc()
-            done_cnt += sample[4]
-            if (done_cnt / self.config.dqn.multistep) >= 1:
-                done_cnt = 0
+            if nsamples_eps >= self.config.dqn.eps_samples:
+                nsamples_eps = 0
                 with self.lock:  # Avoid races when checkpointing
                     self.eps_scheduler.step()
             sufficient_samples = len(self.buffer) >= self.required_samples
-            if sample_cnt >= self.config.dqn.update_samples and sufficient_samples:
+            if nsamples_update >= self.config.dqn.update_samples and sufficient_samples:
                 t_start = time.time()
                 with self.lock:  # Avoid races when checkpointing
                     self.model_update()
@@ -154,14 +160,13 @@ class DQNTrainingNode:
                 if self.config.monitoring.enable:
                     self.prom_update_time.set(t_train)
                 logger.info(f"{time.strftime('%X')}: Model update complete ({t_train:.2f}s)")
-                sample_cnt = 0
-                no_reject = True
+                nsamples_update = 0
+                rejected = False
                 if self.model_cnt >= self.config.checkpoint_epochs:
                     tstart = time.time()
                     self.checkpoint(self.save_dir)
                     logger.info(f"Training checkpoint successful, took {time.time() - tstart:.2f}s")
                     self.model_cnt = 0
-
         logger.info("Training node has shut down")
 
     def model_update(self):
@@ -261,4 +266,11 @@ class DQNTrainingNode:
             self.prom_num_workers.set(self.n_active_clients.value)
             if self.n_active_clients.value == 0:
                 self.prom_update_time.set(0)
+            time.sleep(1)
+
+    def _update_sample_count(self):
+        secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
+        red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
+        while not self._shutdown_event.is_set():
+            red.set("sample_count", self.sample_cnt)
             time.sleep(1)

@@ -49,20 +49,13 @@ def check_training_done(dock):
 
 
 def save_plots(results, path):
-    nepisodes = min([len(results[run]["rewards"]) for run in results])
-    t = np.arange(nepisodes)
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Dashboard")
-    # Restrict results to the shortest experiment length
-    for run in results:
-        for key in ("rewards", "steps", "eps", "wins"):
-            results[run][key] = results[run][key][:nepisodes]
 
-    rewards = np.array([results[run]["rewards"] for run in results])
-    reward_mean = np.mean(rewards, axis=0)
-    reward_std = np.std(rewards, axis=0)
-    ax[0, 0].plot(t, reward_mean)
-    ax[0, 0].fill_between(t, reward_mean - reward_std, reward_mean + reward_std, alpha=0.4)
+    x = results["samples"]
+    rewards_mean, rewards_std = results["rewards_mean"], results["rewards_std"]
+    ax[0, 0].plot(x, rewards_mean)
+    ax[0, 0].fill_between(x, rewards_mean - rewards_std, rewards_mean + rewards_std, alpha=0.4)
     ax[0, 0].legend(["Mean episode reward", "Std deviation episode reward"])
     ax[0, 0].set_title("Total reward vs Episodes")
     ax[0, 0].set_xlabel("Episodes")
@@ -70,13 +63,11 @@ def save_plots(results, path):
     ax[0, 0].grid(alpha=0.3)
     ax[0, 0].set_ylim([-350, 350])
 
-    steps = np.array([results[run]["steps"] for run in results])
-    steps_mean = np.mean(steps, axis=0)
-    steps_std = np.std(steps, axis=0)
-    ax[0, 1].plot(t, steps_mean, label="Mean episode steps")
+    steps_mean, steps_std = results["steps_mean"], results["steps_std"]
+    ax[0, 1].plot(x, steps_mean, label="Mean episode steps")
     lower, upper = steps_mean - steps_std, steps_mean + steps_std
-    ax[0, 1].fill_between(t, lower, upper, alpha=0.4, label="Std deviation episode steps")
-    if results["run0"]["eps"][0] is None:
+    ax[0, 1].fill_between(x, lower, upper, alpha=0.4, label="Std deviation episode steps")
+    if results["eps"] is None:
         ax[0, 1].legend()
     ax[0, 1].set_title("Number of steps vs Episodes")
     ax[0, 1].set_xlabel("Episodes")
@@ -84,31 +75,23 @@ def save_plots(results, path):
     ax[0, 1].grid(alpha=0.3)
     ax[0, 1].set_ylim([0, 1100])
 
-    if results["run0"]["eps"][0] is not None:
+    if results["eps"] is not None:
         secax_y = ax[0, 1].twinx()
-        secax_y.plot(t, results["run0"]["eps"], "orange", label="ε")
+        secax_y.plot(x, results["eps"], "orange", label="ε")
         secax_y.set_ylim([-0.05, 1.05])
         secax_y.set_ylabel("Fraction of random actions")
         lines, labels = ax[0, 1].get_legend_handles_labels()
         lines2, labels2 = secax_y.get_legend_handles_labels()
         secax_y.legend(lines + lines2, labels + labels2)
 
-    hp_mean = np.zeros_like(t)
-    hp_std = np.zeros_like(t)
-    ax[1, 0].plot(t, hp_mean)
-    ax[1, 0].fill_between(t, hp_mean - hp_std, hp_mean + hp_std, alpha=0.4)
-    ax[1, 0].legend(["N/A", "N/A"])
     ax[1, 0].set_title("N/A")
-    ax[1, 0].set_xlabel("Episodes")
+    ax[1, 0].set_xlabel("N/A")
     ax[1, 0].set_ylabel("N/A")
-    ax[1, 0].set_ylim([0, 1100])
     ax[1, 0].grid(alpha=0.3)
 
-    wins = np.array([results[run]["wins"] for run in results], dtype=np.float64)
-    wins_mean = np.mean(wins, axis=0)
-    wins_std = np.std(wins, axis=0)
-    ax[1, 1].plot(t, wins_mean)
-    ax[1, 1].fill_between(t, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
+    wins_mean, wins_std = results["wins_mean"], results["wins_std"]
+    ax[1, 1].plot(x, wins_mean)
+    ax[1, 1].fill_between(x, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
     ax[1, 1].legend(["Mean wins", "Std deviation wins"])
     ax[1, 1].set_title("Success rate vs Episodes")
     ax[1, 1].set_xlabel("Episodes")
@@ -120,8 +103,31 @@ def save_plots(results, path):
     plt.close(fig)
 
 
+def average_results(results):
+    # Calculate min stats
+    nsamples = min([max(results[run]["samples"]) for run in results])
+    x = np.linspace(0, nsamples, 1000)
+    # Interpolate data with N_episodes datapoints between 0 and nsamples
+    # Restrict results to the shortest experiment length
+    results = results.copy()
+    averaged_results = {}
+    for run in results:
+        for key in ("rewards", "steps", "wins"):
+            results[run][key] = np.interp(x, results[run]["samples"], results[run][key])
+    for key in ("rewards", "steps", "wins"):
+        data = np.array([run[key] for run in results.values()])
+        averaged_results[key + "_mean"] = np.mean(data, axis=0)
+        averaged_results[key + "_std"] = np.std(data, axis=0)
+    if results["run0"]["eps"][0] is None:
+        averaged_results["eps"] = None
+    else:
+        averaged_results["eps"] = np.interp(x, results["run0"]["samples"], results["run0"]["eps"])
+    averaged_results["samples"] = x
+    return averaged_results
+
+
 def main(args):
-    dock = docker.from_env()
+    """dock = docker.from_env()
     # Check if containers still running, kill them
     shutdown_nodes(dock)
     # Spawn containers
@@ -134,7 +140,7 @@ def main(args):
         train_process.kill()
         shutdown_nodes(dock)
         time.sleep(2)
-    # Summarize results in multirun experiment save
+    # Summarize results in multirun experiment save"""
     if args.nruns:
         save_root = Path(__file__).parents[2] / "saves"
         save_dirs = [d for d in save_root.iterdir() if d.is_dir() and d.name[:4].isdigit()]
@@ -149,6 +155,9 @@ def main(args):
                 results["run" + str(i)] = json.load(f)
         with open(save_path / "SoulsAIStats.json", "w") as f:
             json.dump(results, f)
+        results = average_results(results)
+        with open(save_path / "AveragedStats.json", "w") as f:
+            json.dump({key: list(value) for key, value in results.items()}, f)
         save_plots(results, save_path / "SoulsAIDashboard.png")
 
 

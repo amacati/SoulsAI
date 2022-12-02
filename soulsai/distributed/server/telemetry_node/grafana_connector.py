@@ -60,5 +60,7 @@ class GrafanaConnector:
             columns.append({"text": key + "_idx", "type": "number"})
             rows.append([self.data[key][i] for i in idx])
             rows.append(idx.tolist())
+        columns.append({"text": "samples", "type": "number"})  # Always send samples as X-Axis
+        rows.append([self.data["samples"][i] for i in idx])
         rows = list(zip(*rows))
         return [{"columns": columns, "rows": rows, "type":"table"}]

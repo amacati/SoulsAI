@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class TelemetryNode:
 
     stats = ["rewards", "rewards_av", "steps", "steps_av", "boss_hp", "boss_hp_av", "wins",
-             "wins_av", "eps"]
+             "wins_av", "eps", "samples"]
 
     def __init__(self, config):
         logger.info("Telemetry node startup")
@@ -48,6 +48,7 @@ class TelemetryNode:
         self.wins = []
         self.wins_av = []
         self.eps = []
+        self.samples = []
         
         self._best_reward = float("-inf")
 
@@ -78,6 +79,8 @@ class TelemetryNode:
                 time.sleep(1)
                 continue
             sample = json.loads(msg["data"])
+            # Get the current sample count from Redis
+            sample_count = int(self.red.get("sample_count"))
             # Appending automatically changes data in GrafanaConnector
             with self.lock:
                 self.rewards.append(sample["reward"])
@@ -89,6 +92,7 @@ class TelemetryNode:
                 self.wins.append(int(sample["win"]))
                 self.wins_av.append(self._latest_moving_av(self.wins))
                 self.eps.append(sample["eps"])
+                self.samples.append(sample_count)
             n_rewards = len(self.rewards)
             if n_rewards % self.config.telemetry.update_interval == 0:
                 self.update_stats_and_dashboard()
@@ -101,8 +105,8 @@ class TelemetryNode:
 
     def update_stats_and_dashboard(self):
         self.figure_path.parent.mkdir(parents=True, exist_ok=True)
-        save_plots(self.rewards, self.steps, self.boss_hp, self.wins, self.figure_path, self.eps,
-                   self.config.telemetry.moving_average)
+        save_plots(self.samples, self.rewards, self.steps, self.boss_hp, self.wins,
+                   self.figure_path, self.eps, self.config.telemetry.moving_average)
         self._save_stats(self.stats_path)
 
     def _save_stats(self, path):
