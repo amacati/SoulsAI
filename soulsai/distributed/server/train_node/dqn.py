@@ -44,7 +44,11 @@ class DQNTrainingNode:
             self.required_samples = max(self.config.dqn.min_samples, self.config.dqn.batch_size)
         else:
             self.required_samples = self.config.dqn.batch_size * self.config.dqn.train_epochs
-        
+        if not self.config.dqn.max_total_samples:
+            self._max_total_samples = float("inf")
+        else:
+            self._max_total_samples = self.config.dqn.max_total_samples
+
         # Read redis server secret
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
         self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
@@ -167,6 +171,10 @@ class DQNTrainingNode:
                     self.checkpoint(self.save_dir)
                     logger.info(f"Training checkpoint successful, took {time.time() - tstart:.2f}s")
                     self.model_cnt = 0
+            if self._max_total_samples < self.sample_cnt:
+                logger.info("Maximum samples reached. Shutting down training node and clients")
+                self.red.publish("client_shutdown", "")
+                self._shutdown_event.set()
         logger.info("Training node has shut down")
 
     def model_update(self):

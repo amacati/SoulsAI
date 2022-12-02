@@ -68,6 +68,7 @@ dqn:
   normalize: False
   normalizer_kwargs:
   min_samples: null
+  max_total_samples: null
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration

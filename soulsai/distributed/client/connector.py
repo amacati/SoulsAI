@@ -35,10 +35,14 @@ class DQNConnector:
         self._stop_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
         address = self.config.redis_address
-        red_notify = Redis(host=address, password=secret, port=6379, db=0)
-        self.pubsub = red_notify.pubsub()
-        self.pubsub.subscribe(model_update=self._agent_update_callback)
-        self.pubsub.run_in_thread(sleep_time=.05, daemon=True)
+        red = Redis(host=address, password=secret, port=6379, db=0)
+        self.update_sub = red.pubsub()
+        self.update_sub.subscribe(model_update=lambda *_: self._update_event.set())
+        self.update_sub.run_in_thread(sleep_time=.05, daemon=True)
+        self.shutdown = mp.Event()
+        self.shutdown_sub = red.pubsub()
+        self.shutdown_sub.subscribe(client_shutdown=self._client_shutdown)
+        self.shutdown_sub.run_in_thread(sleep_time=1., daemon=True)
 
         self._msg_queue = mp.Queue(maxsize=100)
         args = (self._msg_queue, address, secret, self._stop_event, encode_sample, encode_tel)
@@ -134,9 +138,6 @@ class DQNConnector:
                 time.sleep(10)
                 red = Redis(host=config.redis_address, password=secret, port=6379, db=0)
 
-    def _agent_update_callback(self, _):
-        self._update_event.set()
-
     @staticmethod
     def _consume_msgs(msg_queue, address, secret, stop_event, encode_sample, encode_tel):
         logger.debug("Background message consumer process startup")
@@ -176,6 +177,10 @@ class DQNConnector:
                 disconnect = True
                 time.sleep(10)
                 red = Redis(host=address, password=secret, port=6379, db=0)
+
+    def _client_shutdown(self, _):
+        logger.info("Received shutdown signal from training node. Exiting training")
+        self.shutdown.set()
 
 
 class PPOConnector:

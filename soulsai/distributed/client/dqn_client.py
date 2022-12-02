@@ -42,7 +42,11 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
         actions = deque(maxlen=config.dqn.multistep)
         rewards = deque(maxlen=config.dqn.multistep)
         infos = deque(maxlen=config.dqn.multistep)
-        while not stop_flag.is_set() and episode_id != config.max_episodes:
+        while (
+            not stop_flag.is_set() and
+            episode_id != config.max_episodes and
+            not con.shutdown.is_set()
+            ):
             episode_id += 1
             state = tf_state_callback(env.reset())
             if config.dqn.action_masking:
