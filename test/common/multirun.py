@@ -127,7 +127,7 @@ def average_results(results):
 
 
 def main(args):
-    """dock = docker.from_env()
+    dock = docker.from_env()
     # Check if containers still running, kill them
     shutdown_nodes(dock)
     # Spawn containers
@@ -140,7 +140,7 @@ def main(args):
         train_process.kill()
         shutdown_nodes(dock)
         time.sleep(2)
-    # Summarize results in multirun experiment save"""
+    # Summarize results in multirun experiment save
     if args.nruns:
         save_root = Path(__file__).parents[2] / "saves"
         save_dirs = [d for d in save_root.iterdir() if d.is_dir() and d.name[:4].isdigit()]
