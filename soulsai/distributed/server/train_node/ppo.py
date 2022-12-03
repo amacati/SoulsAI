@@ -1,53 +1,25 @@
 import logging
 from uuid import uuid4
 from pathlib import Path
-from threading import Lock
-import json
-import multiprocessing as mp
 import time
 
-from redis import Redis
 import numpy as np
 import torch
-from prometheus_client import start_http_server, Info, Counter, Gauge
 
 from soulsai.core.agent import PPOAgent
 from soulsai.core.replay_buffer import TrajectoryBuffer
-from soulsai.utils import load_redis_secret, mkdir_date, namespace2dict, dict2namespace
+from soulsai.distributed.server.train_node.training_node import TrainingNode
+from soulsai.utils import namespace2dict
 from soulsai.exception import ServerDiscoveryTimeout
 
 logger = logging.getLogger(__name__)
 
 
-class PPOTrainingNode:
+class PPOTrainingNode(TrainingNode):
 
     def __init__(self, config, decode_sample):
         logger.info("PPO training node startup")
-        self.np_random = np.random.default_rng()  # https://numpy.org/neps/nep-0019-rng-policy.html
-        self.decode_sample = decode_sample
-        self._shutdown = mp.Event()
-        # Create unique directory for saves, save to 
-        save_root_dir = Path(__file__).parents[4] / "saves"
-        save_root_dir.mkdir(exist_ok=True)
-        self.save_dir = mkdir_date(save_root_dir)
-        self.config = config
-        # Load config only if specified
-        if self.config.load_checkpoint_config:
-            self.load_config(save_root_dir / "checkpoint")
-            logger.info("Config loading complete")
-        self.config.save_dir = self.save_dir.name
-
-        # Read redis server secret and create necessary connections and subscribers
-        secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
-        self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
-        self.sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.cmd_sub.subscribe(manual_save=lambda _: self.checkpoint(self.save_dir),
-                               save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),
-                               shutdown=self.shutdown)
-        self._cmd_sub_worker = self.cmd_sub.run_in_thread(sleep_time=.1, daemon=True)
-        self.lock = Lock()
-
+        super().__init__(config, decode_sample)
         self.agent = PPOAgent(self.config.ppo.actor_net_type,
                               namespace2dict(self.config.ppo.actor_net_kwargs),
                               self.config.ppo.critic_net_type,
@@ -56,91 +28,58 @@ class PPOTrainingNode:
                               self.config.ppo.critic_lr)
         self.agent.model_id = str(uuid4())
         if self.config.load_checkpoint:
-            self.load_checkpoint(save_root_dir / "checkpoint")
+            self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
             logger.info("Checkpoint loading complete")
-        self.checkpoint(self.save_dir)  # Make config accessible for sanity checking
 
         logger.info(f"Initial model ID: {self.agent.model_id}")
         self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,
                                        self.config.n_states, self.config.n_actions)
+        self._model_iterations = 0
+        logger.info("PPO training node startup complete")
 
-        # Initialize monitoring server and metrics
-        if self.config.monitoring.enable:
-            logger.info("Starting prometheus monitoring server")
-            start_http_server(8080)
-            self.prom_num_workers = Gauge("soulsai_num_workers",
-                                          "Number of registered client nodes")
-            self.prom_num_samples = Counter("soulsai_num_samples",
-                                            "Total number of received samples")
-            self.prom_num_samples_reject = Counter("soulsai_num_samples_reject",
-                                                   "Total number of rejected samples")
-            self.prom_update_time = Gauge("soulsai_update_duration",
-                                          "Processing time for a model update")
-            self.prom_config_info = Info("soulsai_config", "SoulsAI configuration")
-            self.prom_config_info.info({str(key): str(val) for key, val in
-                                        namespace2dict(self.config).items()})
-
-        args = (self.config.ppo.n_clients, secret, self._shutdown)
-        self.client_heartbeat = mp.Process(target=self._client_heartbeat, daemon=True, args=args)
-
-        self.sub.subscribe("samples")
-        self.total_env_steps = 0
-        self.n_updates = 0
-
-        # Upload config to redis to share with client and telemetry node
-        logger.info("Saving config to redis for synchronization")
-        self.red.set("config", json.dumps(namespace2dict(self.config)))
-        logger.info("Startup complete")
-
-    def run(self):
+    def _startup_hook(self):
         logger.info("Starting discovery phase")
-        self.discover_clients()
+        self._discover_clients()
         logger.info("Discovery complete, starting training")
-        self.client_heartbeat.start()
-        self.push_model_update()
-        while not self._shutdown.is_set():
-            msg = self.sub.get_message()
-            if not msg:
-                time.sleep(0.005)
-                continue
-            sample = json.loads(msg["data"])
-            if not sample.get("model_id") == self.agent.model_id:
-                logger.warning("Unexpected sample with outdated model ID")
-                if self.config.monitoring.enable:
-                    self.prom_num_samples_reject.inc()
-                continue
-            client_id, step_id = sample.get("client_id"), sample.get("step_id")
-            sample = self.decode_sample(sample)
-            self.total_env_steps += 1
-            if self.config.monitoring.enable:
-                self.prom_num_samples.inc()
-            self.red.incr("soulsai_total_env_steps")
-            logger.debug(f"Received sample with client_id: {client_id}, step_id: {step_id}")
-            self.buffer.append(sample, trajectory_id=client_id, step_id=step_id)
-            if self.buffer.buffer_complete:
-                t_train_start = time.time()
-                if self.config.monitoring.enable:
-                    with self.prom_update_time.time():
-                        self._model_update()
-                else:
-                    self._model_update()
-                t_train = time.time() - t_train_start
-                logger.info(f"{time.strftime('%X')}: Model update complete ({t_train:.2f}s)")
-                logger.info(f"Total env steps: {self.total_env_steps}")
-                self.buffer.clear()
-                self.n_updates += 1
-                if self.n_updates % self.config.checkpoint_epochs == 0:
-                    self.checkpoint(self.save_dir)
-        self.checkpoint(self.save_dir)
-        logger.info("Training node has shut down")
 
-    def push_model_update(self):
+    def _validate_sample(self, sample, monitoring):
+        valid = sample["model_id"] == self.agent.model_id
+        if valid:
+            logger.debug(f"Received sample {sample['client_id']}:{sample['step_id']}")
+        else:
+            logger.warning("Unexpected sample with outdated model ID")
+        if monitoring:
+            self.prom_num_samples.inc() if valid else self.prom_num_samples_reject.inc()
+        return valid
+
+    def _check_update_cond(self):
+        return self.buffer.buffer_complete
+
+    def _update_model(self, monitoring):
+        tstart = time.time()
+        if monitoring:
+            with self.prom_update_time.time():
+                self._ppo_step()
+        else:
+            self._ppo_step()
+        self.agent.model_id = str(uuid4())
+        logger.info((f"{time.strftime('%X')}: Model update complete ({time.time() - tstart:.2f}s)"
+                     f"\nTotal env steps: {self._total_env_steps}"))
+
+    def _publish_model(self):
         logger.debug(f"Publishing new model with ID {self.agent.model_id}")
         self.red.hset("model_params", mapping=self.agent.serialize(serialize_critic=False))
         self.red.publish("model_update", self.agent.model_id)
         logger.debug("Model upload successful")
 
-    def _model_update(self):
+    def _post_update_hook(self):
+        self.buffer.clear()
+        self._model_iterations += 1
+
+    def _check_checkpoint_cond(self):
+        return self._model_iterations % self.config.checkpoint_epochs == 0
+
+    def _ppo_step(self):
         # Training algorithm based on Cx recommendations from https://arxiv.org/pdf/2006.05990.pdf
         b_idx = np.arange(self.buffer.n_batch_samples)
         for _ in range(self.config.ppo.train_epochs):
@@ -170,48 +109,22 @@ class PPOTrainingNode:
                 value_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.agent.critic.parameters(),
                                                self.config.ppo.max_grad_norm)
-                with self.lock:
+                with self._lock:
                     self.agent.critic_opt.step()
                 self.agent.actor_opt.zero_grad()
                 policy_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.agent.actor.parameters(),
                                                self.config.ppo.max_grad_norm)
-                with self.lock:
+                with self._lock:
                     self.agent.actor_opt.step()
-        self.agent.model_id = str(uuid4())
-        self.push_model_update()
 
-    def _client_heartbeat(self, n_clients, redis_secret, shutdown_event):
-        last_heartbeat = np.zeros((n_clients, ), dtype=np.float64)
-        red = Redis(host='redis', port=6379, password=redis_secret, db=0, decode_responses=True)
-        sub = red.pubsub(ignore_subscribe_messages=True)
-        sub.subscribe("ppo_heartbeat")
-        last_heartbeat[:] = time.time()
-        logger.info("Client heartbeat service started")
-        while not shutdown_event.is_set():
-            msg = sub.get_message()  # Does not work with timeout and ignore subscribe
-            if not msg:
-                time.sleep(1)
-            else:
-                msg = json.loads(msg["data"])
-                # Ignore stale messages in the queue
-                if msg["client_id"] < n_clients and time.time() - msg["timestamp"] < 5:
-                    last_heartbeat[msg["client_id"]] = msg["timestamp"]
-            if np.all(time.time() - last_heartbeat < 10):
-                logger.debug(f"{time.strftime('%X')}: Heartbeat ok")
-                continue
-            stale_ids = list(np.where(time.time() - last_heartbeat >= 10)[0])
-            logger.error(f"Missing heartbeat for clients {stale_ids}. Shutting down training")
-            shutdown_event.set()
-
-    def discover_clients(self, timeout=60):
+    def _discover_clients(self, timeout=60):
         discovery_sub = self.red.pubsub(ignore_subscribe_messages=True)
         discovery_sub.subscribe("ppo_discovery")
         n_registered = 0
         tstart = time.time()
         while not time.time() - tstart > timeout:
-            msg = discovery_sub.get_message()
-            if not msg:
+            if not (msg := discovery_sub.get_message()):
                 time.sleep(0.5)
                 continue
             self.red.publish(msg["data"], n_registered)
@@ -225,22 +138,13 @@ class PPOTrainingNode:
 
     def checkpoint(self, path):
         path.mkdir(exist_ok=True)
-        with self.lock:
+        with self._lock:
             self.agent.save(path)
-        with open(path / "config.json", "w")  as f:
-            json.dump(namespace2dict(self.config), f)
         logger.info("Model checkpoint saved")
 
     def load_checkpoint(self, path):
-        self.agent.load(path)
+        with self._lock:
+            self.agent.load(path)
 
-    def load_config(self, path):
-        with open(path / "config.json", "r") as f:
-            saved_config = dict2namespace(json.load(f))
-        assert saved_config.env == self.config.env, "Config environments do not match"
-        assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
-        self.config = saved_config
-
-    def shutdown(self, _):
-        logger.info("Shutdown signaled")
-        self._shutdown.set()
+    def _required_client_ids(self):
+        return list(range(self.config.ppo.n_clients))

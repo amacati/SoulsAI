@@ -21,9 +21,10 @@ def decode_dqn_sample(sample):
 
 
 def decode_ppo_sample(sample):
+    trajectory_id, step_id = sample["client_id"], sample["step_id"]
     sample = sample.get("sample")
-    sample[0] = np.array(sample[0])  # State
-    return sample
+    sample[0] = np.array(sample[0])
+    sample.extend([trajectory_id, step_id])
 
 
 if __name__ == "__main__":

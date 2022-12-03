@@ -15,8 +15,10 @@ if __name__ == "__main__":
     logging.basicConfig(level=config.loglevel)
 
     def decode_sample(sample):
+        trajectory_id, step_id = sample["client_id"], sample["step_id"]
         sample = sample.get("sample")
         sample[0] = np.array(sample[0])
+        sample.extend([trajectory_id, step_id])
         return sample
 
     training_node = PPOTrainingNode(config, decode_sample=decode_sample)

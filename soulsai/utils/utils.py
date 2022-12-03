@@ -96,7 +96,7 @@ def dict2namespace(dict_, create_copy=True):
         ns = copy.deepcopy(ns)
     for key, value in dict_.items():
         if isinstance(value, dict):
-            setattr(ns, key, dict2namespace(value, create_copy=False))
+            setattr(ns, key, dict2namespace(value, create_copy=True))
     return ns
 
 
@@ -107,7 +107,7 @@ def namespace2dict(ns, create_copy=True):
         dict_ = copy.deepcopy(dict_)
     for key, value in dict_.items():
         if isinstance(value, SimpleNamespace):
-            dict_[key] = namespace2dict(getattr(ns, key), create_copy=False)
+            dict_[key] = namespace2dict(getattr(ns, key), create_copy=True)
     return dict_
 
 

@@ -1,6 +1,7 @@
 import logging
 import json
 from pathlib import Path
+from collections import deque
 import time
 import tempfile
 import os
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class TelemetryNode:
 
     stats = ["rewards", "rewards_av", "steps", "steps_av", "boss_hp", "boss_hp_av", "wins",
-             "wins_av", "eps", "samples"]
+             "wins_av", "eps", "samples", "_n_env_steps"]
 
     def __init__(self, config):
         logger.info("Telemetry node startup")
@@ -30,7 +31,7 @@ class TelemetryNode:
         self.red = redis.Redis(host='redis', port=6379, password=secret, db=0,
                                decode_responses=True)
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
-        self.sub_telemetry.subscribe("telemetry")
+        self.sub_telemetry.subscribe("telemetry", "samples")
         self.config = load_remote_config(config.redis_address, secret)
         self.lock = Lock()
 
@@ -38,6 +39,11 @@ class TelemetryNode:
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.cmd_sub.subscribe(shutdown=self.shutdown)
         self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
+
+        self._model_ids = deque(maxlen=3)
+        self.model_update_sub = self.red.pubsub(ignore_subscribe_messages=True)
+        self.model_update_sub.subscribe(model_update=lambda x: self._model_ids.append(x["data"]))
+        self.model_update_sub.run_in_thread(sleep_time=0.05, daemon=True)
 
         self.rewards = []
         self.rewards_av = []
@@ -49,7 +55,8 @@ class TelemetryNode:
         self.wins_av = []
         self.eps = []
         self.samples = []
-        
+        self._n_env_steps = 0
+
         self._best_reward = float("-inf")
 
         if self.config.monitoring.enable:
@@ -74,13 +81,14 @@ class TelemetryNode:
         logger.info("Telemetry node running")
         while not self._shutdown:
             # read new samples
-            msg = self.sub_telemetry.get_message()
-            if not msg:
-                time.sleep(1)
+            if not (msg := self.sub_telemetry.get_message()):
+                time.sleep(0.1)
+                continue
+            if msg["channel"] == "samples":
+                if json.loads(msg["data"])["model_id"] in self._model_ids:
+                    self._n_env_steps += 1
                 continue
             sample = json.loads(msg["data"])
-            # Get the current sample count from Redis
-            sample_count = int(self.red.get("sample_count"))
             # Appending automatically changes data in GrafanaConnector
             with self.lock:
                 self.rewards.append(sample["reward"])
@@ -92,7 +100,7 @@ class TelemetryNode:
                 self.wins.append(int(sample["win"]))
                 self.wins_av.append(self._latest_moving_av(self.wins))
                 self.eps.append(sample["eps"])
-                self.samples.append(sample_count)
+                self.samples.append(self._n_env_steps)
             n_rewards = len(self.rewards)
             if n_rewards % self.config.telemetry.update_interval == 0:
                 self.update_stats_and_dashboard()

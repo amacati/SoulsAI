@@ -168,7 +168,7 @@ class DQNConnector:
         while not stop_flag.wait(1):
             msg = json.dumps({"client_id": con_id, "timestamp": time.time()})
             try:
-                red.publish("dqn_heartbeat", msg)
+                red.publish("heartbeat", msg)
                 if disconnect:
                     logger.info("Connection to server restored")
                     disconnect = False
@@ -197,6 +197,11 @@ class PPOConnector:
         self.red = Redis(host=address, password=secret, port=6379, db=0)
         self.update_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.update_sub.subscribe("model_update")
+
+        self.shutdown = mp.Event()
+        self._shutdown_sub = self.red.pubsub(ignore_subscribe_messages=True)
+        self._shutdown_sub.subscribe(client_shutdown=self._client_shutdown)
+        self._shutdown_sub.run_in_thread(sleep_time=1, daemon=True)
 
         # Server discovery and client registration
         tmp_id = str(uuid4())  # Temporary ID for server registration
@@ -243,11 +248,12 @@ class PPOConnector:
         red = Redis(host=address, password=secret, port=6379, db=0)
         while not stop_flag.wait(1):
             msg = json.dumps({"client_id": con_id, "timestamp": time.time()})
-            red.publish("ppo_heartbeat", msg)
+            red.publish("heartbeat", msg)
 
     def sync(self, timeout=100.):
         tstart = time.time()
-        while not time.time() - tstart > timeout:
+        msg = None
+        while not time.time() - tstart > timeout and not self.shutdown.is_set():
             msg = self.update_sub.get_message()
             if not msg:  # Redis timeout + ignore subscribe doesn't work properly
                 time.sleep(0.01)
@@ -275,3 +281,7 @@ class PPOConnector:
                 red.publish("telemetry", json.dumps(encode_tel(msg)))
             else:
                 logger.warning(f"Unknown message type {msg[0]}")
+
+    def _client_shutdown(self, _):
+        logger.info("Received shutdown signal from training node. Exiting training")
+        self.shutdown.set()

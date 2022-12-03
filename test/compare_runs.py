@@ -52,8 +52,8 @@ def plot_comparison(names, results):
         ax[0, 1].legend()
     else:
         secax_y = ax[0, 1].twinx()
-        idx = np.argmax([len(result["eps"]) for result in results])
-        secax_y.plot(results[idx]["samples"], results[idx]["eps"], "orange", label="ε " + name)
+        for name, result in zip(names, results):
+            secax_y.plot(result["samples"], result["eps"], "orange", label="ε " + name)
         secax_y.set_ylim([-0.05, 1.05])
         secax_y.set_ylabel("Fraction of random actions")
         lines, labels = ax[0, 1].get_legend_handles_labels()

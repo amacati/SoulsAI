@@ -59,6 +59,8 @@ def ppo_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
             con.push_telemetry(*tel_callback(total_reward, steps, state))
             if episode_end_callback is not None:
                 episode_end_callback()
+            if con.shutdown.is_set():
+                break
     finally:
         env.close()
         con.close()

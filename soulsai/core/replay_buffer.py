@@ -139,7 +139,8 @@ class TrajectoryBuffer:
         self._complete_flags = np.empty(n_trajectories * (n_samples + 1), dtype=np.bool_)
         self._complete_flags[:] = False
 
-    def append(self, sample, trajectory_id, step_id):
+    def append(self, sample):
+        trajectory_id, step_id = sample[5], sample[6]
         assert trajectory_id < self.n_trajectories and step_id <= self.n_samples
         if step_id != self.n_samples:  # Non-terminal sample
             idx = trajectory_id * self.n_samples + step_id

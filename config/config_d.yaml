@@ -14,6 +14,7 @@ gamma: 0.99
 use_env_kwargs: True
 env_kwargs:
   use_info: True
+max_env_steps: null
 
 # Algorithm choice
 algorithm: "DQN"
@@ -68,7 +69,6 @@ dqn:
   normalize: False
   normalizer_kwargs:
   min_samples: null
-  max_total_samples: null
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration

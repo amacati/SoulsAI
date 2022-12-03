@@ -13,6 +13,7 @@ n_actions: 4
 gamma: 0.99
 use_env_kwargs: False
 env_kwargs:
+max_env_steps: null
 
 # Algorithm choice
 algorithm: "ppo"
@@ -67,7 +68,6 @@ dqn:
   normalize: True
   normalizer_kwargs:
   min_samples: null
-  max_total_samples: 100_000
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration
