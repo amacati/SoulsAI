@@ -40,11 +40,6 @@ class TelemetryNode:
         self.cmd_sub.subscribe(shutdown=self.shutdown)
         self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
 
-        self._model_ids = deque(maxlen=3)
-        self.model_update_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.model_update_sub.subscribe(model_update=lambda x: self._model_ids.append(x["data"]))
-        self.model_update_sub.run_in_thread(sleep_time=0.05, daemon=True)
-
         self.rewards = []
         self.rewards_av = []
         self.steps = []
@@ -85,8 +80,7 @@ class TelemetryNode:
                 time.sleep(0.1)
                 continue
             if msg["channel"] == "samples":
-                if json.loads(msg["data"])["model_id"] in self._model_ids:
-                    self._n_env_steps += 1
+                self._n_env_steps += 1
                 continue
             sample = json.loads(msg["data"])
             # Appending automatically changes data in GrafanaConnector
