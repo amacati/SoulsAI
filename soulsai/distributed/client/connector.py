@@ -1,13 +1,14 @@
 import json
 import logging
 from pathlib import Path
-import torch.multiprocessing as mp
+import socket
 import time
 import queue
 from uuid import uuid4
 
 import redis
 from redis import Redis
+import torch.multiprocessing as mp
 
 from soulsai.core.agent import DQNClientAgent, PPOClientAgent
 from soulsai.core.normalizer import Normalizer
@@ -35,7 +36,8 @@ class DQNConnector:
         self._stop_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
         address = self.config.redis_address
-        red = Redis(host=address, password=secret, port=6379, db=0)
+        red = Redis(host=address, password=secret, port=6379, db=0, socket_keepalive=True,
+                    socket_keepalive_options={socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60})
         self.update_sub = red.pubsub()
         self.update_sub.subscribe(model_update=lambda *_: self._update_event.set())
         self.update_sub.run_in_thread(sleep_time=.05, daemon=True)
@@ -102,7 +104,9 @@ class DQNConnector:
     def update_model(update_event, stop_event, agent: DQNClientAgent, normalizer, eps, lock, secret,
                      config):
         logger.debug("Background update process startup")
-        red = Redis(host=config.redis_address, password=secret, port=6379, db=0)
+        red = Redis(host=config.redis_address, password=secret, port=6379, db=0,
+                    socket_keepalive=True,
+                    socket_keepalive_options={socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60})
         _params = red.hgetall("model_params")
         model_params = {key.decode("utf-8"): value for key, value in _params.items()}
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
@@ -136,7 +140,10 @@ class DQNConnector:
                         normalizer.load_params(*norm_params)
             except redis.exceptions.ConnectionError:
                 time.sleep(10)
-                red = Redis(host=config.redis_address, password=secret, port=6379, db=0)
+                red = Redis(host=config.redis_address, password=secret, port=6379, db=0,
+                            socket_keepalive=True,
+                            socket_keepalive_options={socket.TCP_KEEPIDLE: 10,
+                                                      socket.TCP_KEEPINTVL: 60})
 
     @staticmethod
     def _consume_msgs(msg_queue, address, secret, stop_event, encode_sample, encode_tel):
