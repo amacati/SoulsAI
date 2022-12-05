@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class TelemetryNode:
 
     stats = ["rewards", "rewards_av", "steps", "steps_av", "boss_hp", "boss_hp_av", "wins",
-             "wins_av", "eps", "samples", "_n_env_steps"]
+             "wins_av", "eps", "samples"]
 
     def __init__(self, config):
         logger.info("Telemetry node startup")

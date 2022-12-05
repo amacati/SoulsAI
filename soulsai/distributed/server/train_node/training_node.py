@@ -53,6 +53,8 @@ class TrainingNode:
                                shutdown=self.shutdown)
         self._cmd_sub_worker = self.cmd_sub.run_in_thread(sleep_time=.1, daemon=True)
         # Initialize monitoring server and metrics
+        self._total_env_steps = 0
+        self._client_counter = mp.Value("i", 0)
         if self.config.monitoring.enable:
             logger.info("Starting prometheus monitoring server")
             start_http_server(8080)
@@ -70,8 +72,6 @@ class TrainingNode:
             self._update_client_gauge_thread = Thread(target=self._update_client_gauge, daemon=True)
             self._update_client_gauge_thread.start()
 
-        self._total_env_steps = 0
-        self._client_counter = mp.Value("i", 0)
         # Start heartbeat service
         args = (secret, self._shutdown, self._client_counter, self._required_client_ids())
         self.client_heartbeat = mp.Process(target=self._client_heartbeat, daemon=True, args=args)
