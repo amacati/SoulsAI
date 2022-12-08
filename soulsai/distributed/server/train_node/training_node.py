@@ -48,7 +48,7 @@ class TrainingNode:
         self.sample_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sample_sub.subscribe("samples")
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.cmd_sub.subscribe(manual_save=lambda _: self.checkpoint(self.save_dir),
+        self.cmd_sub.subscribe(manual_save=lambda _: self.checkpoint(self.save_dir / "manual_save"),
                                save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),
                                shutdown=self.shutdown)
         self._cmd_sub_worker = self.cmd_sub.run_in_thread(sleep_time=.1, daemon=True)
