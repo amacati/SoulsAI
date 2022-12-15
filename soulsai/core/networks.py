@@ -46,24 +46,21 @@ class DQN(nn.Module):
 
 class AdvantageDQN(nn.Module):
 
-    def __init__(self, input_dims, output_dims, layer_dims):
+    def __init__(self, input_dims, output_dims, layer_dims, nlayers=2):
         super().__init__()
-        self.linear1 = nn.Linear(input_dims, layer_dims)
-        self.linear2 = nn.Linear(layer_dims, layer_dims)
-        self.linear3 = nn.Linear(layer_dims, layer_dims)
+        self.layers = nn.ModuleList()
+        for i in range(nlayers):
+            size_in = input_dims if i == 0 else layer_dims
+            layer = nn.Linear(size_in, layer_dims)
+            torch.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2.))
+            self.layers.append(layer)
+            self.layers.append(nn.ReLU())
         self.baseline = nn.Linear(layer_dims, 1)
         self.advantage = nn.Linear(layer_dims, output_dims)
-        for layer in (self.linear1, self.linear2, self.linear3):
-            torch.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2.))
-            torch.nn.init.constant_(layer.bias, val=0.)
-        for layer in (self.baseline, self.advantage):
-            torch.nn.init.orthogonal_(layer.weight, gain=1.)
-            torch.nn.init.constant_(layer.bias, val=0.)
 
     def forward(self, x):
-        x = torch.relu(self.linear1(x))
-        x = torch.relu(self.linear2(x))
-        x = torch.relu(self.linear3(x))
+        for layer in self.layers:
+            x = layer(x)
         v_s = self.baseline(x)
         a_s = self.advantage(x)
         return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)

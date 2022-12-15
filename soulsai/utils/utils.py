@@ -86,6 +86,9 @@ def _overwrite_dicts(target_dict, source_dict):
             _overwrite_dicts(target_dict[key], source_dict[key])
         else:
             target_dict[key] = source_dict[key]
+    for key, value in source_dict.items():
+        if not key in target_dict.keys():
+            target_dict[key] = source_dict[key]
     return target_dict
 
 
