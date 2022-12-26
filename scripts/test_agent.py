@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    ntests = 5
+    ntests = 10
     nwins = 0
     ep_hp, ep_steps = [], []
     # Load config

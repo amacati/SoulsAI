@@ -38,13 +38,18 @@ class DQNConnector:
         address = self.config.redis_address
         red = Redis(host=address, password=secret, port=6379, db=0, socket_keepalive=True,
                     socket_keepalive_options={socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60})
+        
+        args = (self._update_event, address, secret)
+        self.update_sub = mp.Process(target=self._update_msg, args=args, daemon=True)
+        self.update_sub.start()
         self.update_sub = red.pubsub()
         self.update_sub.subscribe(model_update=lambda *_: self._update_event.set())
         self.update_sub.run_in_thread(sleep_time=.05, daemon=True)
+
         self.shutdown = mp.Event()
-        self.shutdown_sub = red.pubsub()
-        self.shutdown_sub.subscribe(client_shutdown=self._client_shutdown)
-        self.shutdown_sub.run_in_thread(sleep_time=1., daemon=True)
+        args = (self.shutdown, address, secret)
+        self.shutdown_sub = mp.Process(target=self._client_shutdown, args=args, daemon=True)
+        self.shutdown_sub.start()
 
         self._msg_queue = mp.Queue(maxsize=100)
         args = (self._msg_queue, address, secret, self._stop_event, encode_sample, encode_tel)
@@ -185,9 +190,40 @@ class DQNConnector:
                 time.sleep(10)
                 red = Redis(host=address, password=secret, port=6379, db=0)
 
-    def _client_shutdown(self, _):
-        logger.info("Received shutdown signal from training node. Exiting training")
-        self.shutdown.set()
+    @staticmethod
+    def _client_shutdown(stop_flag, address, secret):
+        red = Redis(host=address, password=secret, port=6379, db=0)
+        msg_sub = red.pubsub(ignore_subscribe_messages=True)
+        msg_sub.subscribe()
+        while True:
+            try:
+                if not (msg := msg_sub.get_message()):
+                    time.sleep(1.)
+                    continue
+                logger.info("Received shutdown signal from training node. Exiting training")
+                stop_flag.set()
+                return
+            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
+                time.sleep(10)
+                red = Redis(host=address, password=secret, port=6379, db=0)
+                msg_sub = red.pubsub(ignore_subscribe_messages=True)
+
+    @staticmethod
+    def _client_shutdown(stop_flag, address, secret):
+        red = Redis(host=address, password=secret, port=6379, db=0)
+        msg_sub = red.pubsub(ignore_subscribe_messages=True)
+        while True:
+            try:
+                if not (msg := msg_sub.get_message()):
+                    time.sleep(1.)
+                    continue
+                logger.info("Received shutdown signal from training node. Exiting training")
+                stop_flag.set()
+                return
+            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
+                time.sleep(10)
+                red = Redis(host=address, password=secret, port=6379, db=0)
+                msg_sub = red.pubsub(ignore_subscribe_messages=True)
 
 
 class PPOConnector:
