@@ -39,12 +39,9 @@ class DQNConnector:
         red = Redis(host=address, password=secret, port=6379, db=0, socket_keepalive=True,
                     socket_keepalive_options={socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60})
         
-        args = (self._update_event, address, secret)
+        args = (self._update_event, address, secret, self._stop_event)
         self.update_sub = mp.Process(target=self._update_msg, args=args, daemon=True)
         self.update_sub.start()
-        self.update_sub = red.pubsub()
-        self.update_sub.subscribe(model_update=lambda *_: self._update_event.set())
-        self.update_sub.run_in_thread(sleep_time=.05, daemon=True)
 
         self.shutdown = mp.Event()
         args = (self.shutdown, address, secret)
@@ -194,10 +191,10 @@ class DQNConnector:
     def _client_shutdown(stop_flag, address, secret):
         red = Redis(host=address, password=secret, port=6379, db=0)
         msg_sub = red.pubsub(ignore_subscribe_messages=True)
-        msg_sub.subscribe()
+        msg_sub.subscribe("client_shutdown")
         while True:
             try:
-                if not (msg := msg_sub.get_message()):
+                if msg_sub.get_message() is None:
                     time.sleep(1.)
                     continue
                 logger.info("Received shutdown signal from training node. Exiting training")
@@ -209,17 +206,16 @@ class DQNConnector:
                 msg_sub = red.pubsub(ignore_subscribe_messages=True)
 
     @staticmethod
-    def _client_shutdown(stop_flag, address, secret):
+    def _update_msg(update_flag, address, secret, stop_flag):
         red = Redis(host=address, password=secret, port=6379, db=0)
         msg_sub = red.pubsub(ignore_subscribe_messages=True)
-        while True:
+        msg_sub.subscribe("model_update")
+        while not stop_flag.is_set():
             try:
-                if not (msg := msg_sub.get_message()):
-                    time.sleep(1.)
+                if msg_sub.get_message() is None:
+                    time.sleep(0.05)
                     continue
-                logger.info("Received shutdown signal from training node. Exiting training")
-                stop_flag.set()
-                return
+                update_flag.set()
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 red = Redis(host=address, password=secret, port=6379, db=0)
