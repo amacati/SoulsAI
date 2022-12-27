@@ -50,18 +50,19 @@ def main():
             while not done:
                 state = normalizer.normalize(state) if config.dqn.normalize else state
                 action = agent(state, action_mask) if config.dqn.action_masking else agent(state)
-                next_state, reward, done, info = env.step(action)
+                next_state, _, done, info = env.step(action)
+                win = next_state.boss_hp == 0
                 state = state_transform(next_state)
                 ep_steps[i] += 1
                 if config.dqn.action_masking:
                     action_mask[:] = 0
                     action_mask[info["allowed_actions"]] = 1
             ep_hp.append(state[2]*1037)
-            nwins += reward > 2
+            nwins += win
 
         logger.info(f"Average HP per run: {sum(ep_hp)/ntests:.0f}, best HP: {min(ep_hp):.0f}")
         logger.info(f"Average steps per run: {sum(ep_steps)/ntests:.0f}, top steps: {max(ep_steps)}")
-        logger.info(f"Boss has been beaten {nwins} out of {ntests} times.")
+        logger.info(f"Boss has been beaten {nwins} out of {ntests} times ({nwins/ntests*100:.0f}% winrate).")
     finally:
         env.close()
 

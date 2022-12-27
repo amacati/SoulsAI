@@ -204,6 +204,7 @@ class DQNConnector:
                 time.sleep(10)
                 red = Redis(host=address, password=secret, port=6379, db=0)
                 msg_sub = red.pubsub(ignore_subscribe_messages=True)
+                msg_sub.subscribe("client_shutdown")
 
     @staticmethod
     def _update_msg(update_flag, address, secret, stop_flag):
@@ -220,6 +221,10 @@ class DQNConnector:
                 time.sleep(10)
                 red = Redis(host=address, password=secret, port=6379, db=0)
                 msg_sub = red.pubsub(ignore_subscribe_messages=True)
+                msg_sub.subscribe("model_update")
+                # It is likely a model update has been missed during the update time, so we reload
+                # the model in any case
+                update_flag.set()
 
 
 class PPOConnector:
