@@ -36,9 +36,7 @@ class DQNConnector:
         self._stop_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
         address = self.config.redis_address
-        red = Redis(host=address, password=secret, port=6379, db=0, socket_keepalive=True,
-                    socket_keepalive_options={socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60})
-        
+
         args = (self._update_event, address, secret, self._stop_event)
         self.update_sub = mp.Process(target=self._update_msg, args=args, daemon=True)
         self.update_sub.start()
@@ -146,6 +144,7 @@ class DQNConnector:
                             socket_keepalive=True,
                             socket_keepalive_options={socket.TCP_KEEPIDLE: 10,
                                                       socket.TCP_KEEPINTVL: 60})
+                update_event.set()  # Make sure to get latest model after connection is interrupted
 
     @staticmethod
     def _consume_msgs(msg_queue, address, secret, stop_event, encode_sample, encode_tel):
