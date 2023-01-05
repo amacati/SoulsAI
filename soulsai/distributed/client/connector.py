@@ -48,22 +48,23 @@ class DQNConnector:
 
         self._msg_queue = mp.Queue(maxsize=100)
         args = (self._msg_queue, address, secret, self._stop_event, encode_sample, encode_tel)
-        self.msg_consumer = mp.Process(target=self._consume_msgs, args=args)
+        self.msg_consumer = mp.Process(target=self._consume_msgs, args=args, daemon=True)
+        self.msg_consumer.start()
+
         self.agent.share_memory()
         self.normalizer.share_memory()
         args = (self._update_event, self._stop_event, self.agent, self.normalizer, self._eps,
                 self._lock, secret, config)
-        self.model_updater = mp.Process(target=self.update_model, args=args)
+        self.model_updater = mp.Process(target=self.update_model, args=args, daemon=True)
         self.model_updater.start()
-        self.msg_consumer.start()
+
         # Block while first model is not here
         logger.info("Waiting for model download...")
         while self.model_id[0] == " ":
             time.sleep(1)
         logger.info("Download complete, connector initialized")
-        self.heartbeat = mp.Process(target=self._heartbeat, args=(address, secret,
-                                                                  self._stop_event),
-                                    daemon=True)
+        args = (address, secret, self._stop_event)
+        self.heartbeat = mp.Process(target=self._heartbeat, args=args, daemon=True)
         self.heartbeat.start()
         # Utility attributes
         self._full_queue_warn_time = 0
@@ -107,20 +108,11 @@ class DQNConnector:
         red = Redis(host=config.redis_address, password=secret, port=6379, db=0,
                     socket_keepalive=True,
                     socket_keepalive_options={socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60})
-        _params = red.hgetall("model_params")
-        model_params = {key.decode("utf-8"): value for key, value in _params.items()}
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
         # first and then overwrite the tensors of the main agent with load_state_dict
         buffer_agent = DQNClientAgent(config.dqn.network_type,
                                       namespace2dict(config.dqn.network_kwargs))
-        buffer_agent.deserialize(model_params)
-        if config.dqn.normalize:
-            norm_params = normalizer.deserialize(model_params)
-        with lock:
-            agent.load_state_dict(buffer_agent.state_dict())
-            eps.value = float(model_params["eps"].decode("utf-8"))
-            if config.dqn.normalize:
-                normalizer.load_params(*norm_params)
+        update_event.set()  # Ensure load on first start up
         while not stop_event.is_set():
             if not update_event.wait(1):
                 continue  # Check if stop event has been set
@@ -138,12 +130,11 @@ class DQNConnector:
                     eps.value = float(model_params["eps"].decode("utf-8"))
                     if config.dqn.normalize:
                         normalizer.load_params(*norm_params)
-            except redis.exceptions.ConnectionError:
+            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
+                socket_options = {socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60}
                 red = Redis(host=config.redis_address, password=secret, port=6379, db=0,
-                            socket_keepalive=True,
-                            socket_keepalive_options={socket.TCP_KEEPIDLE: 10,
-                                                      socket.TCP_KEEPINTVL: 60})
+                            socket_keepalive=True, socket_keepalive_options=socket_options)
                 update_event.set()  # Make sure to get latest model after connection is interrupted
 
     @staticmethod
@@ -193,8 +184,7 @@ class DQNConnector:
         msg_sub.subscribe("client_shutdown")
         while True:
             try:
-                if msg_sub.get_message() is None:
-                    time.sleep(1.)
+                if msg_sub.get_message(timeout=1) is None:
                     continue
                 logger.info("Received shutdown signal from training node. Exiting training")
                 stop_flag.set()
@@ -207,23 +197,28 @@ class DQNConnector:
 
     @staticmethod
     def _update_msg(update_flag, address, secret, stop_flag):
-        red = Redis(host=address, password=secret, port=6379, db=0)
+        red = Redis(host=address, password=secret, port=6379, db=0, socket_timeout=5.)
         msg_sub = red.pubsub(ignore_subscribe_messages=True)
         msg_sub.subscribe("model_update")
         while not stop_flag.is_set():
             try:
-                if msg_sub.get_message() is None:
-                    time.sleep(0.05)
+                if msg_sub.get_message(timeout=10.) is None:
+                    red.ping()  # Periodically check if the connection is still alive
                     continue
                 update_flag.set()
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
-                time.sleep(10)
-                red = Redis(host=address, password=secret, port=6379, db=0)
-                msg_sub = red.pubsub(ignore_subscribe_messages=True)
-                msg_sub.subscribe("model_update")
-                # It is likely a model update has been missed during the update time, so we reload
-                # the model in any case
-                update_flag.set()
+                red = Redis(host=address, password=secret, port=6379, db=0, socket_timeout=5.)
+                # Try to reconnect. Don't reenter main loop since msg_sub may have been reset
+                # without properly subscribing and get_message() would throw a RuntimeError
+                while not stop_flag.is_set():
+                    try:
+                        msg_sub = red.pubsub(ignore_subscribe_messages=True)
+                        msg_sub.subscribe("model_update")
+                        # It is likely a model update has been missed during the update time, so we 
+                        # reload the model in any case
+                        update_flag.set()
+                    except redis.exceptions.ConnectionError:
+                        time.sleep(10)  # Immediate reconnect failed. Back off and try again later
 
 
 class PPOConnector:
