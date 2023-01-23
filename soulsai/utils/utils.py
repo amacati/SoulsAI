@@ -119,7 +119,7 @@ def load_remote_config(address, secret):
     config = None
     while config is None:
         config = red.get("config")
-        time.sleep(3)
+        time.sleep(0.2)
         logger.debug("Waiting for remote config")
     config = dict2namespace(json.loads(config))
     config.redis_address = address

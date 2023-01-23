@@ -82,6 +82,8 @@ class PerformanceBuffer:
         if n > self._maxidx + 1:
             raise RuntimeError("Asked to sample more elements than available in buffer")
         i = np.random.choice(self._maxidx + 1, n, replace=False)
+        if self._action_masking:
+            return self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i], self._b_am[i]  # noqa: E501
         return self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i]
 
     def sample_batches(self, nsamples, nbatches):
@@ -107,12 +109,16 @@ class PerformanceBuffer:
     def save(self, path):
         save_dict = {"_b_s": self._b_s, "_b_a": self._b_a, "_b_r": self._b_r, "_b_sn": self._b_sn,
                      "_b_d": self._b_d, "_idx": self._idx, "_maxidx": self._maxidx}
+        if self._action_masking:
+            save_dict["_b_am"] = self._b_am
         torch.save(save_dict, path)
 
     def load(self, path):
         save_dict = torch.load(path)
         for att in ("_b_s", "_b_a", "_b_r", "_b_sn", "_b_d", "_idx", "_maxidx"):
             setattr(self, att, save_dict[att])
+        if self._action_masking:
+            self._b_am = save_dict["_b_am"]
         self.maxlen = self._b_s.shape[0]
 
 
