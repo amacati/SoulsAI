@@ -9,17 +9,30 @@ from soulsai.core.noise import UniformDiscreteNoise, MaskedDiscreteNoise
 from soulsai.utils import namespace2dict
 from soulsai.distributed.client.connector import DQNConnector
 from soulsai.exception import InvalidConfigError
+from soulsai.distributed.client.watchdog import ClientWatchdog
 
 logger = logging.getLogger(__name__)
 
 
 def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel,
-               episode_end_callback=None):
+                episode_end_callback=None):
     logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
     logger.info("Launching DQN client")
 
-    stop_flag = Event()
+    if config.watchdog.enable:
+        minimum_samples_per_minute = config.watchdog.minimum_samples
+        external_args = (config, tf_state_callback, tel_callback, encode_sample, encode_tel,
+                         episode_end_callback)
+        watchdog = ClientWatchdog(_dqn_client, minimum_samples_per_minute, external_args)
+        watchdog.start()
+    else:
+        _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel,
+                    episode_end_callback)
+
+
+def _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel,
+                episode_end_callback=None, stop_flag=Event(), sample_gauge=None):
     if config.enable_interrupt:
         import keyboard  # Keyboard should not be imported in Docker during testing
 
@@ -34,7 +47,6 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
     env_kwargs = namespace2dict(config.env_kwargs) if config.use_env_kwargs else {}
     env = gym.make(config.env, **env_kwargs)
     noise = _get_noise(config)
-
     logger.info("Client node running")
     try:
         episode_id = 0
@@ -53,6 +65,9 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                 valid_actions = env.current_valid_actions()
                 action_mask = np.zeros(config.n_actions)
                 action_mask[valid_actions] = 1
+            if sample_gauge and episode_id == 1:
+                current_gauge_start_time = time.time()
+                current_gauge_cnt = 0
             done = False
             total_reward = 0.
             steps = 1
@@ -87,6 +102,14 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                     sum_r = sum([rewards[i] * config.gamma**i for i in range(config.dqn.multistep)])
                     sample = [states[0], actions[0], sum_r, states[-1], done, infos[-1]]
                     con.push_msg("sample", model_id, sample)
+                    if sample_gauge:
+                        current_gauge_cnt += 1
+                        tnow = time.time()
+                        if tnow - current_gauge_start_time > 10:
+                            td = tnow - current_gauge_start_time
+                            sample_gauge.value = int(current_gauge_cnt * 60 / td)
+                            current_gauge_cnt = 0
+                            current_gauge_start_time = tnow
                 state = next_state
                 if config.dqn.action_masking:
                     action_mask[:] = 0
@@ -99,6 +122,14 @@ def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_te
                     sum_r = sum([rewards[i + j] * config.gamma**j for j in range(config.dqn.multistep - i)])  # noqa: E501
                     sample = [states[i], actions[i], sum_r, states[-1], done, infos[-1]]
                     con.push_msg("sample", model_id, sample)
+                    if sample_gauge:
+                        current_gauge_cnt += 1
+                        tnow = time.time()
+                        if tnow - current_gauge_start_time > 10:
+                            td = tnow - current_gauge_start_time
+                            sample_gauge.value = int(current_gauge_cnt * 60 / td)
+                            current_gauge_cnt = 0
+                            current_gauge_start_time = tnow
                 noise.reset()
                 con.push_msg("telemetry", *tel_callback(total_reward, steps, state, eps))
             if episode_end_callback is not None:

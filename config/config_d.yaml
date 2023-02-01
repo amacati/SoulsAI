@@ -89,3 +89,7 @@ monitoring:
 max_episodes: -1  # -1 for infinite runs
 enable_interrupt: True
 step_delay: 0
+
+watchdog:
+  enable: False
+  minimum_samples: -1

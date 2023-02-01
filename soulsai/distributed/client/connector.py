@@ -5,6 +5,7 @@ import socket
 import time
 import queue
 from uuid import uuid4
+import multiprocessing as python_mp
 
 import redis
 from redis import Redis
@@ -21,7 +22,11 @@ logger = logging.getLogger(__name__)
 class DQNConnector:
 
     def __init__(self, config, encode_sample, encode_tel):
-        mp.set_start_method("spawn")
+        cxt = mp.get_context()
+        if not isinstance(cxt, python_mp.context.SpawnContext):
+            logger.warning(f"Multiprocessing context already set to {type(cxt)}")
+            logger.warning("Trying to force spawn method...")
+            mp.set_start_method("spawn", force=True)
         self.config = config
         self.agent = DQNClientAgent(config.dqn.network_type,
                                      namespace2dict(config.dqn.network_kwargs))
