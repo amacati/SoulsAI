@@ -85,7 +85,7 @@ class NoisyDQN(nn.Module):
 
 
 class NoisyAdvantageDQN(nn.Module):
-    
+
     def __init__(self, input_dims, output_dims, layer_dims):
         super().__init__()
         self.linear1 = nn.Linear(input_dims, layer_dims)
@@ -108,7 +108,7 @@ class NoisyAdvantageDQN(nn.Module):
 
 
 class NoisyAdvantageSkipDQN(nn.Module):
-    
+
     def __init__(self, input_dims, output_dims, layer_dims):
         super().__init__()
         self.linear1 = nn.Linear(input_dims, layer_dims)

@@ -2,7 +2,6 @@ class SoulsAIException(Exception):
     """Base class for SoulsAIExceptions."""
 
 
-
 class InvalidConfigError(SoulsAIException):
     """Raised when a faulty configuration is detected."""
 
@@ -17,6 +16,7 @@ class ClientRegistrationError(SoulsAIException):
 
 class ServerDiscoveryTimeout(SoulsAIException):
     """Raised when the server can't successfully complete the discovery phase."""
+
 
 class ServerTimeoutError(SoulsAIException):
     """Raised when a response from the server takes too long."""

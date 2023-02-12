@@ -80,14 +80,14 @@ def load_config(default_config_path, config_path=None):
 
 def _overwrite_dicts(target_dict, source_dict):
     for key, value in target_dict.items():
-        if not key in source_dict.keys():
+        if key not in source_dict.keys():
             continue
         if isinstance(value, dict):
             _overwrite_dicts(target_dict[key], source_dict[key])
         else:
             target_dict[key] = source_dict[key]
     for key, value in source_dict.items():
-        if not key in target_dict.keys():
+        if key not in target_dict.keys():
             target_dict[key] = source_dict[key]
     return target_dict
 

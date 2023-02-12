@@ -30,7 +30,7 @@ def main():
     norm_kwargs = {}
     if config.dqn.normalizer_kwargs is not None:
         norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
-    
+
     if config.dqn.normalize:
         normalizer = Normalizer(config.n_states, **norm_kwargs)
         normalizer.load_state_dict(torch.load(root_path / "normalizer.pt"))
@@ -61,10 +61,13 @@ def main():
             nwins += win
 
         logger.info(f"Average HP per run: {sum(ep_hp)/ntests:.0f}, best HP: {min(ep_hp):.0f}")
-        logger.info(f"Average steps per run: {sum(ep_steps)/ntests:.0f}, top steps: {max(ep_steps)}")
-        logger.info(f"Boss has been beaten {nwins} out of {ntests} times ({nwins/ntests*100:.0f}% winrate).")
+        logger.info((f"Average steps per run: {sum(ep_steps)/ntests:.0f}, "
+                     "top steps: {max(ep_steps)}"))
+        logger.info((f"Boss has been beaten {nwins} out of {ntests} times ({nwins/ntests*100:.0f}%)"
+                     "winrate)."))
     finally:
         env.close()
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

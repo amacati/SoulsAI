@@ -1,13 +1,10 @@
 import logging
 import json
 from pathlib import Path
-from collections import deque
 import time
 import tempfile
 import os
 from threading import Lock
-temp_dir = tempfile.TemporaryDirectory()
-os.environ['MPLCONFIGDIR'] = temp_dir.name  # Set matplotlib config dir 
 
 import redis
 from prometheus_client import start_http_server
@@ -15,6 +12,9 @@ from prometheus_client import start_http_server
 from soulsai.utils import load_redis_secret, load_remote_config
 from soulsai.utils.visualization import save_plots
 from soulsai.distributed.server.telemetry_node.grafana_connector import GrafanaConnector
+
+temp_dir = tempfile.TemporaryDirectory()
+os.environ['MPLCONFIGDIR'] = temp_dir.name  # Set matplotlib config dir
 
 logger = logging.getLogger(__name__)
 

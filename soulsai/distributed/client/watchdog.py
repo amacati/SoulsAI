@@ -24,7 +24,7 @@ class ClientWatchdog:
         while not self.shutdown.is_set():
             try:
                 self._watched_fn(*self._external_args, stop_flag=self._fn_shutdown,
-                                sample_gauge=self.sample_gauge)
+                                 sample_gauge=self.sample_gauge)
             except Exception as e:
                 logger.info(e)
                 self._fn_shutdown.clear()
@@ -43,7 +43,7 @@ class ClientWatchdog:
             # Check performance metric
             if self.sample_gauge.value < self.minimum_samples_per_minute:
                 logger.warning((f"Current sample count {self.sample_gauge.value}/m is less than"
-                                 " required. Resetting training"))
+                                " required. Resetting training"))
                 self.sample_gauge.value = 1_000_000
                 self._watchdog_fn_shutdown.set()
                 self._fn_shutdown.set()

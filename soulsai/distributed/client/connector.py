@@ -29,9 +29,9 @@ class DQNConnector:
             mp.set_start_method("spawn", force=True)
         self.config = config
         self.agent = DQNClientAgent(config.dqn.network_type,
-                                     namespace2dict(config.dqn.network_kwargs))
+                                    namespace2dict(config.dqn.network_kwargs))
         if config.dqn.normalizer_kwargs is not None:
-            norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs) 
+            norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
         else:
             norm_kwargs = {}
         self.normalizer = Normalizer(config.n_states, **norm_kwargs)
@@ -219,7 +219,7 @@ class DQNConnector:
                     try:
                         msg_sub = red.pubsub(ignore_subscribe_messages=True)
                         msg_sub.subscribe("model_update")
-                        # It is likely a model update has been missed during the update time, so we 
+                        # It is likely a model update has been missed during the update time, so we
                         # reload the model in any case
                         update_flag.set()
                     except redis.exceptions.ConnectionError:

@@ -39,7 +39,7 @@ class DQNTrainingNode(TrainingNode):
                               self.config.dqn.grad_clip,
                               self.config.dqn.q_clip)
         if self.config.dqn.normalizer_kwargs is not None:
-            norm_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs) 
+            norm_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs)
         else:
             norm_kwargs = {}
         self.normalizer = Normalizer(self.config.n_states, **norm_kwargs)

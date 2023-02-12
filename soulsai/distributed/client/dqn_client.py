@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel,
-                episode_end_callback=None):
+               episode_end_callback=None):
     logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
     logger.info("Launching DQN client")
@@ -54,11 +54,8 @@ def _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_t
         actions = deque(maxlen=config.dqn.multistep)
         rewards = deque(maxlen=config.dqn.multistep)
         infos = deque(maxlen=config.dqn.multistep)
-        while (
-            not stop_flag.is_set() and
-            episode_id != config.max_episodes and
-            not con.shutdown.is_set()
-            ):
+        while (not stop_flag.is_set() and episode_id != config.max_episodes and  # noqa: W504
+                not con.shutdown.is_set()):
             episode_id += 1
             state = tf_state_callback(env.reset())
             if config.dqn.action_masking:

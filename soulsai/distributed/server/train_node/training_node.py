@@ -26,7 +26,7 @@ class TrainingNode:
         self.decode_sample = decode_sample
         self._shutdown = mp.Event()
         self._lock = mp.Lock()
-        # Create unique directory for saves, save to 
+        # Create unique directory for saves
         save_root_dir = Path(__file__).parents[4] / "saves"
         save_root_dir.mkdir(exist_ok=True)
         self.save_dir = mkdir_date(save_root_dir)
@@ -109,7 +109,7 @@ class TrainingNode:
 
     def save_config(self, path):
         path.mkdir(exist_ok=True)
-        with open(path / "config.json", "w")  as f:
+        with open(path / "config.json", "w") as f:
             json.dump(namespace2dict(self.config), f)
 
     def load_config(self, path):
