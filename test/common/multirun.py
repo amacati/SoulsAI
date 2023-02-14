@@ -1,4 +1,9 @@
-import subprocess
+"""The multirun script enables multiple runs of the same training parameters on simple environments.
+
+It is useful to check the performance of algorithms and parameters with statistical significance
+using the ``SoulsAI`` framework.
+"""
+from subprocess import Popen
 import time
 import argparse
 from pathlib import Path
@@ -6,6 +11,7 @@ import shutil
 import json
 
 import docker
+from docker.client import DockerClient
 import numpy as np
 import matplotlib.pyplot as plt
 from redis import Redis
@@ -13,17 +19,35 @@ from redis import Redis
 from soulsai.utils import mkdir_date, load_redis_secret
 
 
-def launch_training(dock, algorithm, n_clients, profile):
+def launch_training(dock: DockerClient, algorithm: str, n_clients: int, profile: str) -> Popen:
+    """Launch a training run with docker compose by opening a shell process with subprocesses.
+
+    Args:
+        dock: Docker client interface.
+        algorithm: Training algorithm. Either ``dqn`` or ``ppo``.
+        n_clients: Number of training clients.
+        profile: Docker compose profile. If `monitoring` is chosen, also starts the monitoring
+            containers.
+
+    Returns:
+        The handle to the subprocess.
+    """
     path = Path(__file__).parents[1] / algorithm
     profile_cmd = "--profile " + profile if profile else ""
     cmd = f"(cd {path}; docker compose {profile_cmd} up --scale client_node={n_clients})"
-    p = subprocess.Popen(cmd, shell=True)  # Yes, this is hacky af. It works though
+    p = Popen(cmd, shell=True)  # Yes, this is hacky af. It works though
     while not dock.containers.list(filters={"name": "client_node"}):
         time.sleep(0.1)
+    print(p, type(p))
     return p
 
 
-def shutdown_nodes(dock):
+def shutdown_nodes(dock: DockerClient):
+    """Kill all active docker nodes.
+
+    Args:
+        dock: Docker client interface.
+    """
     if dock.containers.list():
         if dock.containers.list(filters={"name": "redis"}):
             publish_shutdown_cmd()
@@ -36,19 +60,34 @@ def shutdown_nodes(dock):
 
 
 def publish_shutdown_cmd():
+    """Send the shutdown command to all active client nodes."""
     config_dir = Path(__file__).parents[2] / "config"
     secret = load_redis_secret(config_dir / "redis.secret")
     red = Redis(host="localhost", port=6379, password=secret, db=0, decode_responses=True)
     red.publish("shutdown", 1)
 
 
-def check_training_done(dock):
+def check_training_done(dock: DockerClient) -> bool:
+    """Check if all Docker client nodes have shut down.
+
+    Args:
+        dock: Docker client interface.
+
+    Returns:
+        True if all nodes have shut down, else false.
+    """
     if dock.containers.list(filters={"name": "client_node"}):
         return False
     return True
 
 
-def save_plots(results, path):
+def save_plots(results: dict, path: Path):
+    """Plot the results and save the figure into the summary save folder.
+
+    Args:
+        results: A dictionary with the averaged data from all runs.
+        path: The save folder path.
+    """
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Dashboard")
 
@@ -103,7 +142,15 @@ def save_plots(results, path):
     plt.close(fig)
 
 
-def average_results(results):
+def average_results(results: dict) -> dict:
+    """Average the results from multiple runs into a single metric with mean and std deviation.
+
+    Args:
+        results: A dictionary of result summaries from each run.
+
+    Returns:
+        The averaged datapoints.
+    """
     # Calculate min stats
     nsamples = min([max(results[run]["samples"]) for run in results])
     x = np.linspace(0, nsamples, 1000)
@@ -126,7 +173,14 @@ def average_results(results):
     return averaged_results
 
 
-def main(args):
+def main(args: argparse.Namespace):
+    """Execute multiple simulated runs of the same configuration for statistical validation.
+
+    At the end of all runs, the results are averaged and written to an additional save folder.
+
+    Args:
+        args: Namespace config for the experiments.
+    """
     dock = docker.from_env()
     # Check if containers still running, kill them
     shutdown_nodes(dock)

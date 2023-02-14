@@ -88,3 +88,7 @@ step_delay: 0
 # Monitoring
 monitoring:
   enable: True
+
+watchdog:
+  enable: False
+  minimum_samples: -1

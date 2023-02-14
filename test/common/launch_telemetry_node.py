@@ -1,3 +1,4 @@
+"""Common launch script for the telemetry node compatible with LunarLander-v2."""
 import logging
 from pathlib import Path
 

@@ -1,10 +1,14 @@
+"""Script to test an agent trained on the SoulsGymIudex-v0 environment.
+
+Load the agent in `saves/checkpoint`, run the environment for 10 episodes and report the stats.
+"""
 from pathlib import Path
 import json
 import logging
 
 import numpy as np
 import gym
-import soulsgym
+import soulsgym  # noqa: F401
 import torch
 
 from soulsai.utils import dict2namespace, namespace2dict
@@ -15,7 +19,8 @@ from soulsai.data.transformation import GameStateTransformer
 logger = logging.getLogger(__name__)
 
 
-def main():
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     ntests = 10
     nwins = 0
     ep_hp, ep_steps = [], []
@@ -57,7 +62,7 @@ def main():
                 if config.dqn.action_masking:
                     action_mask[:] = 0
                     action_mask[info["allowed_actions"]] = 1
-            ep_hp.append(state[2]*1037)
+            ep_hp.append(state[2] * 1037)
             nwins += win
 
         logger.info(f"Average HP per run: {sum(ep_hp)/ntests:.0f}, best HP: {min(ep_hp):.0f}")
@@ -67,8 +72,3 @@ def main():
                      "winrate)."))
     finally:
         env.close()
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    main()

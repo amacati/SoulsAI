@@ -8,17 +8,22 @@
 *pkl
 **/*__pycache__
 soulsai.egg-info/
+docs/_build/*
+docs/_static/*
+
 config/config.yaml
+
 soulsai/distributed/server/train_node/config.yaml
 soulsai/distributed/client/config.yaml
+soulsai/distributed/server/reverse-proxy/certbot/*
+soulsai/distributed/server/reverse-proxy/nginx/*
+soulsai/distributed/server/monitoring/grafana/grafana_data
+
 test/distributed/dqn/client/config.yaml
 test/distributed/dqn/server/train_node/config.yaml
 test/**/config.yaml
 test/test.py
-/test/common/grafana/grafana_data/*
-soulsai/distributed/server/reverse-proxy/certbot/*
-soulsai/distributed/server/reverse-proxy/nginx/*
-soulsai/distributed/server/monitoring/grafana/grafana_data
+test/common/grafana/grafana_data/*
 # Disable all secret files. Additional guard against accidental leaking of secrets
 **/*.secret
 **/*.pem

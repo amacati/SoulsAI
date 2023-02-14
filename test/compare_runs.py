@@ -1,14 +1,21 @@
+"""Script to compare and plot the results of different experiment runs."""
 from pathlib import Path
 import json
 import argparse
+from typing import List
+import logging
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-from soulsai.utils.visualization import running_mean
+logger = logging.getLogger(__name__)
 
 
-def plot_comparison(names, results):
+def plot_comparison(names: List[str], results: dict):
+    """Plot all performance graphs into a single figure with mean and standard deviation.
+
+    Saves the figure as `comparison.png`.
+    """
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Comparison")
     # Plot settings
@@ -64,7 +71,17 @@ def plot_comparison(names, results):
     plt.savefig("comparison.png")
 
 
-def main(folder_names):
+def main(folder_names: List[str]):
+    """Read the data from all folders and plot the performance graphs into a single figure.
+
+    Args:
+        folder_names: The folder names of all experiments. Folders have to be a valid multirun
+            experiment with averaged performance data.
+
+    Raises:
+        RuntimeError: The specified folder path does not exist.
+        FileNotFoundError: The folder does not contain an averaged performance save file.
+    """
     # Load results
     results = []
     save_root = Path(__file__).parents[1] / "saves"
@@ -72,9 +89,14 @@ def main(folder_names):
         save_dir = save_root / folder
         if not save_dir.exists():
             raise RuntimeError(f"Specified folder path {save_dir} does not exist")
-        with open(save_dir / "AveragedStats.json", "r") as f:
-            # Load results from json, convert arrays to np arrays
-            results.append({key: np.array(value) for key, value in json.load(f).items()})
+        try:
+            with open(save_dir / "AveragedStats.json", "r") as f:
+                # Load results from json, convert arrays to np arrays
+                results.append({key: np.array(value) for key, value in json.load(f).items()})
+        except FileNotFoundError as e:
+            logger.error(("Missing averaged stats file, specified folder is not a multirun "
+                          "experiment."))
+            raise e
     # Display results
     plot_comparison(folder_names, results)
 
@@ -83,4 +105,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('folders', nargs="+")
     args = parser.parse_args()
+    logging.basicConfig()
+    logging.getLogger().setLevel(logging.INFO)
     main(args.folders)
