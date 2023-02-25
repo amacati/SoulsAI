@@ -1,18 +1,38 @@
+"""Visualization module for creating training plots from the training statistics."""
+from typing import List
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 
 from soulsai.utils.utils import running_mean, running_std
 
 
-def save_plots(samples, episodes_rewards, episodes_steps, iudex_hp, wins, path, eps=None, N_av=50):
+def save_plots(samples: List, episodes_rewards: List, episodes_steps: List, boss_hp: List,
+               wins: List, path: Path, eps: float | None = None, N_av: int = 50):
+    """Plot and save the training progress dashboard.
+
+    Stats are smoothed by computing the mean over a running window. Confidence intervals are given
+    by computing the standard deviation over a running window.
+
+    Args:
+        samples: List of the total sample count during training.
+        episodes_rewards: List of achieved rewards.
+        episodes_steps: List of episode lengths.
+        boss_hp: List of boss HP at the end of each episode.
+        wins: List of wins.
+        path: Save location for the figure.
+        eps: Optional list of epsilon values during training.
+        N_av: Moving average window for smoothing the plot.
+    """
     # t = np.arange(len(episodes_rewards))
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Dashboard")
     reward_mean = running_mean(episodes_rewards, N_av)
-    reward_std = np.sqrt(running_std(episodes_rewards, N_av))
+    reward_std = running_std(episodes_rewards, N_av)
     ax[0, 0].plot(samples, reward_mean)
     ax[0, 0].fill_between(samples, reward_mean - reward_std, reward_mean + reward_std, alpha=0.4)
-    ax[0, 0].legend(["Mean episode reward", "Std deviation episode reward"])
+    ax[0, 0].legend(["Mean episode reward", "Std dev episode reward"])
     ax[0, 0].set_title("Total Reward vs Samples")
     ax[0, 0].set_xlabel("Samples")
     ax[0, 0].set_ylabel("Total Reward")
@@ -23,10 +43,10 @@ def save_plots(samples, episodes_rewards, episodes_steps, iudex_hp, wins, path, 
         ax[0, 0].set_ylim([lim_low, lim_up])
 
     steps_mean = running_mean(episodes_steps, N_av)
-    steps_std = np.sqrt(running_std(episodes_steps, N_av))
+    steps_std = running_std(episodes_steps, N_av)
     ax[0, 1].plot(samples, steps_mean, label="Mean episode steps")
     lower, upper = steps_mean - steps_std, steps_mean + steps_std
-    ax[0, 1].fill_between(samples, lower, upper, alpha=0.4, label="Std deviation episode steps")
+    ax[0, 1].fill_between(samples, lower, upper, alpha=0.4, label="Std dev episode steps")
     if eps is None:
         ax[0, 1].legend()
     ax[0, 1].set_title("Number of Steps vs Samples")
@@ -47,14 +67,14 @@ def save_plots(samples, episodes_rewards, episodes_steps, iudex_hp, wins, path, 
         lines2, labels2 = secax_y.get_legend_handles_labels()
         secax_y.legend(lines + lines2, labels + labels2)
 
-    hp_mean = running_mean(iudex_hp, N_av)
-    hp_std = np.sqrt(running_std(iudex_hp, N_av))
+    hp_mean = running_mean(boss_hp, N_av)
+    hp_std = running_std(boss_hp, N_av)
     ax[1, 0].plot(samples, hp_mean)
     ax[1, 0].fill_between(samples, hp_mean - hp_std, hp_mean + hp_std, alpha=0.4)
-    ax[1, 0].legend(["Mean Iudex HP", "Std deviation Iudex HP"])
-    ax[1, 0].set_title("Iudex HP vs Samples")
+    ax[1, 0].legend(["Mean boss HP", "Std dev boss HP"])
+    ax[1, 0].set_title("Boss HP vs Samples")
     ax[1, 0].set_xlabel("Samples")
-    ax[1, 0].set_ylabel("Iudex HP")
+    ax[1, 0].set_ylabel("Boss HP")
     ax[1, 0].set_ylim([-0.05, 1.05])
     ax[1, 0].grid(alpha=0.3)
 

@@ -33,7 +33,7 @@ class PPOTrainingNode(TrainingNode):
 
         logger.info(f"Initial model ID: {self.agent.model_id}")
         self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,
-                                       self.config.n_states, self.config.n_actions)
+                                       self.config.n_states)
         self._model_iterations = 0
         logger.info("PPO training node startup complete")
 

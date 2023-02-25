@@ -25,7 +25,6 @@ def decode_sample(sample: dict) -> Tuple[np.ndarray, int, float, float, bool, in
     sample = sample.get("sample")
     sample[0] = np.array(sample[0])
     sample.extend([trajectory_id, step_id])
-    print([type(s) for s in sample])
     return sample
 
 

@@ -1,3 +1,6 @@
+"""The exception module provides a collection of custom exceptions."""
+
+
 class SoulsAIException(Exception):
     """Base class for SoulsAIExceptions."""
 

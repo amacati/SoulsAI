@@ -17,21 +17,18 @@ SoulsAI
    getting_started/server
 
 .. toctree::
-   :glob:
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Python API
 
    soulsai
-   core/*
-   distributed/*
-   data/*
-   exception
 
-.. toctree::
-   :maxdepth: 1
-   :caption: Notes
+   core/index
 
-   acknowledgements
+   distributed/index
+
+   data/index
+
+   exception/exception
 
 
 Indices and tables

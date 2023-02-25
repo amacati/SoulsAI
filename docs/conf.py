@@ -50,9 +50,13 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # a list of builtin themes.
 #
 html_theme = 'sphinx_book_theme'
+html_title = "SoulsAI Documentation"
+html_logo = "img/logo.png"
+html_favicon = "img/logo.png"
 html_theme_options = {
     "repository_url": "https://github.com/amacati/SoulsAI",
-    "use_repository_button": True
+    "use_repository_button": True,
+    "show_navbar_depth": 1,
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,

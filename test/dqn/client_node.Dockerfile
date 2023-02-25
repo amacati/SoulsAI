@@ -1,4 +1,4 @@
-FROM python:3.9
+FROM python:3.10
 WORKDIR /home
 # Cache requirements install
 COPY test/common/requirements.txt /home/requirements.txt

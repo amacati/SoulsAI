@@ -1,3 +1,7 @@
+"""The ``one_hot_encoder`` module contains a lightweight implementation of a one-hot encoder.
+
+We include it to avoid the dependency on heavy frameworks like ``sklearn`` for a trivial task.
+"""
 from typing import Iterable, Hashable
 import logging
 
@@ -8,12 +12,14 @@ logger = logging.getLogger(__name__)
 
 class OneHotEncoder:
     """Encode categorical data as one hot numpy arrays.
+
     Just like the sklearn encoder (which this class imitates), the encoder first has to be fit to
     data before it can be used to convert between the representations.
     """
 
     def __init__(self, allow_unknown: bool = False):
         """Initialize the lookup dictionaries.
+
         Args:
             allow_unknown: Flag to allow unknown categories.
         """
@@ -24,6 +30,7 @@ class OneHotEncoder:
 
     def fit(self, data: Iterable[Hashable]):
         """Fit the encoder to the training data.
+
         Args:
             data: An iterable of hashable categories
         """
@@ -32,15 +39,26 @@ class OneHotEncoder:
             self._index_to_key_dict[idx] = key
         self.dim = len(data)
 
-    def __call__(self, data) -> np.ndarray:
+    def __call__(self, data: Hashable) -> np.ndarray:
+        """Alias for :meth:`.OneHotEncoder.transform`.
+
+        Args:
+            data: A categorical data sample.
+
+        Returns:
+            The corresponding one hot encoded array.
+        """
         return self.transform(data)
 
     def transform(self, data: Hashable) -> np.ndarray:
         """Transform categorical data to a one hot encoded array.
+
         Args:
             data: A categorical data sample.
+
         Returns:
             The corresponding one hot encoded array.
+
         Raises:
             ValueError: An unknown category was provided without setting allow_unknown to `True`.
         """
@@ -54,11 +72,14 @@ class OneHotEncoder:
         return x
 
     def inverse_transform(self, data: np.ndarray) -> Hashable:
-        """Transform one hot encoded data to its corresponding category.
+        """Transform one-hot encoded data to its corresponding category.
+
         Args:
-            data: A one hot encoded data sample.
+            data: A one-hot encoded data sample.
+
         Returns:
             The corresponding category.
+
         Raises:
             ValueError: An unknown category was provided.
         """

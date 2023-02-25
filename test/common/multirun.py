@@ -38,7 +38,6 @@ def launch_training(dock: DockerClient, algorithm: str, n_clients: int, profile:
     p = Popen(cmd, shell=True)  # Yes, this is hacky af. It works though
     while not dock.containers.list(filters={"name": "client_node"}):
         time.sleep(0.1)
-    print(p, type(p))
     return p
 
 
