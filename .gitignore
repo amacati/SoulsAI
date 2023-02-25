@@ -31,3 +31,4 @@ test/common/grafana/grafana_data/*
 # Force folder saves to be included in repo to make sure docker compose mounts saves as directory, not as file
 !**.gitkeep
 !/saves/checkpoint/
+!/docs/img/*
