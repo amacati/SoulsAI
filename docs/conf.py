@@ -32,8 +32,9 @@ extensions = ['sphinx.ext.autodoc', 'sphinx.ext.napoleon', 'sphinx.ext.todo']
 # Autodoc config
 autodoc_member_order = 'bysource'
 if on_rtd:
-    # We have to include ctypes since RTD can't import windows ctypes
+    # Mock packages for RTD
     autodoc_mock_imports = [
+        "gym", "torch", "soulsgym", "redis", "matplotlib"
     ]
 
 # Add any paths that contain templates here, relative to this directory.
