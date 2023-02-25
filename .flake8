@@ -4,5 +4,4 @@ suppress_none_returning = True
 mypyy_init_return = True
 suppress_dummy_args = True
 ignore = ANN101
-# per-file-ignores = soulsgym/core/game_interface.py: D401
 exclude = .git, docs

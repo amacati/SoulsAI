@@ -1,3 +1,6 @@
+[![PEP8 Check](https://github.com/amacati/SoulsAI/actions/workflows/github-actions.yaml/badge.svg)](https://github.com/amacati/SoulsAI/actions/workflows/github-actions.yaml)   [![Documentation Status](https://readthedocs.org/projects/soulsai/badge/?version=latest)](https://soulsai.readthedocs.io/en/latest/?badge=latest)
+
+
 # Running the training server stack
 
 Create the server Docker network with

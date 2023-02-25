@@ -1,4 +1,4 @@
-"""Setup file for the SoulsGym module."""
+"""Setup file for the SoulsAI module."""
 from setuptools import setup, find_packages
 
 setup(

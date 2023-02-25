@@ -28,6 +28,8 @@ SoulsAI
 
    data/index
 
+   utils/index
+
    exception/exception
 
 
