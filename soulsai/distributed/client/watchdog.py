@@ -1,14 +1,28 @@
+"""The ``watchdog`` module allows the execution of functions under special surveillance."""
 import time
 from threading import Thread, Event
 import logging
 from multiprocessing import Value
+from typing import Callable, Any
 
 logger = logging.getLogger(__name__)
 
 
 class ClientWatchdog:
+    """Watchdog to surveil the client sampling function.
 
-    def __init__(self, watched_fn, minimum_samples_per_minute, external_args):
+    The watchdog starts an observation thread that periodically checks if the client's main script
+    is still running as expected. If this is not the case, it restarts the script.
+    """
+
+    def __init__(self, watched_fn: Callable, minimum_samples_per_minute: int, external_args: Any):
+        """Initialize the shared events and gauges.
+
+        Args:
+            watched_fn: The surveilled function.
+            minimum_samples_per_minute: The minimum expected samples per minute.
+            external_args: The external arguments used to call ``watched_fn``.
+        """
         self.sample_gauge = Value("i", 1_000_000)
         self.minimum_samples_per_minute = minimum_samples_per_minute
         self._watched_fn = watched_fn
@@ -16,9 +30,14 @@ class ClientWatchdog:
         self._watchdog_fn_shutdown = Event()
         self._external_args = external_args
         self.shutdown = Event()
-        self.watchdog_thread = Thread(target=self.watchdog, daemon=True)
+        self.watchdog_thread = Thread(target=self._watchdog, daemon=True)
 
     def start(self):
+        """Start the watchdog thread and execute the watched function.
+
+        Restart the function in case the watchdog thread determined a failure. If the function exits
+        nominally without intervention from the watchdog thread, the watchdog shuts down.
+        """
         logger.info("Watchdog startup")
         self.watchdog_thread.start()
         while not self.shutdown.is_set():
@@ -38,7 +57,8 @@ class ClientWatchdog:
             self.shutdown.set()  # Function ended execution nominally, shut watchdog down
         logger.info("Watchdog shutdown successful")
 
-    def watchdog(self):
+    def _watchdog(self):
+        """Watch the sample gauge and set the shutdown flag if it drops below the minimum value."""
         while not self.shutdown.is_set():
             # Check performance metric
             if self.sample_gauge.value < self.minimum_samples_per_minute:

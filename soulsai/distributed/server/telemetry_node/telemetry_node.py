@@ -1,3 +1,4 @@
+"""The main telemetry node module."""
 import logging
 import json
 from pathlib import Path
@@ -5,6 +6,8 @@ import time
 import tempfile
 import os
 from threading import Lock
+from typing import List
+from types import SimpleNamespace
 
 import redis
 from prometheus_client import start_http_server
@@ -20,15 +23,33 @@ logger = logging.getLogger(__name__)
 
 
 class TelemetryNode:
+    """The telemetry node receives telemetry from the clients to track the training progress.
 
-    stats = ["rewards", "rewards_av", "steps", "steps_av", "boss_hp", "boss_hp_av", "wins",
-             "wins_av", "eps", "samples"]
+    Samples are received from Redis and added to the telemetry history. Every ``update_interval``
+    message, the results are plotted and saved both to a figure and to a json file.
 
-    def __init__(self, config):
+    If live monitoring is enabled, the node also uses a :class:`~.GrafanaConnector` to expose the
+    data to a ``Grafana`` instance running within the same network.
+    """
+
+    stats = [
+        "rewards", "rewards_av", "steps", "steps_av", "boss_hp", "boss_hp_av", "wins", "wins_av",
+        "eps", "samples"
+    ]
+
+    def __init__(self, config: SimpleNamespace):
+        """Initialize the connection to Redis and Grafana (if enabled).
+
+        Args:
+            config: Training configuration.
+        """
         logger.info("Telemetry node startup")
         # Read redis server secret
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
-        self.red = redis.Redis(host='redis', port=6379, password=secret, db=0,
+        self.red = redis.Redis(host='redis',
+                               port=6379,
+                               password=secret,
+                               db=0,
                                decode_responses=True)
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub_telemetry.subscribe("telemetry", "samples")
@@ -73,6 +94,16 @@ class TelemetryNode:
         logger.info("Telemetry node startup complete")
 
     def run(self):
+        """Run the telemetry node.
+
+        Receives telemetry messages from clients via Redis and adds them to the training statistics.
+        The statistic lists are shared by reference with the :class:`.GrafanaConnector` (if
+        enabled). An update of the lists in the main loop therefore automatically updates the stats
+        for the GrafanaConnector as well.
+
+        Note:
+            Telemetry messages and therefore the stats are not guaranteed to be in order.
+        """
         logger.info("Telemetry node running")
         while not self._shutdown:
             # read new samples
@@ -106,12 +137,13 @@ class TelemetryNode:
                     self._best_reward = self.rewards_av[-1]
 
     def update_stats_and_dashboard(self):
+        """Update the statistics and save the new plot to the save folder."""
         self.figure_path.parent.mkdir(parents=True, exist_ok=True)
         save_plots(self.samples, self.rewards, self.steps, self.boss_hp, self.wins,
                    self.figure_path, self.eps, self.config.telemetry.moving_average)
         self._save_stats(self.stats_path)
 
-    def _save_stats(self, path):
+    def _save_stats(self, path: Path):
         with open(path, "w") as f:
             json.dump({stat: getattr(self, stat) for stat in self.stats}, f)
 
@@ -126,9 +158,10 @@ class TelemetryNode:
             logger.warning("Loading from checkpoint, but no previous telemetry found.")
 
     def shutdown(self, _):
+        """Shut down the telemetry node."""
         logger.info("Shutdown signaled")
         self._shutdown = True
 
-    def _latest_moving_av(self, x):
+    def _latest_moving_av(self, x: List) -> float:
         view = x[-self.config.telemetry.moving_average:]
         return sum(view) / len(view)  # len(view) can be smaller than N

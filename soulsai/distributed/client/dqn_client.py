@@ -1,38 +1,79 @@
+"""The DQN client module contains the sampling loop for DQN on worker nodes.
+
+If specified, the training function is executed by a :class:`.ClientWatchdog` to restart the
+sampling whenever the sampling rate drops below the expected value.
+"""
 import logging
 from threading import Event
 import time
 from collections import deque
+from types import SimpleNamespace
+from typing import Callable
+from multiprocessing.sharedctypes import Synchronized
 
 import numpy as np
 import gym
-from soulsai.core.noise import UniformDiscreteNoise, MaskedDiscreteNoise
+from soulsai.core.noise import get_noise_class
 from soulsai.utils import namespace2dict
 from soulsai.distributed.client.connector import DQNConnector
-from soulsai.exception import InvalidConfigError
 from soulsai.distributed.client.watchdog import ClientWatchdog
 
 logger = logging.getLogger(__name__)
 
 
-def dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel,
-               episode_end_callback=None):
+def dqn_client(config: SimpleNamespace,
+               tf_state_callback: Callable,
+               encode_sample: Callable,
+               encode_tel: Callable,
+               episode_end_callback: Callable | None = None):
+    """Wrap the the DQN client main function and automatically parameterize it.
+
+    If the training is configured to use a watchdog, the watchdog starts the training and adds
+    additional arguments to check the health of the training process by measuring the sampling rate.
+
+    Args:
+        config: The training configuration.
+        tf_state_callback: Callback to transform environment observations into agent inputs.
+        encode_sample: Function to encode sample messages for redis.
+        encode_tel: Function to encode the telemetry information for redis.
+        episode_end_callback: Callback for functions that should be called at the end of an episode.
+    """
     logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
     logger.info("Launching DQN client")
 
     if config.watchdog.enable:
         minimum_samples_per_minute = config.watchdog.minimum_samples
-        external_args = (config, tf_state_callback, tel_callback, encode_sample, encode_tel,
-                         episode_end_callback)
+        external_args = (config, tf_state_callback, encode_sample, encode_tel, episode_end_callback)
         watchdog = ClientWatchdog(_dqn_client, minimum_samples_per_minute, external_args)
         watchdog.start()
     else:
-        _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel,
-                    episode_end_callback)
+        _dqn_client(config, tf_state_callback, encode_sample, encode_tel, episode_end_callback)
 
 
-def _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_tel,
-                episode_end_callback=None, stop_flag=Event(), sample_gauge=None):
+def _dqn_client(config: SimpleNamespace,
+                tf_state_callback: Callable,
+                encode_sample: Callable,
+                encode_tel: Callable,
+                episode_end_callback: Callable | None = None,
+                stop_flag: Event = Event(),
+                sample_gauge: Synchronized | None = None):
+    """DQN client main function.
+
+    Data processing, sample encodings etc. are configurable to customize the client for different
+    environments. Messages to the redis client have to be encoded since redis messages can't use
+    arbitrary data types.
+
+    Args:
+        config: The training configuration.
+        tf_state_callback: Callback to transform environment observations into agent inputs.
+        encode_sample: Function to encode sample messages for redis.
+        encode_tel: Function to encode the telemetry information for redis.
+        episode_end_callback: Callback for functions that should be called at the end of an episode.
+        stop_flag: Event flag to stop the training.
+        sample_gauge: Optional parameter that allows external processes to measure the current
+            sample rate.
+    """
     if config.enable_interrupt:
         import keyboard  # Keyboard should not be imported in Docker during testing
 
@@ -43,10 +84,10 @@ def _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_t
         logger.info("Press 'Enter' to end training")
 
     # DQNConnector enables non-blocking server interaction
-    con = DQNConnector(config, encode_sample, encode_tel)
+    con = DQNConnector(config)
     env_kwargs = namespace2dict(config.env_kwargs) if config.use_env_kwargs else {}
     env = gym.make(config.env, **env_kwargs)
-    noise = _get_noise(config)
+    noise = get_noise_class(config.dqn.noise)(**namespace2dict(config.dqn.noise_kwargs))
     logger.info("Client node running")
     try:
         episode_id = 0
@@ -55,7 +96,7 @@ def _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_t
         rewards = deque(maxlen=config.dqn.multistep)
         infos = deque(maxlen=config.dqn.multistep)
         while (not stop_flag.is_set() and episode_id != config.max_episodes and  # noqa: W504
-                not con.shutdown.is_set()):
+               not con.shutdown.is_set()):
             episode_id += 1
             state = tf_state_callback(env.reset())
             if config.dqn.action_masking:
@@ -97,8 +138,9 @@ def _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_t
                 total_reward += reward
                 if len(rewards) == config.dqn.multistep:
                     sum_r = sum([rewards[i] * config.gamma**i for i in range(config.dqn.multistep)])
-                    sample = [states[0], actions[0], sum_r, states[-1], done, infos[-1]]
-                    con.push_msg("sample", model_id, sample)
+                    con.push_sample(
+                        model_id,
+                        encode_sample(states[0], actions[0], sum_r, states[-1], done, infos[-1]))
                     if sample_gauge:
                         current_gauge_cnt += 1
                         tnow = time.time()
@@ -116,9 +158,11 @@ def _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_t
                     time.sleep(config.step_delay)
             if not stop_flag.is_set():
                 for i in range(1, len(rewards)):
-                    sum_r = sum([rewards[i + j] * config.gamma**j for j in range(config.dqn.multistep - i)])  # noqa: E501
-                    sample = [states[i], actions[i], sum_r, states[-1], done, infos[-1]]
-                    con.push_msg("sample", model_id, sample)
+                    sum_r = sum(
+                        [rewards[i + j] * config.gamma**j for j in range(config.dqn.multistep - i)])
+                    con.push_sample(
+                        model_id,
+                        encode_sample(states[i], actions[i], sum_r, states[-1], done, infos[-1]))
                     if sample_gauge:
                         current_gauge_cnt += 1
                         tnow = time.time()
@@ -128,20 +172,10 @@ def _dqn_client(config, tf_state_callback, tel_callback, encode_sample, encode_t
                             current_gauge_cnt = 0
                             current_gauge_start_time = tnow
                 noise.reset()
-                con.push_msg("telemetry", *tel_callback(total_reward, steps, state, eps))
+                con.push_telemetry(encode_tel(total_reward, steps, state, eps))
             if episode_end_callback is not None:
                 episode_end_callback()
         logger.info("Exiting training")
     finally:
         env.close()
         con.close()
-
-
-def _get_noise(config):
-    if config.dqn.noise == "UniformDiscreteNoise":
-        noise_cls = UniformDiscreteNoise
-    elif config.dqn.noise == "MaskedDiscreteNoise":
-        noise_cls = MaskedDiscreteNoise
-    else:
-        raise InvalidConfigError(f"Noise type {config.dqn.noise} not supported.")
-    return noise_cls(**namespace2dict(config.dqn.noise_kwargs))

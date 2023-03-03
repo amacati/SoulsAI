@@ -1,14 +1,26 @@
+"""The PPOTrainingNode implements the classic synchronous PPO algorithm with multiple workers.
+
+It continually receives samples from the clients, trains the model, and broadcasts the new network
+to all workers. The workers wait for the new model, and then start to sample the next batch of
+trajectories. The algorithm requires all workers to stay connected and is therefore not resilient to
+network errors etc.
+
+In our PPO implementation, we use General Advantage Estimation with the design decisions recommended
+in https://arxiv.org/pdf/2006.05990.pdf.
+"""
 import logging
 from uuid import uuid4
 from pathlib import Path
 import time
+from typing import List, Callable
+from types import SimpleNamespace
 
 import numpy as np
 import torch
 
 from soulsai.core.agent import PPOAgent
 from soulsai.core.replay_buffer import TrajectoryBuffer
-from soulsai.distributed.server.train_node.training_node import TrainingNode
+from soulsai.distributed.server.training_node.training_node import TrainingNode
 from soulsai.utils import namespace2dict
 from soulsai.exception import ServerDiscoveryTimeout
 
@@ -16,16 +28,22 @@ logger = logging.getLogger(__name__)
 
 
 class PPOTrainingNode(TrainingNode):
+    """PPO training node for distributed, synchronized proximal policy optimization."""
 
-    def __init__(self, config, decode_sample):
+    def __init__(self, config: SimpleNamespace, decode_sample: Callable):
+        """Set up the Redis connection, initialize the agent and publish the training config.
+
+        Args:
+            config: Training configuration.
+            decode_sample: Training sample decoding function.
+        """
         logger.info("PPO training node startup")
         super().__init__(config, decode_sample)
         self.agent = PPOAgent(self.config.ppo.actor_net_type,
                               namespace2dict(self.config.ppo.actor_net_kwargs),
                               self.config.ppo.critic_net_type,
                               namespace2dict(self.config.ppo.critic_net_kwargs),
-                              self.config.ppo.actor_lr,
-                              self.config.ppo.critic_lr)
+                              self.config.ppo.actor_lr, self.config.ppo.critic_lr)
         self.agent.model_id = str(uuid4())
         if self.config.load_checkpoint:
             self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
@@ -42,7 +60,7 @@ class PPOTrainingNode(TrainingNode):
         self._discover_clients()
         logger.info("Discovery complete, starting training")
 
-    def _validate_sample(self, sample, monitoring):
+    def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
         valid = sample["model_id"] == self.agent.model_id
         if valid:
             logger.debug(f"Received sample {sample['client_id']}:{sample['step_id']}")
@@ -52,10 +70,10 @@ class PPOTrainingNode(TrainingNode):
             self.prom_num_samples.inc() if valid else self.prom_num_samples_reject.inc()
         return valid
 
-    def _check_update_cond(self):
+    def _check_update_cond(self) -> bool:
         return self.buffer.buffer_complete
 
-    def _update_model(self, monitoring):
+    def _update_model(self, monitoring: bool):
         tstart = time.time()
         if monitoring:
             with self.prom_update_time.time():
@@ -76,7 +94,7 @@ class PPOTrainingNode(TrainingNode):
         self.buffer.clear()
         self._model_iterations += 1
 
-    def _check_checkpoint_cond(self):
+    def _check_checkpoint_cond(self) -> bool:
         return self._model_iterations % self.config.checkpoint_epochs == 0
 
     def _ppo_step(self):
@@ -95,10 +113,9 @@ class PPOTrainingNode(TrainingNode):
                 ratio = new_prob / self.buffer.probs[mb_idx]
                 # Compute policy (actor) loss
                 mb_advantages = self.buffer.advantages[mb_idx]
-                policy_loss_1 = - mb_advantages * ratio
-                policy_loss_2 = - mb_advantages * torch.clamp(ratio,
-                                                              1 - self.config.ppo.clip_range,
-                                                              1 + self.config.ppo.clip_range)
+                policy_loss_1 = -mb_advantages * ratio
+                policy_loss_2 = -mb_advantages * torch.clamp(ratio, 1 - self.config.ppo.clip_range,
+                                                             1 + self.config.ppo.clip_range)
                 policy_loss = torch.max(policy_loss_1, policy_loss_2).mean()
                 # Compute value (critic) loss
                 v_estimate = self.agent.get_values(self.buffer.states[mb_idx])
@@ -118,7 +135,7 @@ class PPOTrainingNode(TrainingNode):
                 with self._lock:
                     self.agent.actor_opt.step()
 
-    def _discover_clients(self, timeout=60):
+    def _discover_clients(self, timeout: float = 60.):
         discovery_sub = self.red.pubsub(ignore_subscribe_messages=True)
         discovery_sub.subscribe("ppo_discovery")
         n_registered = 0
@@ -136,15 +153,25 @@ class PPOTrainingNode(TrainingNode):
                 return
         raise ServerDiscoveryTimeout("Discovery phase failed to register the required clients")
 
-    def checkpoint(self, path):
+    def checkpoint(self, path: Path):
+        """Create a training checkpoint.
+
+        Args:
+            path: Path to the save folder.
+        """
         path.mkdir(exist_ok=True)
         with self._lock:
             self.agent.save(path)
         logger.info("Model checkpoint saved")
 
-    def load_checkpoint(self, path):
+    def load_checkpoint(self, path: Path):
+        """Load a training checkpoint from the folder.
+
+        Args:
+            path: Path to the save folder.
+        """
         with self._lock:
             self.agent.load(path)
 
-    def _required_client_ids(self):
+    def _required_client_ids(self) -> List[int]:
         return list(range(self.config.ppo.n_clients))

@@ -5,7 +5,7 @@ from typing import Tuple
 
 import numpy as np
 
-from soulsai.distributed.server.train_node.dqn import DQNTrainingNode
+from soulsai.distributed.server.training_node.dqn import DQNTrainingNode
 from soulsai.utils import load_config
 
 logger = logging.getLogger(__name__)
