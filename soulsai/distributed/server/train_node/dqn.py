@@ -49,7 +49,7 @@ class DQNTrainingNode(TrainingNode):
                                               self.config.dqn.eps_steps, zero_ending=True)
 
         if self.config.load_checkpoint:
-            self.load_checkpoint(Path(__file__).parents[4] / "checkpoint")
+            self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
             logger.info("Checkpoint loading complete")
 
         self.agent.model_id = str(uuid4())

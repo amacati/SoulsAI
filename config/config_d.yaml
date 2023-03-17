@@ -13,7 +13,7 @@ n_actions: 20
 gamma: 0.99
 use_env_kwargs: True
 env_kwargs:
-  use_info: True
+  game_speed: 1.
 max_env_steps: null
 
 # Algorithm choice

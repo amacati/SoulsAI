@@ -1,4 +1,4 @@
-FROM python:3.9
+FROM python:3.10
 WORKDIR /home
 # Cache requirements install
 COPY soulsai/distributed/server/telemetry_node/requirements.txt /home/requirements.txt
