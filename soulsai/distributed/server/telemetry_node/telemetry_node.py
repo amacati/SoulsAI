@@ -70,6 +70,7 @@ class TelemetryNode:
 
         if self.config.load_checkpoint:
             self._load_stats()
+            self.update_stats_and_dashboard()
         logger.info("Telemetry node startup complete")
 
     def run(self):
@@ -121,7 +122,8 @@ class TelemetryNode:
             with open(path, "r") as f:
                 stats = json.load(f)
             for stat in stats:
-                setattr(self, stat, stats.get(stat))
+                getattr(self, stat).extend(stats.get(stat))
+            self._n_env_steps = self.samples[-1]
         else:
             logger.warning("Loading from checkpoint, but no previous telemetry found.")
 
