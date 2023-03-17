@@ -11,9 +11,9 @@ services:
     networks:
       - train_server_net
 
-  train_node:
-    build: 
-      dockerfile: ./soulsai/distributed/server/train_node/Dockerfile
+  training_node:
+    build:
+      dockerfile: ./soulsai/distributed/server/training_node/Dockerfile
       context: ./
     # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
     volumes:
@@ -28,7 +28,7 @@ services:
       - train_server_net
 
   telemetry_node:
-    build: 
+    build:
       dockerfile: ./soulsai/distributed/server/telemetry_node/Dockerfile
       context: ./
     # Manually add secrets as volumes during runtime

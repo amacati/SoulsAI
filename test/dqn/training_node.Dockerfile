@@ -9,4 +9,4 @@ COPY . /home/SoulsAI/
 RUN find /home/SoulsAI -type f -name '*.secret' -delete
 WORKDIR /home/SoulsAI
 RUN python setup.py develop
-ENTRYPOINT ["python", "test/ppo/launch_train_node.py"]
+ENTRYPOINT ["python", "test/dqn/launch_training_node.py"]

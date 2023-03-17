@@ -50,7 +50,7 @@ def shutdown_nodes(dock: DockerClient):
     if dock.containers.list():
         if dock.containers.list(filters={"name": "redis"}):
             publish_shutdown_cmd()
-            while dock.containers.list(filters={"name": ["telemetry_node", "train_node"]}):
+            while dock.containers.list(filters={"name": ["telemetry_node", "training_node"]}):
                 time.sleep(1)
         while dock.containers.list():
             for container in dock.containers.list():
@@ -219,7 +219,10 @@ if __name__ == "__main__":
     parser.add_argument('algorithm', type=str, help='Training algorithm', choices=["ppo", "dqn"])
     parser.add_argument('nruns', type=int, help='Number of training runs')
     parser.add_argument('nclients', type=int, default=1, help='Number of client nodes')
-    parser.add_argument('--profile', type=str, default="", help='Docker compose profile',
+    parser.add_argument('--profile',
+                        type=str,
+                        default="",
+                        help='Docker compose profile',
                         required=False)
     args = parser.parse_args()
     main(args)

@@ -4,6 +4,7 @@ By providing a common interface for all noise samplers, algorithms can sample ex
 independently of the noise type chosen.
 """
 from abc import ABC, abstractmethod
+import sys
 
 import numpy as np
 
@@ -78,3 +79,18 @@ class MaskedDiscreteNoise(Noise):
 
     def reset(self):
         """Reset the noise process in case of stateful noise."""
+
+
+def get_noise_class(noise_type: str) -> Noise:
+    """Get the noise class from the noise name.
+
+    Note:
+        This function returns a type rather than an instance!
+
+    Args:
+        noise_type: The noise type name.
+
+    Returns:
+        The noise type.
+    """
+    return getattr(sys.modules[__name__], noise_type)
