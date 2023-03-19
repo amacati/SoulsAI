@@ -11,9 +11,9 @@ services:
     networks:
       - server_net
 
-  train_node:
-    build: 
-      dockerfile: test/dqn/train_node.Dockerfile
+  training_node:
+    build:
+      dockerfile: test/dqn/training_node.Dockerfile
       context: ../../.
     # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
     volumes:
@@ -28,13 +28,13 @@ services:
       - server_net
 
   telemetry_node:
-    build: 
+    build:
       dockerfile: test/common/telemetry_node.Dockerfile
       context: ../../.
     # Manually add secrets as volumes during runtime
     volumes:
       - ../../config/:/home/SoulsAI/config/
-      - ../../soulsai/:/home/SoulsAI/soulsai/  # Reflect dev changes in docker containers without rebuilding
+      - ../../soulsai/:/home/SoulsAI/soulsai/ # Reflect dev changes in docker containers without rebuilding
       - ../../test/:/home/SoulsAI/test/
       - ../../saves/:/home/SoulsAI/saves/
     depends_on:
@@ -53,7 +53,7 @@ services:
       - ../../test/:/home/SoulsAI/test/
     depends_on:
       - redis
-      - train_node
+      - training_node
     user: "1000"
     networks:
       - server_net
