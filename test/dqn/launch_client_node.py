@@ -57,6 +57,6 @@ if __name__ == "__main__":
     root_dir = Path(__file__).parents[1]
     config = load_config(root_dir / "common" / "config_d.yaml", root_dir / "dqn" / "config.yaml")
     dqn_client(config,
-               tf_state_callback=lambda x: x,
+               tf_obs_callback=lambda x: x,
                encode_sample=encode_sample,
                encode_tel=encode_tel)

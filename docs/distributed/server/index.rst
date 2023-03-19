@@ -12,7 +12,7 @@ The server module contains nodes for training the agents, live telemetry, and a 
 The whole stack is dockerized to maximize the isolation of nodes and to make it easier to manage the
 setup.
 
-Note:
+.. note::
     It is entirely possible to train on a single machine by configuring the server to run in WSL2.
     To do so, simply launch the server containers and set the required addresses in the
     configuration files to ``localhost``.
@@ -26,7 +26,7 @@ messages and the data base. The training node actually trains the agents, and th
 aggregates the results to visualize the current training progress. These components are essential
 for training
 
-Note:
+.. note::
     It is highly recommended to launch the server from its docker-compose file at the root of the
     repository! This ensures the proper mapping of volumes, networks, ports etc.
 
@@ -96,6 +96,8 @@ exposed. You can create the network by running
 
     $ docker network create train_server_net
 
+
+
 Live monitoring
 ~~~~~~~~~~~~~~~
 Since training can take quite some time and the hacks used in SoulsGym aren't 100% stable, we
@@ -109,18 +111,43 @@ performance.
 
 Grafana
 ^^^^^^^
+We use Grafana as a web interface for live monitoring of the training process. To plot the agent's
+performance, we use the plotly integration and the custom Grafana connector from the telemetry node.
 
 Prometheus
 ^^^^^^^^^^
+Both the training node and the telemetry node are surveilled by Prometheus. In addition, it tracks
+the number of active clients, the model update times, and the total sample count. This information
+can then conveniently be displayed in Grafana.
 
 Docker networks
 ^^^^^^^^^^^^^^^
+The monitoring stack runs in its own docker compose environment. To reach the training and telemetry
+server for live monitoring, the stack requires a second docker network, *server*.
 
 Infrastructure
 ~~~~~~~~~~~~~~
+If the server stack runs on an external machine, a few basic infrastructure functionalities are
+required to make it reachable by its domain name, and to add SSL encryption. We use NGINX as reverse
+proxy and certbot to renew the SSL certificates. Both services run in the reverse_proxy docker
+compose environment.
+
+A detailed tutorial on how to configure NGINX and certbot can be found
+`here <https://mindsers.blog/post/https-using-nginx-certbot-docker/>`_.
+
 
 Reverse Proxy
 ^^^^^^^^^^^^^
+The NGINX container requires three volumes to be mapped correctly:
+
+    * *nginx/conf*
+    * *certbot/www*
+    * *certbot/conf*
+
+These paths have to point to the locations of the NGINX config folder, the certbot challenge files,
+and the */etc/letsencrypt* folder, respectively.
 
 Certbot
 ^^^^^^^
+Certbot makes sure the SSL certificates are continuously updated. For more information about
+Certbot, please have a look at `the official website <_https://certbot.eff.org/>`_.

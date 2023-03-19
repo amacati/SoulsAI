@@ -1,7 +1,7 @@
 FROM python:3.10
 WORKDIR /home
 # Cache requirements install
-COPY test/common/requirements.txt /home/requirements.txt
+COPY soulsai/distributed/server/training_node/requirements.txt /home/requirements.txt
 RUN pip install -r /home/requirements.txt
 RUN rm /home/requirements.txt
 COPY . /home/SoulsAI/

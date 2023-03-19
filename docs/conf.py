@@ -33,9 +33,7 @@ extensions = ['sphinx.ext.autodoc', 'sphinx.ext.napoleon', 'sphinx.ext.todo']
 autodoc_member_order = 'bysource'
 if on_rtd:
     # Mock packages for RTD
-    autodoc_mock_imports = [
-        "gym", "torch", "soulsgym", "redis", "matplotlib"
-    ]
+    autodoc_mock_imports = ["torch", "soulsgym", "redis", "matplotlib"]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

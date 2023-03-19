@@ -129,13 +129,13 @@ if __name__ == "__main__":
     tf_transformer = GameStateTransformer()
     if config.algorithm.lower() == "dqn":
         dqn_client(config,
-                   tf_state_callback=tf_transformer.transform,
+                   tf_obs_callback=tf_transformer.transform,
                    encode_sample=dqn_encode_sample,
                    encode_tel=dqn_encode_tel,
                    episode_end_callback=tf_transformer.reset)
     elif config.algorithm.lower() == "ppo":
         ppo_client(config,
-                   tf_state_callback=tf_transformer.transform,
+                   tf_obs_callback=tf_transformer.transform,
                    encode_sample=ppo_encode_sample,
                    encode_tel=ppo_encode_tel,
                    episode_end_callback=tf_transformer.reset)
