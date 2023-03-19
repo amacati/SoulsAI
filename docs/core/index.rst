@@ -1,9 +1,10 @@
 soulsai.core
 ============
 
-.. automodule:: soulsai.core
+TODO: complete
 
 .. toctree::
+    :hidden:
 
     agent
     networks
