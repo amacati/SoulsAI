@@ -2,4 +2,3 @@ sphinx-book-theme==0.3.2
 numpy==1.22.3
 flask==2.2.3
 prometheus_client==0.16.0
-gymnasium==0.27.1
