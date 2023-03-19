@@ -15,13 +15,11 @@ The video below shows a reinforcement learning agent beating Iudex Gundyr after 
 approximately 5 million environment samples. The game runs at 3x speed to accelerate training. The
 agent is trained using duelling advantage networks with multi-step returns.
 
-.. image:: img/iudex_speedup_1.gif
-   :alt: Reinforcement learning agent fights against Iudex Gundyr in Dark Souls III.
-   :align: center
-
 .. raw:: html
 
-    <div style="margin-bottom: 2em;"></div>
+   <div style="position: relative; padding-bottom: 2em; height: 0; overflow: hidden; max-width: 100%; height: auto;">
+        <iframe width="720" height="405" src="https://www.youtube.com/embed/bfiS6bzOLiE" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+    </div>
 
 .. toctree::
    :hidden:
