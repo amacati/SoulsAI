@@ -10,7 +10,7 @@ from multiprocessing import Event
 from types import SimpleNamespace
 from typing import Callable
 
-import gym
+import gymnasium as gym
 
 from soulsai.distributed.client.connector import PPOConnector
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def ppo_client(config: SimpleNamespace,
-               tf_state_callback: Callable,
+               tf_obs_callback: Callable,
                encode_sample: Callable,
                encode_tel: Callable,
                episode_end_callback: Callable | None = None):
@@ -30,7 +30,7 @@ def ppo_client(config: SimpleNamespace,
 
     Args:
         config: The training configuration.
-        tf_state_callback: Callback to transform environment observations into agent inputs.
+        tf_obs_callback: Callback to transform environment observations into agent inputs.
         encode_sample: Function to encode sample messages for redis.
         encode_tel: Function to encode the telemetry information for redis.
         episode_end_callback: Callback for functions that should be called at the end of an episode.
@@ -59,30 +59,31 @@ def ppo_client(config: SimpleNamespace,
         ppo_steps = 0
         while not stop_flag.is_set() and episode_id != config.max_episodes:
             episode_id += 1
-            state = tf_state_callback(env.reset())
-            done = False
+            obs = tf_obs_callback(env.reset()[0])
+            terminated = False
             total_reward = 0.
             steps = 1
-            while not done and not stop_flag.is_set():
-                action, prob = con.agent.get_action(state)
-                next_state, reward, next_done, _ = env.step(action)
-                next_state = tf_state_callback(next_state)
+            while not terminated and not stop_flag.is_set():
+                action, prob = con.agent.get_action(obs)
+                next_obs, reward, next_terminated, truncated, _ = env.step(action)
+                next_terminated = next_terminated or truncated
+                next_obs = tf_obs_callback(next_obs)
                 total_reward += reward
                 con.push_sample(con.agent.model_id, ppo_steps,
-                                encode_sample(state, action, prob, reward, done))
+                                encode_sample(obs, action, prob, reward, terminated))
                 logger.debug(f"Pushed sample {ppo_steps} for model {con.agent.model_id}")
-                state = next_state
-                done = next_done
+                obs = next_obs
+                terminated = next_terminated
                 steps += 1
                 ppo_steps += 1
                 if config.step_delay:
                     time.sleep(config.step_delay)
                 if ppo_steps == config.ppo.n_steps:
                     con.push_sample(con.agent.model_id, ppo_steps,
-                                    encode_sample(next_state, 0, [0], 0, done))
+                                    encode_sample(next_obs, 0, [0], 0, terminated))
                     ppo_steps = 0
                     con.sync(config.ppo.client_sync_timeout)  # Wait for the new model
-            con.push_telemetry(encode_tel(total_reward, steps, state))
+            con.push_telemetry(encode_tel(total_reward, steps, obs))
             if episode_end_callback is not None:
                 episode_end_callback()
             if con.shutdown.is_set():

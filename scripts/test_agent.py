@@ -7,7 +7,7 @@ import json
 import logging
 
 import numpy as np
-import gym
+import gymnasium as gym
 import soulsgym  # noqa: F401
 import torch
 
@@ -17,7 +17,6 @@ from soulsai.core.normalizer import Normalizer
 from soulsai.data.transformation import GameStateTransformer
 
 logger = logging.getLogger(__name__)
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
@@ -29,8 +28,7 @@ if __name__ == "__main__":
     with open(root_path / "config.json", "r") as f:
         config = dict2namespace(json.load(f))
     # Initialize agent, normalizers and environment
-    agent = DQNClientAgent(config.dqn.network_type,
-                           namespace2dict(config.dqn.network_kwargs))
+    agent = DQNClientAgent(config.dqn.network_type, namespace2dict(config.dqn.network_kwargs))
     agent.load(root_path)
     norm_kwargs = {}
     if config.dqn.normalizer_kwargs is not None:
