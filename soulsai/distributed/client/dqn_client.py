@@ -124,11 +124,11 @@ def _dqn_client(config: SimpleNamespace,
                         else:
                             action = noise.sample()
                     else:
-                        state_n = con.normalizer.normalize(obs) if config.dqn.normalize else obs
+                        obs_n = con.normalizer.normalize(obs) if config.dqn.normalize else obs
                         if config.dqn.action_masking:
-                            action = con.agent(state_n, action_mask)
+                            action = con.agent(obs_n, action_mask)
                         else:
-                            action = con.agent(state_n)
+                            action = con.agent(obs_n)
                 next_obs, reward, terminated, truncated, info = env.step(action)
                 terminated = terminated or truncated  # Envs that run into a timeout also terminate
                 next_obs = tf_obs_callback(next_obs)
@@ -145,7 +145,7 @@ def _dqn_client(config: SimpleNamespace,
                     if sample_gauge:
                         current_gauge_cnt += 1
                         tnow = time.time()
-                        if tnow - current_gauge_start_time > 10:
+                        if tnow - current_gauge_start_time > 60:
                             td = tnow - current_gauge_start_time
                             sample_gauge.value = int(current_gauge_cnt * 60 / td)
                             current_gauge_cnt = 0
@@ -167,7 +167,7 @@ def _dqn_client(config: SimpleNamespace,
                     if sample_gauge:
                         current_gauge_cnt += 1
                         tnow = time.time()
-                        if tnow - current_gauge_start_time > 10:
+                        if tnow - current_gauge_start_time > 60:
                             td = tnow - current_gauge_start_time
                             sample_gauge.value = int(current_gauge_cnt * 60 / td)
                             current_gauge_cnt = 0

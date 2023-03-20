@@ -79,8 +79,8 @@ def ppo_client(config: SimpleNamespace,
                 if config.step_delay:
                     time.sleep(config.step_delay)
                 if ppo_steps == config.ppo.n_steps:
-                    con.push_sample(con.agent.model_id, ppo_steps,
-                                    encode_sample(next_obs, 0, [0], 0, terminated))
+                    sample = encode_sample(next_obs, 0, [0], 0, terminated)
+                    con.push_sample(con.agent.model_id, ppo_steps, sample)
                     ppo_steps = 0
                     con.sync(config.ppo.client_sync_timeout)  # Wait for the new model
             con.push_telemetry(encode_tel(total_reward, steps, obs))

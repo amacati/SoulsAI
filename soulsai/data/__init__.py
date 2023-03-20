@@ -1,6 +1,6 @@
 """The data module provides the means to transform environment observations into numeric arrays.
 
-The :class:`.GameStateTransformer` transforms ``GameState`` objects into numeric arrays. In
+The :class:`.GameStateTransformer` transforms ``SoulsGym`` observations into numeric arrays. In
 addition, it allows to bin common animations into a single categorical encoding and combines the
 animation duration.
 

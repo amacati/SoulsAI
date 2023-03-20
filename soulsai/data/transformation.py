@@ -1,17 +1,16 @@
-"""The transformation module allows the transformation of ``GameState`` s from ``SoulsGym`` envs."""
+"""The transformation module allows the transformation of ``SoulsGym`` envs observations."""
 from __future__ import annotations
 
-from typing import List, Iterable, Tuple
+from typing import List, Iterable, Tuple, Dict
 
 import numpy as np
-from soulsgym.core.game_state import GameState
 from soulsgym.core.static import player_animations, boss_animations
 
 from soulsai.data.one_hot_encoder import OneHotEncoder
 
 
 class GameStateTransformer:
-    """Transform ``GameState`` s into a numerical representation.
+    """Transform ``SoulsGym`` observations into a numerical representation.
 
     The transformer allows the consistent binning of animations and encodes pose data into a more
     suitable representation.
@@ -21,77 +20,97 @@ class GameStateTransformer:
     space_coords_low = np.array([110., 540., -73.])
     space_coords_high = np.array([190., 640., -55.])
     space_coords_diff = space_coords_high - space_coords_low
-    boss_move_animations = ["Walk", "Idle", "Turn", "Blend", "Falling", "Land"]
 
-    def __init__(self):
-        """Initialize the one-hot encoders and set up attributes for the stateful transformation."""
+    def __init__(self, boss_id: str = "iudex"):
+        """Initialize the one-hot encoders and set up attributes for the stateful transformation.
+
+        Args:
+            boss_id: Boss ID.
+        """
+        self.boss_id = boss_id
+        # Get all movement animations with their ID
+        bma = [a for a in boss_animations[self.boss_id]["all"].values() if a["type"] == "movement"]
+        self.boss_move_animations = [a["ID"] for a in bma]
         self.player_animation_encoder = OneHotEncoder(allow_unknown=True)
-        filtered_player_animations = unique(map(self.filter_player_animation,
-                                                player_animations["standard"].keys()))
+        p_animations = [a["ID"] for a in player_animations.values()]
+        filtered_player_animations = unique(map(self.filter_player_animation, p_animations))
         self.player_animation_encoder.fit(filtered_player_animations)
         self.boss_animation_encoder = OneHotEncoder(allow_unknown=True)
-        filtered_boss_animations = unique(map(lambda x: self.filter_boss_animation(x)[0],
-                                              boss_animations["iudex"]["all"]))
+        b_animations = [a["ID"] for a in boss_animations["iudex"]["all"].values()]
+        filtered_boss_animations = unique(
+            map(lambda x: self.filter_boss_animation(x)[0], b_animations))
         self.boss_animation_encoder.fit(filtered_boss_animations)
 
         self._current_time = 0.
         self._acuumulated_time = 0.
         self._last_animation = None
 
-    def transform(self, gamestate: GameState) -> np.ndarray:
-        """Transform a gamestate with a stateful conversion.
+    def transform(self, obs: Dict) -> np.ndarray:
+        """Transform a game observation with a stateful conversion.
 
         Warning:
-            This function is assumed to be called with successive ``gamestate`` s. If the next
-            ``gamestate`` is not part of the same trajectory, :meth:`.GameStateTransformer.reset`
+            This function is assumed to be called with successive ``SoulsGym`` observations. If the
+            next observation is not part of the same trajectory, :meth:`.GameStateTransformer.reset`
             has to be called.
 
         Args:
-            gamestate: The input gamestate.
+            obs: The input observation.
 
         Returns:
-            A transformed gamestate as a numerical array.
+            A transformed observation as a numerical array.
         """
-        player_animation = self.filter_player_animation(gamestate.player_animation)
+        obs = self._unpack_obs(obs)
+        player_animation = self.filter_player_animation(obs["player_animation"])
         player_animation_onehot = self.player_animation_encoder(player_animation)
-        boss_animation_onehot, boss_animation_duration = self.boss_animation_transform(gamestate)
-        animation_times = [gamestate.player_animation_duration, boss_animation_duration]
-        return np.concatenate((self._common_transforms(gamestate), animation_times,
-                               player_animation_onehot, boss_animation_onehot), dtype=np.float32)
+        boss_animation_onehot, boss_animation_duration = self.boss_animation_transform(obs)
+        animation_times = [obs["player_animation_duration"], boss_animation_duration]
+        return np.concatenate((self._common_transforms(obs), animation_times,
+                               player_animation_onehot, boss_animation_onehot),
+                              dtype=np.float32)
 
-    def stateless_transform(self, gamestate: GameState) -> np.ndarray:
-        """Transform a ``gamestate`` with a stateless conversion.
+    def stateless_transform(self, obs: Dict) -> np.ndarray:
+        """Transform a game observation with a stateless conversion.
 
         Boss and player animations are filtered and binned, but not accumulated correctly.
 
         Args:
-            gamestate: The input gamestate.
+            obs: The input observation.
 
         Returns:
-            A transformed gamestate as a numerical array.
+            A transformed observation as a numerical array.
         """
-        animation_times = [gamestate.player_animation_duration, gamestate.boss_animation_duration]
-        player_animation = self.filter_player_animation(gamestate.player_animation)
+        obs = self._unpack_obs(obs)
+        animation_times = np.concatenate(
+            (obs["player_animation_duration"], obs["boss_animation_duration"]))
+        player_animation = self.filter_player_animation(obs["player_animation"])
         player_animation_onehot = self.player_animation_encoder(player_animation)
-        boss_animation = self.filter_boss_animation(gamestate.boss_animation)[0]
+        boss_animation = self.filter_boss_animation(obs["boss_animation"])[0]
         boss_animation_onehot = self.boss_animation_encoder(boss_animation)
-        return np.concatenate((self._common_transforms(gamestate), animation_times,
-                               player_animation_onehot, boss_animation_onehot), dtype=np.float32)
-
-    def _common_transforms(self, gamestate: GameState) -> np.ndarray:
-        player_hp = gamestate.player_hp / gamestate.player_max_hp
-        player_sp = gamestate.player_sp / gamestate.player_max_sp
-        boss_hp = gamestate.boss_hp / gamestate.boss_max_hp
-        player_pos = (gamestate.player_pose[:3] - self.space_coords_low) / self.space_coords_diff
-        player_rot = rad2vec(gamestate.player_pose[3])
-        boss_pos = (gamestate.boss_pose[:3] - self.space_coords_low) / self.space_coords_diff
-        boss_rot = rad2vec(gamestate.boss_pose[3])
-        camera_angle = np.arctan2(gamestate.camera_pose[3], gamestate.camera_pose[4])
-        camera_rot = rad2vec(camera_angle)
-        boss_distance = np.linalg.norm(gamestate.boss_pose[:2] - gamestate.player_pose[:2]) / 50  # noqa: E501 Normalization guess
-        return np.concatenate(([player_hp, player_sp, boss_hp, boss_distance],
-                               player_pos, player_rot, boss_pos, boss_rot, camera_rot,),
+        return np.concatenate((self._common_transforms(obs), animation_times,
+                               player_animation_onehot, boss_animation_onehot),
                               dtype=np.float32)
+
+    def _common_transforms(self, obs: Dict) -> np.ndarray:
+        player_hp = obs["player_hp"] / obs["player_max_hp"]
+        player_sp = obs["player_sp"] / obs["player_max_sp"]
+        boss_hp = obs["boss_hp"] / obs["boss_max_hp"]
+        player_pos = (obs["player_pose"][:3] - self.space_coords_low) / self.space_coords_diff
+        player_rot = rad2vec(obs["player_pose"][3])
+        boss_pos = (obs["boss_pose"][:3] - self.space_coords_low) / self.space_coords_diff
+        boss_rot = rad2vec(obs["boss_pose"][3])
+        camera_angle = np.arctan2(obs["camera_pose"][3], obs["camera_pose"][4])
+        camera_rot = rad2vec(camera_angle)
+        # 50 is a normalization guess
+        boss_distance = np.linalg.norm(obs["boss_pose"][:2] - obs["player_pose"][:2]) / 50
+        args = (
+            [player_hp, player_sp, boss_hp, boss_distance],
+            player_pos,
+            player_rot,
+            boss_pos,
+            boss_rot,
+            camera_rot,
+        )
+        return np.concatenate(args, dtype=np.float32)
 
     def reset(self):
         """Reset the stateful attributed of the transformer.
@@ -102,8 +121,8 @@ class GameStateTransformer:
         self._acuumulated_time = 0.
         self._last_animation = None
 
-    def boss_animation_transform(self, gamestate: GameState) -> Tuple[np.ndarray, float]:
-        """Transform the ``gamestate``'s boss animation into a one-hot encoding and a duration.
+    def boss_animation_transform(self, obs: Dict) -> Tuple[np.ndarray, float]:
+        """Transform the observation's boss animation into a one-hot encoding and a duration.
 
         Since we are binning the boss animations, we have to sum the durations of binned animations.
         This requires the transformer to be stateful to keep track of previous animations.
@@ -113,66 +132,91 @@ class GameStateTransformer:
             :meth:`.GameStateTransformer.reset` in between.
 
         Args:
-            gamestate: The input gamestate.
+            obs: The input observation.
 
         Returns:
             A tuple of the current animation as one-hot encoding and the animation duration.
         """
-        boss_animation, is_filtered = self.filter_boss_animation(gamestate.boss_animation)
+        boss_animation, is_filtered = self.filter_boss_animation(obs["boss_animation"])
         if not is_filtered:
             self._acuumulated_time = 0.
             self._current_time = 0.
             self._last_animation = boss_animation
-            return self.boss_animation_encoder(boss_animation), gamestate.boss_animation_duration
-        if gamestate.boss_animation != self._last_animation:
-            self._last_animation = gamestate.boss_animation
-            # The animation has changed. GameState.boss_animation_duration now contains the duration
+            return self.boss_animation_encoder(boss_animation), obs["boss_animation_duration"]
+        if obs["boss_animation"] != self._last_animation:
+            self._last_animation = obs["boss_animation"]
+            # The animation has changed. obs["boss_animation_duration"] now contains the duration
             # of the new animation. We have to calculate the final duration of the previous
             # animation by adding the time from the step at t-1 until the animation first changed to
             # the accumulated time.
-            remaining_duration = self.SOULSGYM_STEP_TIME - gamestate.boss_animation_duration
+            remaining_duration = self.SOULSGYM_STEP_TIME - obs["boss_animation_duration"]
             self._acuumulated_time = self._current_time + remaining_duration
-        boss_animation_time = gamestate.boss_animation_duration + self._acuumulated_time
+        boss_animation_time = obs["boss_animation_duration"] + self._acuumulated_time
         self._current_time = boss_animation_time
         return self.boss_animation_encoder(boss_animation), boss_animation_time
 
     @staticmethod
-    def filter_player_animation(animation: str) -> str:
+    def filter_player_animation(animation: int) -> int:
         """Bin common player animations.
 
+        Player animations that essentially constitute the same state are binned into a single
+        category to reduce the state space. The new labels are in the range of 1xx to avoid
+        collisions with other animation labels.
+
         Args:
-            animation: Player animation.
+            animation: Player animation ID.
 
         Returns:
             The binned player animation.
         """
-        if "Add" in animation:
-            return "Add"
-        if "Run" in animation or animation in ["DashStop", "Idle", "Move", "None"]:
-            return "Move"
-        if "Quick" in animation:
-            return "Quick"
-        if animation in ["LandLow", "Land"]:
-            return "Land"
-        if animation in ["LandFaceDown", "LandFaceUp"]:
-            return "LandF"
-        if "Fall" in animation:
-            return "Fall"
+        if animation in [0, 1, 2, 3, 4]:  # <Add-x> animations
+            return 100
+        if animation in [17, 18, 19, 23, 24, 25, 26]:  # <Idle, Move, None, Run-x>
+            return 101
+        if animation in [27, 28]:  # <Quick-x>
+            return 102
+        if animation in [39, 40]:  # <LandLow, Land>
+            return 103
+        if animation in [41, 42]:  # <LandFaceDown, LandFaceUp>
+            return 104
+        if animation in [43, 44, 45, 46, 47, 48, 49]:  # <Fall-x>
+            return 105
         return animation
 
-    @classmethod
-    def filter_boss_animation(cls: GameStateTransformer, animation: str) -> Tuple[str, bool]:
+    def filter_boss_animation(self, animation: int) -> Tuple[int, bool]:
         """Bin boss movement animations into a single animation.
 
+        Boss animations that essentially constitute the same state are binned into a single category
+        to reduce the state space. The new labels are in the range of 1xx to avoid collisions with
+        other animation labels.
+
         Args:
-            animation: Animation name.
+            animation: Boss animation ID.
 
         Returns:
             The animation name and a flag set to True if it was binned (else False).
         """
-        if any([x in animation for x in cls.boss_move_animations]):
-            return "Move", True
+        if animation in self.boss_move_animations:
+            return 100, True
         return animation, False
+
+    @staticmethod
+    def _unpack_obs(obs: Dict) -> Dict:
+        """Unpack numpy arrays of float observations.
+
+        Args:
+            obs: The initial observation.
+
+        Returns:
+            The observation with unpacked floats.
+        """
+        scalars = [
+            "player_hp", "player_sp", "boss_hp", "boss_animation_duration",
+            "player_animation_duration"
+        ]
+        for key in scalars:
+            obs[key] = obs[key].item()
+        return obs
 
 
 def unique(seq: Iterable) -> List:

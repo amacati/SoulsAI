@@ -37,30 +37,29 @@ if __name__ == "__main__":
     if config.dqn.normalize:
         normalizer = Normalizer(config.n_states, **norm_kwargs)
         normalizer.load_state_dict(torch.load(root_path / "normalizer.pt"))
-    state_transform = GameStateTransformer().transform
+    obs_transform = GameStateTransformer().transform
     env_kwargs = namespace2dict(config.env_kwargs) if config.env_kwargs is not None else {}
     env = gym.make(config.env, **env_kwargs)
     try:
         for i in range(ntests):
-            done = False
+            terminated = False
             ep_steps.append(0)
-            state = state_transform(env.reset())
+            obs, info = env.reset()
+            obs = obs_transform(obs)
             if config.dqn.action_masking:
-                valid_actions = env.current_valid_actions()
                 action_mask = np.zeros(config.n_actions)
-                action_mask[valid_actions] = 1
-
-            while not done:
-                state = normalizer.normalize(state) if config.dqn.normalize else state
-                action = agent(state, action_mask) if config.dqn.action_masking else agent(state)
-                next_state, _, done, info = env.step(action)
-                win = next_state.boss_hp == 0
-                state = state_transform(next_state)
+                action_mask[info["allowed_actions"]] = 1
+            while not terminated:
+                obs = normalizer.normalize(obs) if config.dqn.normalize else obs
+                action = agent(obs, action_mask) if config.dqn.action_masking else agent(obs)
+                next_obs, reward, terminated, truncated, info = env.step(action)
+                win = next_obs.boss_hp == 0
+                obs = obs_transform(next_obs)
                 ep_steps[i] += 1
                 if config.dqn.action_masking:
                     action_mask[:] = 0
                     action_mask[info["allowed_actions"]] = 1
-            ep_hp.append(state[2] * 1037)
+            ep_hp.append(obs[2] * 1037)
             nwins += win
 
         logger.info(f"Average HP per run: {sum(ep_hp)/ntests:.0f}, best HP: {min(ep_hp):.0f}")
