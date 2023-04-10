@@ -1,4 +1,4 @@
-The General Idea
+The general idea
 ================
 
 Training reinforcement learning agents takes time. Like, a lot of time. Depending on the speed at
