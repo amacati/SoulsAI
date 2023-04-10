@@ -1,7 +1,7 @@
 """The ``utils`` module contains various utility functions for conversions and config handling."""
 import json
 from types import SimpleNamespace
-from typing import List
+from typing import List, NewType
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -10,11 +10,13 @@ import copy
 
 import numpy as np
 import yaml
-from redis import Redis
+import redis
 
 from soulsai.exception import InvalidConfigError, MissingConfigError
 
 logger = logging.getLogger(__name__)
+
+RedisType = NewType("RedisType", redis.Redis)  # Avoid RtD error with Redis | None type
 
 
 def running_mean(x: List, N: int) -> np.ndarray:
@@ -31,7 +33,7 @@ def running_mean(x: List, N: int) -> np.ndarray:
     """
     y = np.copy(x)
     if len(x) >= N:
-        y[N - 1:] = np.convolve(x, np.ones((N, )) / N, mode='valid')
+        y[N - 1:] = np.convolve(x, np.ones((N,)) / N, mode='valid')
     return y
 
 
@@ -165,7 +167,7 @@ def namespace2dict(ns: SimpleNamespace) -> dict:
     return ns_dict
 
 
-def load_remote_config(address: str, secret: str, redis: Redis | None = None) -> SimpleNamespace:
+def load_remote_config(address: str, secret: str, red: RedisType | None = None) -> SimpleNamespace:
     """Load the training configuration from the training server.
 
     This function allows us to only specify the address of a training server and its credentials.
@@ -174,16 +176,16 @@ def load_remote_config(address: str, secret: str, redis: Redis | None = None) ->
     Args:
         address: Address of the training server.
         secret: Redis secret.
-        redis: Optional redis instance that is used to load the remote config.
+        red: Optional redis instance that is used to load the remote config.
 
     Returns:
         The remote training configuration.
     """
-    if redis is None:
-        redis = redis.Redis(host=address, port=6379, password=secret, db=0, decode_responses=True)
+    if red is None:
+        red = redis.Redis(host=address, port=6379, password=secret, db=0, decode_responses=True)
     config = None
     while config is None:
-        config = redis.get("config")
+        config = red.get("config")
         time.sleep(0.2)
         logger.debug("Waiting for remote config")
     config = dict2namespace(json.loads(config))
