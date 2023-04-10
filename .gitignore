@@ -11,6 +11,8 @@ soulsai.egg-info/
 docs/_build/*
 docs/_static/*
 
+.vscode
+
 config/config.yaml
 
 soulsai/distributed/server/training_node/config.yaml

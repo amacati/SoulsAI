@@ -9,7 +9,7 @@ from threading import Lock
 from typing import List
 from types import SimpleNamespace
 
-import redis
+from redis import Redis
 from prometheus_client import start_http_server
 
 from soulsai.utils import load_redis_secret, load_remote_config
@@ -46,16 +46,11 @@ class TelemetryNode:
         logger.info("Telemetry node startup")
         # Read redis server secret
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
-        self.red = redis.Redis(host='redis',
-                               port=6379,
-                               password=secret,
-                               db=0,
-                               decode_responses=True)
+        self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
+        self.config = load_remote_config(config.redis_address, secret, self.red)
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub_telemetry.subscribe("telemetry", "samples")
-        self.config = load_remote_config(config.redis_address, secret)
         self.lock = Lock()
-
         self._shutdown = False
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.cmd_sub.subscribe(shutdown=self.shutdown)

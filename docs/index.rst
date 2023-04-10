@@ -28,7 +28,7 @@ agent is trained using duelling advantage networks with multi-step returns.
 .. raw:: html
 
    <div style="position: relative; padding-bottom: 2em; height: 0; overflow: hidden; max-width: 100%; height: auto;">
-        <iframe width="720" height="405" src="https://www.youtube.com/embed/bfiS6bzOLiE" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+        <iframe width="720" height="405" src="https://www.youtube.com/embed/86NivRglr3Y" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
     </div>
 
 .. toctree::
@@ -36,8 +36,8 @@ agent is trained using duelling advantage networks with multi-step returns.
    :maxdepth: 1
    :caption: Getting Started
 
+   getting_started/general
    getting_started/setup
-   getting_started/starting_to_train
 
 .. toctree::
    :hidden:

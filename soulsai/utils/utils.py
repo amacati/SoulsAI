@@ -10,7 +10,7 @@ import copy
 
 import numpy as np
 import yaml
-import redis
+from redis import Redis
 
 from soulsai.exception import InvalidConfigError, MissingConfigError
 
@@ -165,7 +165,7 @@ def namespace2dict(ns: SimpleNamespace) -> dict:
     return ns_dict
 
 
-def load_remote_config(address: str, secret: str) -> SimpleNamespace:
+def load_remote_config(address: str, secret: str, redis: Redis | None = None) -> SimpleNamespace:
     """Load the training configuration from the training server.
 
     This function allows us to only specify the address of a training server and its credentials.
@@ -174,14 +174,16 @@ def load_remote_config(address: str, secret: str) -> SimpleNamespace:
     Args:
         address: Address of the training server.
         secret: Redis secret.
+        redis: Optional redis instance that is used to load the remote config.
 
     Returns:
         The remote training configuration.
     """
-    red = redis.Redis(host=address, port=6379, password=secret, db=0, decode_responses=True)
+    if redis is None:
+        redis = redis.Redis(host=address, port=6379, password=secret, db=0, decode_responses=True)
     config = None
     while config is None:
-        config = red.get("config")
+        config = redis.get("config")
         time.sleep(0.2)
         logger.debug("Waiting for remote config")
     config = dict2namespace(json.loads(config))
