@@ -20,21 +20,6 @@ DQNSample = Tuple[np.ndarray, int, float, np.ndarray, bool, dict]
 PPOSample = Tuple[np.ndarray, int, float, float, bool, int, int]
 
 
-def decode_dqn_sample(sample: dict) -> DQNSample:
-    """Decode a DQN sample.
-
-    Args:
-        sample: Sample dictionary.
-
-    Returns:
-        The decoded sample.
-    """
-    sample = sample.get("sample")
-    sample[0] = np.array(sample[0])  # State
-    sample[3] = np.array(sample[3])  # Next state
-    return sample
-
-
 def decode_ppo_sample(sample: dict) -> PPOSample:
     """Decode a PPO sample.
 
@@ -58,9 +43,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=config.loglevel)
 
     if config.algorithm.lower() == "dqn":
-        training_node = DQNTrainingNode(config, decode_dqn_sample)
+        training_node = DQNTrainingNode(config)
     elif config.algorithm.lower() == "ppo":
-        training_node = PPOTrainingNode(config, decode_ppo_sample)
+        training_node = PPOTrainingNode(config)
     else:
         raise InvalidConfigError(f"Algorithm {config.algorithm} specified in config"
                                  "is not supported")

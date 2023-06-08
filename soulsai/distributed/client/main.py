@@ -31,27 +31,6 @@ from soulsai.exception import InvalidConfigError
 from soulsai.utils import load_remote_config, load_redis_secret
 
 
-def dqn_encode_sample(state: np.ndarray, action: int, reward: float, next_state: np.ndarray,
-                      done: bool, info: dict) -> Tuple[List, int, float, List, bool, dict]:
-    """Encode a sample for messaging with redis.
-
-    The sample can only consist of Python types, therefore we have to convert the state arrays to
-    lists.
-
-    Args:
-        state: Environment state.
-        action: Chosen action.
-        reward: Reward.
-        next_state: Next environment state
-        done: Done flag.
-        info: Additional environment info.
-
-    Returns:
-        The converted sample.
-    """
-    return (state.tolist(), action, reward, next_state.tolist(), done, info)
-
-
 def ppo_encode_sample(state: np.ndarray, action: int, action_prob: float, reward: float,
                       done: bool) -> Tuple[List, int, float, float, bool]:
     """Encode a sample for messaging with redis.
@@ -70,30 +49,6 @@ def ppo_encode_sample(state: np.ndarray, action: int, action_prob: float, reward
         The converted sample.
     """
     return (state.tolist(), action, action_prob, reward, done)
-
-
-def dqn_encode_tel(total_reward: float, steps: int, state: np.ndarray, eps: float) -> dict:
-    """Encode a telemetry data point for messaging with redis.
-
-    The telemetry node expects dictionaries with predefined entries, so we have to provide a
-    function that maps the training statistics to the telemetry format.
-
-    Args:
-        total_reward: The total achieved reward in this episode.
-        steps: The number of steps during this episode.
-        state: The final episode state.
-        eps: The current epsilon value.
-
-    Returns:
-        A dictionary with the expected telemetry keys.
-    """
-    return {
-        "reward": total_reward,
-        "steps": steps,
-        "boss_hp": float(state[2]),
-        "win": bool(state[2] == 0),
-        "eps": eps
-    }
 
 
 def ppo_encode_tel(total_reward: float, steps: int, state: np.ndarray) -> dict:
@@ -126,18 +81,16 @@ if __name__ == "__main__":
     config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
     secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
     config = load_remote_config(config.redis_address, secret)
-    tf_transformer = GameStateTransformer()
+    obs_transformer = GameStateTransformer()
     if config.algorithm.lower() == "dqn":
         dqn_client(config,
-                   tf_obs_callback=tf_transformer.transform,
-                   encode_sample=dqn_encode_sample,
-                   encode_tel=dqn_encode_tel,
-                   episode_end_callback=tf_transformer.reset)
+                   tf_obs_callback=obs_transformer.transform,
+                   episode_end_callback=obs_transformer.reset)
     elif config.algorithm.lower() == "ppo":
         ppo_client(config,
-                   tf_obs_callback=tf_transformer.transform,
+                   tf_obs_callback=obs_transformer.transform,
                    encode_sample=ppo_encode_sample,
                    encode_tel=ppo_encode_tel,
-                   episode_end_callback=tf_transformer.reset)
+                   episode_end_callback=obs_transformer.reset)
     else:
         raise InvalidConfigError(f"Algorithm type {config.algorithm} is not supported")

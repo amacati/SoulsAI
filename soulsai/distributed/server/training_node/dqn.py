@@ -14,7 +14,6 @@ from pathlib import Path
 from collections import deque
 import time
 from types import SimpleNamespace
-from typing import Callable
 
 import torch
 
@@ -22,6 +21,7 @@ from soulsai.core.replay_buffer import PerformanceBuffer
 from soulsai.core.agent import DQNAgent
 from soulsai.core.normalizer import Normalizer
 from soulsai.core.scheduler import EpsilonScheduler
+from soulsai.distributed.common.serialization import DQNSerializer
 from soulsai.distributed.server.training_node.training_node import TrainingNode
 from soulsai.utils import namespace2dict
 
@@ -31,15 +31,15 @@ logger = logging.getLogger(__name__)
 class DQNTrainingNode(TrainingNode):
     """DQN training node for distributed Q learning."""
 
-    def __init__(self, config: SimpleNamespace, decode_sample: Callable):
+    def __init__(self, config: SimpleNamespace):
         """Set up the Redis connection, initialize the agent and publish the training config.
 
         Args:
             config: Training configuration.
-            decode_sample: Training sample decoding function.
         """
         logger.info("Training node startup")
-        super().__init__(config, decode_sample)
+        super().__init__(config)
+
         # Translate config params
         if self.config.dqn.min_samples:
             assert self.config.dqn.min_samples <= self.config.dqn.buffer_size
@@ -50,6 +50,7 @@ class DQNTrainingNode(TrainingNode):
         self._log_reject = True
         self._model_iterations = 0  # Track number of model iterations for checkpoint trigger
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
+        self.serializer = DQNSerializer(self.config.env)
         self.agent = DQNAgent(self.config.dqn.network_type,
                               namespace2dict(self.config.dqn.network_kwargs), self.config.dqn.lr,
                               self.config.gamma, self.config.dqn.multistep,

@@ -49,10 +49,16 @@ if __name__ == "__main__":
     with open(path / "config.json", "r") as f:
         config = dict2namespace(json.load(f))
 
+    # Initialize tracking stats and save folder
+    replay_dir = Path(__file__).parents[1] / "saves" / "replay_data"
+    replay_dir.mkdir(exist_ok=True)
+    replay_dict = {}
+
     env = gym.make("SoulsGymIudexDemo-v0", game_speed=3.0)
     try:
         i = 0
-        while nwins < 5:
+        while nwins < 1:
+            replay_dict[i] = []
             terminated = False
             ep_steps.append(0)
             obs, info = env.reset()
@@ -65,6 +71,11 @@ if __name__ == "__main__":
                 normalizer = normalizer_1 if phase == 1 else normalizer_2
                 agent = agent_1 if phase == 1 else agent_2
                 obs = normalizer.normalize(obs) if config.dqn.normalize else obs
+                replay_dict[i].append({
+                    "obs": obs.tolist(),
+                    "action_mask": list(action_mask),
+                    "timestamp": time.time()
+                })
                 action = agent(obs, action_mask) if config.dqn.action_masking else agent(obs)
                 next_obs, reward, terminated, truncated, info = env.step(action)
                 phase = next_obs["phase"]
@@ -73,17 +84,20 @@ if __name__ == "__main__":
                 if config.dqn.action_masking:
                     action_mask[:] = 0
                     action_mask[info["allowed_actions"]] = 1
+            i += 1
             ep_hp.append(obs[2] * 1037)
             nwins += int(next_obs["boss_hp"] == 0)
             if next_obs["player_hp"] > 0:
                 time.sleep(10)
-            i += 1
         ntests = i
         logger.info(f"Average HP per run: {sum(ep_hp)/ntests:.0f}, best HP: {min(ep_hp):.0f}")
         logger.info((f"Average steps per run: {sum(ep_steps)/ntests:.0f}, "
                      f"top steps: {max(ep_steps)}"))
         logger.info((f"Boss has been beaten {nwins} out of {ntests} times ({nwins/ntests*100:.0f}%"
                      " winrate)."))
-        time.sleep(25)
+        # time.sleep(25)
     finally:
         env.close()
+        print(replay_dict)
+        with open(replay_dir / "replay_data.json", "w") as f:
+            json.dump(replay_dict, f)

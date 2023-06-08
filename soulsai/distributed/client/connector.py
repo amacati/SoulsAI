@@ -83,20 +83,24 @@ class DQNConnector:
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
         address = self.config.redis_address
 
+        # Start the model update notification process
         args = (self._update_event, address, secret, self._stop_event)
         self.update_sub = mp.Process(target=self._update_msg, args=args, daemon=True)
         self.update_sub.start()
 
+        # Start the shutdown notification process
         self.shutdown = mp.Event()
         args = (self.shutdown, address, secret)
         self.shutdown_sub = mp.Process(target=self._client_shutdown, args=args, daemon=True)
         self.shutdown_sub.start()
 
+        # Start the message consumer process
         self._msg_queue = mp.Queue(maxsize=100)
         args = (self._msg_queue, address, secret, self._stop_event)
         self.msg_consumer = mp.Process(target=self._consume_msgs, args=args, daemon=True)
         self.msg_consumer.start()
 
+        # Start the model update process
         self.agent.share_memory()
         self.normalizer.share_memory()
         args = (self._update_event, self._stop_event, self.agent, self.normalizer, self._eps,
@@ -253,13 +257,9 @@ class DQNConnector:
             except queue.Empty:
                 continue  # Check again if stop event has been set
             try:
-                if msg[0] == "sample":
-                    sample = json.dumps({"model_id": msg[1][0], "sample": msg[1][1:]})
-                    red.publish("samples", sample)
-                elif msg[0] == "telemetry":
-                    red.publish("telemetry", json.dumps(msg[1]))
-                else:
-                    logger.warning(f"Unknown message type {msg[0]}")
+                # msg[0] is the message type, msg[1] the message encoded by capnproto
+                assert msg[0] in ["samples", "telemetry"], f"Unknown message type {msg[0]}"
+                red.publish(msg[0], msg[1])
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 red = Redis(host=address, password=secret, port=6379, db=0)

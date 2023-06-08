@@ -14,9 +14,9 @@ import multiprocessing as mp
 from multiprocessing.sharedctypes import Synchronized
 import json
 import time
-from abc import abstractmethod
+from abc import abstractmethod, abstractproperty
 from threading import Thread, Event
-from typing import List, Any, Callable
+from typing import List, Any
 from types import SimpleNamespace
 
 import numpy as np
@@ -24,6 +24,7 @@ from redis import Redis
 import torch
 from prometheus_client import start_http_server, Info, Counter, Gauge
 
+from soulsai.distributed.common.serialization import Serializer
 from soulsai.utils import mkdir_date, load_redis_secret, namespace2dict, dict2namespace
 
 logger = logging.getLogger(__name__)
@@ -32,18 +33,16 @@ logger = logging.getLogger(__name__)
 class TrainingNode:
     """Algorithm agnostic base class for training nodes."""
 
-    def __init__(self, config: SimpleNamespace, decode_sample: Callable):
+    def __init__(self, config: SimpleNamespace):
         """Create the save dictionary, load checkpoints, and set up the Redis connection.
 
         Args:
             config: Training configuration.
-            decode_sample: Training sample decoding function.
         """
         # Set torch settings: Flush denormal floats. See also:
         # https://discuss.pytorch.org/t/training-time-gets-slower-and-slower-on-cpu/145483
         torch.set_flush_denormal(True)
         self.np_random = np.random.default_rng()  # https://numpy.org/neps/nep-0019-rng-policy.html
-        self.decode_sample = decode_sample
         self._shutdown = mp.Event()
         self._lock = mp.Lock()
         # Create unique directory for saves
@@ -123,7 +122,7 @@ class TrainingNode:
                 continue
             self._total_env_steps += 1
             with self._lock:
-                self.buffer.append(self.decode_sample(sample))
+                self.buffer.append(self.serializer.deserialize_sample(sample))
             self._sample_received_hook()
             if self._check_update_cond():
                 self._update_model(monitoring=self.config.monitoring.enable)
@@ -220,6 +219,11 @@ class TrainingNode:
         Args:
             path: Path to the save folder.
         """
+        ...
+
+    @abstractproperty
+    def serializer(self) -> Serializer:
+        """Serializer to decode Redis messages."""
         ...
 
     @abstractmethod

@@ -15,6 +15,7 @@ import numpy as np
 import gymnasium as gym
 from soulsai.core.noise import get_noise_class
 from soulsai.utils import namespace2dict
+from soulsai.distributed.common.serialization import DQNSerializer
 from soulsai.distributed.client.connector import DQNConnector
 from soulsai.distributed.client.watchdog import ClientWatchdog
 
@@ -23,8 +24,6 @@ logger = logging.getLogger(__name__)
 
 def dqn_client(config: SimpleNamespace,
                tf_obs_callback: Callable,
-               encode_sample: Callable,
-               encode_tel: Callable,
                episode_end_callback: Callable | None = None):
     """Wrap the the DQN client main function and automatically parameterize it.
 
@@ -34,8 +33,6 @@ def dqn_client(config: SimpleNamespace,
     Args:
         config: The training configuration.
         tf_obs_callback: Callback to transform environment observations into agent inputs.
-        encode_sample: Function to encode sample messages for redis.
-        encode_tel: Function to encode the telemetry information for redis.
         episode_end_callback: Callback for functions that should be called at the end of an episode.
     """
     logging.basicConfig(level=config.loglevel)
@@ -44,17 +41,15 @@ def dqn_client(config: SimpleNamespace,
 
     if config.watchdog.enable:
         minimum_samples_per_minute = config.watchdog.minimum_samples
-        external_args = (config, tf_obs_callback, encode_sample, encode_tel, episode_end_callback)
+        external_args = (config, tf_obs_callback, episode_end_callback)
         watchdog = ClientWatchdog(_dqn_client, minimum_samples_per_minute, external_args)
         watchdog.start()
     else:
-        _dqn_client(config, tf_obs_callback, encode_sample, encode_tel, episode_end_callback)
+        _dqn_client(config, tf_obs_callback, episode_end_callback)
 
 
 def _dqn_client(config: SimpleNamespace,
                 tf_obs_callback: Callable,
-                encode_sample: Callable,
-                encode_tel: Callable,
                 episode_end_callback: Callable | None = None,
                 stop_flag: Event = Event(),
                 sample_gauge: Synchronized | None = None):
@@ -67,8 +62,6 @@ def _dqn_client(config: SimpleNamespace,
     Args:
         config: The training configuration.
         tf_obs_callback: Callback to transform environment observations into agent inputs.
-        encode_sample: Function to encode sample messages for redis.
-        encode_tel: Function to encode the telemetry information for redis.
         episode_end_callback: Callback for functions that should be called at the end of an episode.
         stop_flag: Event flag to stop the training.
         sample_gauge: Optional parameter that allows external processes to measure the current
@@ -87,6 +80,7 @@ def _dqn_client(config: SimpleNamespace,
     con = DQNConnector(config)
     env_kwargs = namespace2dict(config.env_kwargs) if config.use_env_kwargs else {}
     env = gym.make(config.env, **env_kwargs)
+    serializer = DQNSerializer(env_id=config.env)
     noise = get_noise_class(config.dqn.noise)(**namespace2dict(config.dqn.noise_kwargs))
     logger.info("Client node running")
     try:
@@ -139,8 +133,15 @@ def _dqn_client(config: SimpleNamespace,
                 total_reward += reward
                 if len(rewards) == config.dqn.multistep:
                     sum_r = sum([rewards[i] * config.gamma**i for i in range(config.dqn.multistep)])
-                    sample = encode_sample(observations[0], actions[0], sum_r, observations[-1],
-                                           terminated, infos[-1])
+                    sample = serializer.serialize_sample({
+                        "obs": observations[0],
+                        "action": actions[0],
+                        "reward": sum_r,
+                        "nextObs": observations[-1],
+                        "done": terminated,
+                        "info": infos[-1],
+                        "modelId": model_id
+                    })
                     con.push_sample(model_id, sample)
                     if sample_gauge:
                         current_gauge_cnt += 1
@@ -161,9 +162,16 @@ def _dqn_client(config: SimpleNamespace,
                 for i in range(1, len(rewards)):
                     sum_r = sum(
                         [rewards[i + j] * config.gamma**j for j in range(config.dqn.multistep - i)])
-                    sample = encode_sample(observations[i], actions[i], sum_r, observations[-1],
-                                           terminated, infos[-1])
-                    con.push_sample(model_id, sample)
+                    sample = serializer.serialize_sample({
+                        "obs": observations[i],
+                        "action": actions[i],
+                        "reward": sum_r,
+                        "nextObs": observations[-1],
+                        "done": terminated,
+                        "info": infos[-1],
+                        "modelId": model_id
+                    })
+                    con.push_sample(sample)
                     if sample_gauge:
                         current_gauge_cnt += 1
                         tnow = time.time()
@@ -173,7 +181,13 @@ def _dqn_client(config: SimpleNamespace,
                             current_gauge_cnt = 0
                             current_gauge_start_time = tnow
                 noise.reset()
-                con.push_telemetry(encode_tel(total_reward, steps, obs, eps))
+                tel = serializer.serialize_telemetry({
+                    "reward": total_reward,
+                    "steps": steps,
+                    "obs": obs,
+                    "eps": eps
+                })
+                con.push_telemetry(tel)
             if episode_end_callback is not None:
                 episode_end_callback()
         logger.info("Exiting training")
