@@ -12,7 +12,7 @@ from multiprocessing.connection import Connection
 from multiprocessing.sharedctypes import Synchronized
 from multiprocessing.synchronize import Lock
 from multiprocessing.queues import Queue
-from typing import Tuple, Any
+from typing import Any
 from types import SimpleNamespace
 
 import redis
@@ -406,11 +406,11 @@ class PPOConnector:
         if msg is None:
             logger.error("Server discovery failed. Check if server is already full")
             raise ClientRegistrationError("Server failed to respond")
-        self.con_id = json.loads(msg["data"])
-        logger.info(f"Client registration successful. New client ID: {self.con_id}")
+        self.client_id = json.loads(msg["data"])
+        logger.info(f"Client registration successful. New client ID: {self.client_id}")
 
         self.heartbeat = mp.Process(target=self._heartbeat,
-                                    args=(address, secret, self.con_id, self._stop_event),
+                                    args=(address, secret, self.client_id, self._stop_event),
                                     daemon=True)
         self.heartbeat.start()
 
@@ -419,17 +419,15 @@ class PPOConnector:
         self.msg_consumer = mp.Process(target=self._consume_msgs, args=args)
         self.msg_consumer.start()
 
-    def push_sample(self, model_id: str, step_id: int, sample: Tuple):
+    def push_sample(self, sample: bytes):
         """Send a sample message over the message pipe.
 
         Args:
-            model_id: Model ID used to verify the sample was created by the correct model iteration.
-            step_id: Step ID used to reconstruct the trajectory on the server.
-            sample: Experience sample.
+            sample: Experience sample. Also contains the model ID and step ID.
         """
-        self._msg_pipe.send(("sample", self.con_id, model_id, step_id, sample))
+        self._msg_pipe.send(("samples", sample))
 
-    def push_telemetry(self, telemetry: dict):
+    def push_telemetry(self, telemetry: bytes):
         """Send a telemetry message over the message pipe.
 
         Args:
@@ -497,19 +495,8 @@ class PPOConnector:
             if not msg_pipe.poll(1):
                 continue  # Check again if stop event has been set
             msg = msg_pipe.recv()
-            if msg[0] == "sample":
-                red.publish(
-                    "samples",
-                    json.dumps({
-                        "client_id": msg[1],
-                        "model_id": msg[2],
-                        "step_id": msg[3],
-                        "sample": msg[4]
-                    }))
-            elif msg[0] == "telemetry":
-                red.publish("telemetry", json.dumps(msg[1]))
-            else:
-                logger.warning(f"Unknown message type {msg[0]}")
+            assert msg[0] in ["samples", "telemetry"], f"Unknown message type {msg[0]}"
+            red.publish(msg[0], msg[1])
 
     def _client_shutdown(self, _):
         logger.info("Received shutdown signal from training node. Exiting training")

@@ -1,6 +1,6 @@
 @0xb628a892dad706f7;
 
-struct Sample {
+struct DQNSample {
   obs @0 :List(Float32);
   action @1 :Int32;
   reward @2 :Float32;
@@ -10,6 +10,17 @@ struct Sample {
   modelId @6 :Text;
 }
 
+struct PPOSample {
+  obs @0 :List(Float32);
+  action @1 :Int32;
+  reward @2 :Float32;
+  prob @3 :Float32;
+  done @4 :Bool;
+  info @5 :Info;
+  modelId @6 :Text;
+  clientId @7 :Int32;
+  stepId @8 :Int32;
+}
 
 struct Info {
 }
@@ -21,3 +32,4 @@ struct Telemetry {
   win @3 :Bool;
   eps @4 :Float32;
 }
+

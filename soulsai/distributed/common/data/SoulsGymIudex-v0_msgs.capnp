@@ -1,6 +1,6 @@
 @0xb4dd05902eca5452;
 
-struct Sample {
+struct DQNSample {
   obs @0 :List(Float32);
   action @1 :Int32;
   reward @2 :Float32;

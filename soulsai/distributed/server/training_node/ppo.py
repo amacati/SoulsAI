@@ -12,7 +12,7 @@ import logging
 from uuid import uuid4
 from pathlib import Path
 import time
-from typing import List, Callable
+from typing import List
 from types import SimpleNamespace
 
 import numpy as np
@@ -20,6 +20,7 @@ import torch
 
 from soulsai.core.agent import PPOAgent
 from soulsai.core.replay_buffer import TrajectoryBuffer
+from soulsai.distributed.common.serialization import PPOSerializer
 from soulsai.distributed.server.training_node.training_node import TrainingNode
 from soulsai.utils import namespace2dict
 from soulsai.exception import ServerDiscoveryTimeout
@@ -30,15 +31,15 @@ logger = logging.getLogger(__name__)
 class PPOTrainingNode(TrainingNode):
     """PPO training node for distributed, synchronized proximal policy optimization."""
 
-    def __init__(self, config: SimpleNamespace, decode_sample: Callable):
+    def __init__(self, config: SimpleNamespace):
         """Set up the Redis connection, initialize the agent and publish the training config.
 
         Args:
             config: Training configuration.
-            decode_sample: Training sample decoding function.
         """
         logger.info("PPO training node startup")
-        super().__init__(config, decode_sample)
+        super().__init__(config)
+        self._serializer = PPOSerializer(self.config.env)
         self.agent = PPOAgent(self.config.ppo.actor_net_type,
                               namespace2dict(self.config.ppo.actor_net_kwargs),
                               self.config.ppo.critic_net_type,
@@ -55,15 +56,19 @@ class PPOTrainingNode(TrainingNode):
         self._model_iterations = 0
         logger.info("PPO training node startup complete")
 
+    @property
+    def serializer(self) -> PPOSerializer:
+        return self._serializer
+
     def _startup_hook(self):
         logger.info("Starting discovery phase")
         self._discover_clients()
         logger.info("Discovery complete, starting training")
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
-        valid = sample["model_id"] == self.agent.model_id
+        valid = sample["modelId"] == self.agent.model_id
         if valid:
-            logger.debug(f"Received sample {sample['client_id']}:{sample['step_id']}")
+            logger.debug(f"Received sample {sample['clientId']}:{sample['stepId']}")
         else:
             logger.warning("Unexpected sample with outdated model ID")
         if monitoring:

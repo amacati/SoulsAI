@@ -14,7 +14,7 @@ import multiprocessing as mp
 from multiprocessing.sharedctypes import Synchronized
 import json
 import time
-from abc import abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
 from threading import Thread, Event
 from typing import List, Any
 from types import SimpleNamespace
@@ -30,7 +30,7 @@ from soulsai.utils import mkdir_date, load_redis_secret, namespace2dict, dict2na
 logger = logging.getLogger(__name__)
 
 
-class TrainingNode:
+class TrainingNode(ABC):
     """Algorithm agnostic base class for training nodes."""
 
     def __init__(self, config: SimpleNamespace):
@@ -221,10 +221,11 @@ class TrainingNode:
         """
         ...
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def serializer(self) -> Serializer:
         """Serializer to decode Redis messages."""
-        ...
+        raise NotImplementedError
 
     @abstractmethod
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:

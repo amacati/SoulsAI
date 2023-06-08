@@ -81,7 +81,7 @@ telemetry:
   moving_average: 20
 
 # Client settings
-max_episodes: 500  # -1 for infinite runs
+max_episodes: -1  # -1 for infinite runs
 enable_interrupt: False
 step_delay: 0
 

@@ -1,13 +1,11 @@
 """The replay buffer module offers performant implementations of replay buffers for DQN and PPO."""
 from pathlib import Path
-from typing import Tuple, List, Dict
+from typing import List, Dict
 
 import numpy as np
 import torch
 
 from soulsai.core.agent import PPOAgent
-
-PPOSample = Tuple[np.ndarray, int, float, float, bool, int, int]
 
 
 class PerformanceBuffer:
@@ -207,27 +205,27 @@ class TrajectoryBuffer:
         self._complete_flags = np.empty(n_trajectories * (n_samples + 1), dtype=np.bool_)
         self._complete_flags[:] = False
 
-    def append(self, sample: PPOSample):
+    def append(self, sample: Dict):
         """Append a PPO sample to the buffer.
 
         Also sets the complete flag for the received sample.
 
         Args:
-            sample: PPO sample consisting of (in that order) the state, the chosen action, the
-                action probability, the reward, the done flag, the trajectory ID and the step ID.
+            sample: PPO sample consisting of the observation, the chosen action, the action
+            probability, the reward, the done flag, the trajectory ID and the step ID.
         """
-        trajectory_id, step_id = sample[5], sample[6]
+        trajectory_id, step_id = sample["clientId"], sample["stepId"]
         assert trajectory_id < self.n_trajectories and step_id <= self.n_samples
         if step_id != self.n_samples:  # Non-terminal sample
             idx = trajectory_id * self.n_samples + step_id
-            self.states[idx, :] = torch.from_numpy(sample[0])
-            self.actions[idx] = sample[1]
-            self.probs[idx] = sample[2]
-            self.rewards[idx] = sample[3]
-            self.dones[idx] = sample[4]
+            self.states[idx, :] = torch.from_numpy(sample["obs"])
+            self.actions[idx] = sample["action"]
+            self.probs[idx] = sample["prob"]
+            self.rewards[idx] = sample["reward"]
+            self.dones[idx] = sample["done"]
         else:
-            self._end_states[trajectory_id] = torch.from_numpy(sample[0])
-            self._end_dones[trajectory_id] = sample[4]
+            self._end_states[trajectory_id] = torch.from_numpy(sample["obs"])
+            self._end_dones[trajectory_id] = sample["done"]
         self._complete_flags[trajectory_id * (self.n_samples + 1) + step_id] = True
 
     def clear(self):
