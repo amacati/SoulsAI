@@ -14,6 +14,7 @@ from prometheus_client import start_http_server
 
 from soulsai.utils import load_redis_secret, load_remote_config
 from soulsai.utils.visualization import save_plots
+from soulsai.distributed.common.serialization import get_serializer_cls
 from soulsai.distributed.server.telemetry_node.grafana_connector import GrafanaConnector
 
 temp_dir = tempfile.TemporaryDirectory()
@@ -46,8 +47,9 @@ class TelemetryNode:
         logger.info("Telemetry node startup")
         # Read redis server secret
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
-        self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
+        self.red = Redis(host='redis', port=6379, password=secret, db=0)
         self.config = load_remote_config(config.redis_address, secret, self.red)
+        self.serializer = get_serializer_cls(self.config.algorithm)(self.config.env)
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub_telemetry.subscribe("telemetry", "samples")
         self.lock = Lock()
@@ -106,17 +108,17 @@ class TelemetryNode:
             if not (msg := self.sub_telemetry.get_message()):
                 time.sleep(0.1)
                 continue
-            if msg["channel"] == "samples":
+            if msg["channel"] == b"samples":
                 self._n_env_steps += 1
                 continue
-            sample = json.loads(msg["data"])
+            sample = self.serializer.deserialize_telemetry(msg["data"])
             # Appending automatically changes data in GrafanaConnector
             with self.lock:
                 self.rewards.append(sample["reward"])
                 self.rewards_av.append(self._latest_moving_av(self.rewards))
                 self.steps.append(sample["steps"])
                 self.steps_av.append(self._latest_moving_av(self.steps))
-                self.boss_hp.append(sample["boss_hp"])
+                self.boss_hp.append(sample["bossHp"])
                 self.boss_hp_av.append(self._latest_moving_av(self.boss_hp))
                 self.wins.append(int(sample["win"]))
                 self.wins_av.append(self._latest_moving_av(self.wins))

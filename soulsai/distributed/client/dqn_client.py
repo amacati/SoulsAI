@@ -142,7 +142,7 @@ def _dqn_client(config: SimpleNamespace,
                         "info": infos[-1],
                         "modelId": model_id
                     })
-                    con.push_sample(model_id, sample)
+                    con.push_sample(sample)
                     if sample_gauge:
                         current_gauge_cnt += 1
                         tnow = time.time()

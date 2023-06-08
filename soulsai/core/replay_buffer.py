@@ -1,6 +1,6 @@
 """The replay buffer module offers performant implementations of replay buffers for DQN and PPO."""
 from pathlib import Path
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 
 import numpy as np
 import torch
@@ -8,8 +8,6 @@ import torch
 from soulsai.core.agent import PPOAgent
 
 PPOSample = Tuple[np.ndarray, int, float, float, bool, int, int]
-DQNSample = Tuple[np.ndarray, int, float, np.ndarray, bool]
-DQNSampleWithActionMask = Tuple[np.ndarray, int, float, np.ndarray, bool, dict]
 
 
 class PerformanceBuffer:
@@ -40,22 +38,22 @@ class PerformanceBuffer:
         self._b_d = np.zeros(maxlen)
         self._action_masking = action_masking
 
-    def append(self, sample: DQNSample | DQNSampleWithActionMask):
+    def append(self, sample: Dict):
         """Append a sample to the buffer.
 
         Args:
-            sample: DQN sample containing (in that order) the state, the action, the reward, the
-                next state, and the done flag. If action masking is used, also contains the env info
-                dict.
+            sample: DQN sample dict containing the observation, the action, the reward, the next
+            observation, and the done flag. If action masking is used, the info dict must contain a
+            key "allowed_actions" with the list of allowed actions.
         """
-        self._b_s[self._idx] = sample[0]
-        self._b_a[self._idx] = sample[1]
-        self._b_r[self._idx] = sample[2]
-        self._b_sn[self._idx] = sample[3]
-        self._b_d[self._idx] = sample[4]
+        self._b_s[self._idx] = sample["obs"]
+        self._b_a[self._idx] = sample["action"]
+        self._b_r[self._idx] = sample["reward"]
+        self._b_sn[self._idx] = sample["nextObs"]
+        self._b_d[self._idx] = sample["done"]
         if self._action_masking:
             self._b_am[self._idx] = 0
-            self._b_am[self._idx, sample[5]["allowed_actions"]] = 1
+            self._b_am[self._idx, sample["info"]["allowed_actions"]] = 1
         self._idx = (self._idx + 1) % self.maxlen
         self._maxidx = min(self._maxidx + 1, self.maxlen - 1)
 
@@ -91,7 +89,9 @@ class PerformanceBuffer:
             raise RuntimeError("Asked to sample more elements than available in buffer")
         i = np.random.choice(self._maxidx + 1, batch_size, replace=False)
         if self._action_masking:
-            return [self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i], self._b_am[i]]  # noqa: E501
+            return [
+                self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i], self._b_am[i]
+            ]  # noqa: E501
         return [self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i]]
 
     def sample_batches(self, batch_size: int, nbatches: int) -> List[np.ndarray]:
@@ -120,11 +120,14 @@ class PerformanceBuffer:
             unique_indices = np.random.choice(self._maxidx + 1, nsamples, replace=False)
             indices = np.split(unique_indices, nbatches)
         else:
-            indices = [np.random.choice(self._maxidx + 1, batch_size, replace=False)
-                       for _ in range(nbatches)]
+            indices = [
+                np.random.choice(self._maxidx + 1, batch_size, replace=False)
+                for _ in range(nbatches)
+            ]
         if self._action_masking:
-            batches = [[self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i],
-                        self._b_am[i]] for i in indices]
+            batches = [[
+                self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i], self._b_am[i]
+            ] for i in indices]
         else:
             batches = [[self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i]]
                        for i in indices]
@@ -138,8 +141,15 @@ class PerformanceBuffer:
         Args:
             path: The save file path.
         """
-        save_dict = {"_b_s": self._b_s, "_b_a": self._b_a, "_b_r": self._b_r, "_b_sn": self._b_sn,
-                     "_b_d": self._b_d, "_idx": self._idx, "_maxidx": self._maxidx}
+        save_dict = {
+            "_b_s": self._b_s,
+            "_b_a": self._b_a,
+            "_b_r": self._b_r,
+            "_b_sn": self._b_sn,
+            "_b_d": self._b_d,
+            "_idx": self._idx,
+            "_maxidx": self._maxidx
+        }
         if self._action_masking:
             save_dict["_b_am"] = self._b_am
         torch.save(save_dict, path)

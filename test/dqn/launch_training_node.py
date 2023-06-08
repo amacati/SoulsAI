@@ -32,5 +32,5 @@ if __name__ == "__main__":
     config = load_config(root_dir / "common" / "config_d.yaml", root_dir / "dqn" / "config.yaml")
     logging.basicConfig(level=config.loglevel)
 
-    training_node = DQNTrainingNode(config, decode_sample=decode_sample)
+    training_node = DQNTrainingNode(config)
     training_node.run()

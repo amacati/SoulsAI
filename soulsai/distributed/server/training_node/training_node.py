@@ -63,7 +63,7 @@ class TrainingNode:
             self._max_env_steps = self.config.max_env_steps
         # Load redis secret, create redis connection and subscribers
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
-        self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
+        self.red = Redis(host='redis', port=6379, password=secret, db=0)
         self.sample_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sample_sub.subscribe("samples")
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
@@ -117,12 +117,12 @@ class TrainingNode:
             if not (msg := self.sample_sub.get_message()):
                 time.sleep(0.005)
                 continue
-            sample = json.loads(msg["data"])
+            sample = self.serializer.deserialize_sample(msg["data"])
             if not self._validate_sample(sample, monitoring=self.config.monitoring.enable):
                 continue
             self._total_env_steps += 1
             with self._lock:
-                self.buffer.append(self.serializer.deserialize_sample(sample))
+                self.buffer.append(sample)
             self._sample_received_hook()
             if self._check_update_cond():
                 self._update_model(monitoring=self.config.monitoring.enable)

@@ -149,16 +149,15 @@ class DQNConnector:
         """
         return self._eps.value
 
-    def push_sample(self, model_id: str, sample: Tuple):
+    def push_sample(self, sample: bytes):
         """Send a sample message over the message queue.
 
         Args:
-            model_id: Model ID used to identify the model iteration.
             sample: Experience sample.
         """
-        self._push_msg("sample", (model_id,) + sample)
+        self._push_msg("samples", sample)
 
-    def push_telemetry(self, telemetry: dict):
+    def push_telemetry(self, telemetry: bytes):
         """Send a telemetry message over the message queue.
 
         Args:
@@ -259,6 +258,7 @@ class DQNConnector:
             try:
                 # msg[0] is the message type, msg[1] the message encoded by capnproto
                 assert msg[0] in ["samples", "telemetry"], f"Unknown message type {msg[0]}"
+                assert isinstance(msg[1], bytes), f"Message is not of type bytes but {type(msg[1])}"
                 red.publish(msg[0], msg[1])
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)

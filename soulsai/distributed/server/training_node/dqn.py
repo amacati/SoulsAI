@@ -39,7 +39,7 @@ class DQNTrainingNode(TrainingNode):
         """
         logger.info("Training node startup")
         super().__init__(config)
-
+        self._serializer = DQNSerializer(self.config.env)
         # Translate config params
         if self.config.dqn.min_samples:
             assert self.config.dqn.min_samples <= self.config.dqn.buffer_size
@@ -47,10 +47,10 @@ class DQNTrainingNode(TrainingNode):
         else:
             self._required_samples = self.config.dqn.batch_size * self.config.dqn.train_epochs
 
-        self._log_reject = True
+        self._log_reject = True  # Only log sample rejects once per model iteration
+        self._last_model_log = 0  # Reduce number of log messages for model updates
         self._model_iterations = 0  # Track number of model iterations for checkpoint trigger
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
-        self.serializer = DQNSerializer(self.config.env)
         self.agent = DQNAgent(self.config.dqn.network_type,
                               namespace2dict(self.config.dqn.network_kwargs), self.config.dqn.lr,
                               self.config.gamma, self.config.dqn.multistep,
@@ -76,8 +76,12 @@ class DQNTrainingNode(TrainingNode):
         logger.info(f"Initial model ID: {self.agent.model_id}")
         logger.info("DQN training node startup complete")
 
+    @property
+    def serializer(self):
+        return self._serializer
+
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
-        valid = sample["model_id"] in self.model_ids
+        valid = sample["modelId"] in self.model_ids
         if not valid and self._log_reject:
             logger.warning("Sample ID rejected")
             self._log_reject = False
@@ -95,7 +99,6 @@ class DQNTrainingNode(TrainingNode):
         return self._total_env_steps % self.config.dqn.update_samples == 0 and sufficient_samples
 
     def _update_model(self, monitoring: bool):
-        tstart = time.time()
         if monitoring:
             with self.prom_update_time.time():
                 self._dqn_step()
@@ -103,8 +106,10 @@ class DQNTrainingNode(TrainingNode):
             self._dqn_step()
         self.agent.model_id = str(uuid4())
         self.model_ids.append(self.agent.model_id)
-        logger.info((f"{time.strftime('%X')}: Model update complete ({time.time() - tstart:.2f}s)"
-                     f"\nTotal env steps: {self._total_env_steps}"))
+        if time.time() - self._last_model_log > 10:
+            logger.info((f"{time.strftime('%X')}: Model update complete."
+                         f"\nTotal env steps: {self._total_env_steps}"))
+            self._last_model_log = time.time()
 
     def _publish_model(self):
         logger.debug(f"Publishing new model with ID {self.agent.model_id}")

@@ -56,7 +56,4 @@ def encode_sample(state: np.ndarray, action: int, reward: float, next_state: np.
 if __name__ == "__main__":
     root_dir = Path(__file__).parents[1]
     config = load_config(root_dir / "common" / "config_d.yaml", root_dir / "dqn" / "config.yaml")
-    dqn_client(config,
-               tf_obs_callback=lambda x: x,
-               encode_sample=encode_sample,
-               encode_tel=encode_tel)
+    dqn_client(config, tf_obs_callback=lambda x: x)
