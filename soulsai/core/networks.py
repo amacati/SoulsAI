@@ -50,6 +50,21 @@ def layer_init(layer: nn.Linear, std: float = np.sqrt(2), bias_const: float = 0.
     return layer
 
 
+def polyak_update(network: nn.Module, target_network: nn.Module, tau: float):
+    """Perform a soft parameter update (also called polyak update).
+
+    Soft update the weights of a target network from a source network by calculating the weighted
+    average theta_target_net = tau * theta_net + (1-tau) * theta_target_net.
+
+    Args:
+        network: The source network.
+        target_network. The target network. Parameters get updated in-place.
+        tau: Polyak factor controlling the weighted average.
+    """
+    for param, target_param in zip(network.parameters(), target_network.parameters()):
+        target_param.copy_((1 - tau) * param.data + tau * target_param.data)
+
+
 class DQN(nn.Module):
     """Deep Q network class.
 
@@ -80,9 +95,9 @@ class DQN(nn.Module):
         Returns:
             The network output.
         """
-        x = torch.relu(self.linear1(x))
-        x = torch.relu(self.linear2(x))
-        x = torch.relu(self.linear3(x))
+        x = F.relu(self.linear1(x))
+        x = F.relu(self.linear2(x))
+        x = F.relu(self.linear3(x))
         return self.output(x)
 
 
@@ -165,14 +180,46 @@ class NoisyDQN(nn.Module):
         Returns:
             The network output.
         """
-        x = torch.relu(self.linear1(x))
-        x = torch.relu(self.noisy1(x))
+        x = F.relu(self.linear1(x))
+        x = F.relu(self.noisy1(x))
         return self.noisy2(x)
 
     def reset_noise(self):
         """Reset the noise in all network layers."""
         self.noisy1.reset_noise()
         self.noisy2.reset_noise()
+
+
+class DistributionalDQN(nn.Module):
+    """QR-DQN network.
+
+    The network estimates N Q-values, which each have a probability of 1/N.
+    """
+
+    def __init__(self, input_dims: int, output_dims: int, layer_dims: int, n_quantiles: int = 32):
+        super().__init__()
+        self.output_dims = output_dims
+        self.n_quantiles = n_quantiles
+        self.l1 = nn.Linear(input_dims, layer_dims)
+        self.l2 = nn.Linear(layer_dims, layer_dims)
+        self.l3 = nn.Linear(layer_dims, output_dims * n_quantiles)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the forward pass of the network.
+
+        Args:
+            x: Network input.
+
+        Returns:
+            The network output. Note that the output is a distribution tensor of shape [B A N]
+            instead of [B A], where B is the batch dimension, A is the action dimension, and N is
+            the number of bins (here 32).
+        """
+        batch_size = x.shape[0] if x.ndim > 1 else 1
+        x = F.relu(self.l1(x))
+        x = F.relu(self.l2(x))
+        x = self.l3(x).view(batch_size, self.n_quantiles, self.output_dims)
+        return x
 
 
 class NoisyAdvantageDQN(nn.Module):
@@ -207,9 +254,9 @@ class NoisyAdvantageDQN(nn.Module):
         Returns:
             The network output.
         """
-        x = torch.relu(self.linear1(x))
-        x = torch.relu(self.noisy1(x))
-        x = torch.relu(self.noisy2(x))
+        x = F.relu(self.linear1(x))
+        x = F.relu(self.noisy1(x))
+        x = F.relu(self.noisy2(x))
         v_s = self.baseline(x)
         a_s = self.advantage(x)
         return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)
@@ -253,11 +300,11 @@ class NoisyAdvantageSkipDQN(nn.Module):
         Returns:
             The network output.
         """
-        x = torch.relu(self.linear1(x))
+        x = F.relu(self.linear1(x))
         skip = self.skip_layer(x)
-        x = torch.relu(self.noisy1(x))
+        x = F.relu(self.noisy1(x))
         x = self.noisy2(x)
-        x = torch.relu(torch.cat((x, skip), dim=-1))
+        x = F.relu(torch.cat((x, skip), dim=-1))
         v_s = self.baseline(x)
         a_s = self.advantage(x)
         return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)

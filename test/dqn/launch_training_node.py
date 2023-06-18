@@ -11,6 +11,5 @@ if __name__ == "__main__":
     root_dir = Path(__file__).parents[1]
     config = load_config(root_dir / "common" / "config_d.yaml", root_dir / "dqn" / "config.yaml")
     logging.basicConfig(level=config.loglevel)
-
     training_node = DQNTrainingNode(config)
     training_node.run()

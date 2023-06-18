@@ -166,7 +166,7 @@ class PPOTrainingNode(TrainingNode):
         """
         path.mkdir(exist_ok=True)
         with self._lock:
-            self.agent.save(path)
+            self.agent.save(path / "agent.pt")
         logger.info("Model checkpoint saved")
 
     def load_checkpoint(self, path: Path):

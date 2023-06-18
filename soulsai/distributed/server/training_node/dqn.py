@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import torch
 
 from soulsai.core.replay_buffer import PerformanceBuffer
-from soulsai.core.agent import DQNAgent
+from soulsai.core.agent import DistributionalDQNAgent, DQNAgent
 from soulsai.core.normalizer import Normalizer
 from soulsai.core.scheduler import EpsilonScheduler
 from soulsai.distributed.common.serialization import DQNSerializer
@@ -37,7 +37,7 @@ class DQNTrainingNode(TrainingNode):
         Args:
             config: Training configuration.
         """
-        logger.info("Training node startup")
+        logger.info("DQN training node startup")
         super().__init__(config)
         self._serializer = DQNSerializer(self.config.env)
         # Translate config params
@@ -51,10 +51,20 @@ class DQNTrainingNode(TrainingNode):
         self._last_model_log = 0  # Reduce number of log messages for model updates
         self._model_iterations = 0  # Track number of model iterations for checkpoint trigger
         self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
-        self.agent = DQNAgent(self.config.dqn.network_type,
-                              namespace2dict(self.config.dqn.network_kwargs), self.config.dqn.lr,
-                              self.config.gamma, self.config.dqn.multistep,
-                              self.config.dqn.grad_clip, self.config.dqn.q_clip)
+        if self.config.dqn.variant == "distributional":
+            self.agent = DistributionalDQNAgent(self.config.dqn.network_type,
+                                                namespace2dict(self.config.dqn.network_kwargs),
+                                                self.config.dqn.lr, self.config.gamma,
+                                                self.config.dqn.multistep,
+                                                self.config.dqn.grad_clip, self.config.dqn.q_clip,
+                                                self.config.dqn.tau)
+        elif self.config.dqn.variant == "default":
+            self.agent = DQNAgent(self.config.dqn.network_type,
+                                  namespace2dict(self.config.dqn.network_kwargs),
+                                  self.config.dqn.lr, self.config.gamma, self.config.dqn.multistep,
+                                  self.config.dqn.grad_clip, self.config.dqn.q_clip)
+        else:
+            raise ValueError(f"DQN variant {self.config.dqn.variant} is not supported")
         if self.config.dqn.normalizer_kwargs is not None:
             norm_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs)
         else:
@@ -150,7 +160,7 @@ class DQNTrainingNode(TrainingNode):
         """
         path.mkdir(exist_ok=True)
         with self._lock:
-            self.agent.save(path)  # Agent only takes the save directory
+            self.agent.save(path / "agent.pt")
             self.buffer.save(path / "buffer.pkl")
             self.eps_scheduler.save(path / "eps_scheduler.json")
             if self.config.dqn.normalize:

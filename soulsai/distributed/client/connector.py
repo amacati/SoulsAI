@@ -19,7 +19,7 @@ import redis
 from redis import Redis
 import torch.multiprocessing as mp
 
-from soulsai.core.agent import DQNClientAgent, PPOClientAgent
+from soulsai.core.agent import DQNClientAgent, DistributionalDQNClientAgent, PPOClientAgent
 from soulsai.core.normalizer import Normalizer
 from soulsai.utils import load_redis_secret, namespace2dict
 from soulsai.exception import ClientRegistrationError, ServerTimeoutError
@@ -69,8 +69,12 @@ class DQNConnector:
             logger.warning("Trying to force spawn method...")
             mp.set_start_method("spawn", force=True)  # Required for network weight swap!
         self.config = config
-        self.agent = DQNClientAgent(config.dqn.network_type,
-                                    namespace2dict(config.dqn.network_kwargs))
+        if self.config.dqn.variant == "distributional":
+            self.agent = DistributionalDQNClientAgent(config.dqn.network_type,
+                                                      namespace2dict(config.dqn.network_kwargs))
+        else:
+            self.agent = DQNClientAgent(config.dqn.network_type,
+                                        namespace2dict(config.dqn.network_kwargs))
         if config.dqn.normalizer_kwargs is not None:
             norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
         else:
@@ -214,8 +218,13 @@ class DQNConnector:
                     })
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
         # first and then overwrite the tensors of the main agent with load_state_dict
-        buffer_agent = DQNClientAgent(config.dqn.network_type,
-                                      namespace2dict(config.dqn.network_kwargs))
+        args = (config.dqn.network_type, namespace2dict(config.dqn.network_kwargs))
+        if config.dqn.variant == "distributional":
+            buffer_agent = DistributionalDQNClientAgent(*args)
+        elif config.dqn.variant == "default":
+            buffer_agent = DQNClientAgent(*args)
+        else:
+            raise ValueError(f"DQN variant {config.dqn.variant} is not supported")
         update_event.set()  # Ensure load on first start up
         while not stop_event.is_set():
             if not update_event.wait(1):
