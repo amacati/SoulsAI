@@ -57,12 +57,13 @@ class DQNTrainingNode(TrainingNode):
                                                 self.config.dqn.lr, self.config.gamma,
                                                 self.config.dqn.multistep,
                                                 self.config.dqn.grad_clip, self.config.dqn.q_clip,
-                                                self.config.dqn.tau)
+                                                self.config.dqn.tau, self.config.device)
         elif self.config.dqn.variant == "default":
             self.agent = DQNAgent(self.config.dqn.network_type,
                                   namespace2dict(self.config.dqn.network_kwargs),
                                   self.config.dqn.lr, self.config.gamma, self.config.dqn.multistep,
-                                  self.config.dqn.grad_clip, self.config.dqn.q_clip)
+                                  self.config.dqn.grad_clip, self.config.dqn.q_clip,
+                                  self.config.device)
         else:
             raise ValueError(f"DQN variant {self.config.dqn.variant} is not supported")
         if self.config.dqn.normalizer_kwargs is not None:
@@ -109,16 +110,19 @@ class DQNTrainingNode(TrainingNode):
         return self._total_env_steps % self.config.dqn.update_samples == 0 and sufficient_samples
 
     def _update_model(self, monitoring: bool):
+        t1 = time.time()
         if monitoring:
             with self.prom_update_time.time():
                 self._dqn_step()
         else:
             self._dqn_step()
+        t2 = time.time()
         self.agent.model_id = str(uuid4())
         self.model_ids.append(self.agent.model_id)
         if time.time() - self._last_model_log > 10:
             logger.info((f"{time.strftime('%X')}: Model update complete."
                          f"\nTotal env steps: {self._total_env_steps}"))
+            logger.info(f"Model update took {t2 - t1:.2f} seconds")
             self._last_model_log = time.time()
 
     def _publish_model(self):

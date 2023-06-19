@@ -2,6 +2,7 @@
 
 # General settings
 loglevel: info
+device: "cpu"
 
 # Redis settings
 redis_address: "localhost"
@@ -70,6 +71,7 @@ dqn:
   normalize: False
   normalizer_kwargs:
   min_samples: null
+  tau: 0.05  # Optional, for target network updates
 
 # Training node settings
 checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration

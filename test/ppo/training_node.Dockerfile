@@ -1,4 +1,4 @@
-FROM python:3.10
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
 WORKDIR /home
 # Cache requirements install
 COPY soulsai/distributed/server/training_node/requirements.txt /home/requirements.txt

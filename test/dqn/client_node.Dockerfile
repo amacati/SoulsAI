@@ -1,4 +1,6 @@
-FROM python:3.10
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+RUN apt-get update
+RUN apt-get install build-essential -y
 WORKDIR /home
 # Cache requirements install
 COPY test/common/requirements.txt /home/requirements.txt

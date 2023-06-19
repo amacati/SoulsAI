@@ -23,6 +23,14 @@ services:
       - ../../saves/:/home/SoulsAI/saves/
     depends_on:
       - redis
+    # Comment out the following lines if you don't have a GPU
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     user: "1000"
     networks:
       - server_net
@@ -54,6 +62,14 @@ services:
     depends_on:
       - redis
       - training_node
+    # Manually add secrets as volumes during runtime
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     user: "1000"
     networks:
       - server_net

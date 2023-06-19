@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 class Agent:
 
-    def __init__(self):
-        self.dev = torch.device("cpu")
+    def __init__(self, dev: torch.device = torch.device("cpu")):
+        self.dev = dev
         self.networks = torch.nn.ModuleDict()
         self.model_id = None
 
@@ -103,7 +103,7 @@ class DQNAgent(Agent):
     """
 
     def __init__(self, network_type: str, network_kwargs: dict, lr: float, gamma: float,
-                 multistep: int, grad_clip: float, q_clip: float):
+                 multistep: int, grad_clip: float, q_clip: float, dev: torch.device):
         """Initialize the networks and optimizers.
 
         Args:
@@ -115,7 +115,7 @@ class DQNAgent(Agent):
             grad_clip: Gradient clipping value for the Q networks.
             q_clip: Maximal value of the estimator network during training.
         """
-        super().__init__()
+        super().__init__(dev)
         self.q_clip = q_clip
         self.network_type = network_type
         Net = get_net_class(network_type)
@@ -162,7 +162,7 @@ class DQNAgent(Agent):
         actions = torch.as_tensor(actions)
         dones = torch.as_tensor(dones, dtype=torch.float32).to(self.dev)
         if action_masks is not None:
-            action_masks = torch.as_tensor(action_masks, dtype=torch.bool)
+            action_masks = torch.as_tensor(action_masks, dtype=torch.bool).to(self.dev)
         q_a = train_net(states)[range(batch_size), actions]
         with torch.no_grad():
             q_next = train_net(next_states)
@@ -188,8 +188,8 @@ class DistributionalDQNAgent(Agent):
     """QR DQN agent."""
 
     def __init__(self, network_type: str, network_kwargs: dict, lr: float, gamma: float,
-                 multistep: int, grad_clip: float, q_clip: float, tau: float):
-        super().__init__()
+                 multistep: int, grad_clip: float, q_clip: float, tau: float, dev: torch.device):
+        super().__init__(dev)
         self.network_type = network_type
         Net = get_net_class(network_type)
         self.networks.add_module("qr_dqn", Net(**network_kwargs).to(self.dev))
@@ -230,12 +230,13 @@ class DistributionalDQNAgent(Agent):
         next_states = torch.as_tensor(next_states, dtype=torch.float32).to(self.dev)
         dones = torch.as_tensor(dones, dtype=torch.float32).unsqueeze(-1).to(self.dev)
         if action_masks is not None:
-            action_masks = torch.as_tensor(action_masks, dtype=torch.bool)
+            action_masks = torch.as_tensor(action_masks, dtype=torch.bool).to(self.dev)
         q_a = self.networks["qr_dqn"](states)[range(batch_size), :, actions]
         with torch.no_grad():
             q_next = self.networks["qr_dqn_target"](next_states)
             if action_masks is not None:
-                assert False, "Action mask not developed, check implementation"
+                assert action_masks.shape == (batch_size, self.networks["qr_dqn"].output_dims)
+                action_masks = action_masks.unsqueeze(1).expand(q_next.shape)
                 q_next = torch.where(action_masks, q_next, -torch.inf)
             a_next = torch.argmax(q_next.mean(dim=1), dim=1)
             q_next = q_next[range(batch_size), :, a_next]
