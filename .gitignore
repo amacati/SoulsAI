@@ -20,7 +20,7 @@ data/*
 soulsai/distributed/server/training_node/config.yaml
 soulsai/distributed/client/config.yaml
 soulsai/distributed/server/reverse-proxy/certbot/*
-soulsai/distributed/server/reverse-proxy/nginx/*
+# soulsai/distributed/server/reverse-proxy/nginx/*
 soulsai/distributed/server/monitoring/grafana/grafana_data
 
 test/distributed/dqn/client/config.yaml
