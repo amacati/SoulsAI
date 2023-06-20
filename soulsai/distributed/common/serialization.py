@@ -80,13 +80,12 @@ class DQNSerializer(Serializer):
         tel["bossHp"] = float(tel["obs"][2])
         del tel["obs"]
         tel["win"] = bool(tel["bossHp"] == 0)
+        tel["reward"] = float(tel["reward"])
         return self.capnp_msgs.Telemetry.new_message(**tel).to_bytes()
 
     def _deserialize_SoulsGymIudex_v0_telemetry(self, data: bytes) -> dict:
         with self.capnp_msgs.Telemetry.from_bytes(data) as sample:
-            x = sample.to_dict()
-        x["obs"] = np.array(x["obs"])
-        x["nextObs"] = np.array(x["nextObs"])
+            return sample.to_dict()
 
     def _serialize_LunarLander_v2_sample(self, sample: dict) -> bytes:
         sample["obs"] = sample["obs"].tolist()
