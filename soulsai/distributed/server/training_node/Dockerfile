@@ -7,9 +7,11 @@ RUN rm /home/requirements.txt
 COPY . /home/SoulsAI
 # Remove all secret files from the container
 RUN find /home/SoulsAI -type f -name '*.secret' -delete
+RUN apt update
+RUN apt install git -y
 RUN git clone https://github.com/amacati/SoulsGym.git
 WORKDIR /home/SoulsGym
-RUN python setup.py develop
+RUN pip install -e .
 WORKDIR /home/SoulsAI
 RUN python setup.py develop
 ENTRYPOINT ["python", "soulsai/distributed/server/training_node/launch_node.py"]
