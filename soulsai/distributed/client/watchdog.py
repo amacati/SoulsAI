@@ -42,10 +42,11 @@ class ClientWatchdog:
         self.watchdog_thread.start()
         while not self.shutdown.is_set():
             try:
-                self._watched_fn(*self._external_args, stop_flag=self._fn_shutdown,
+                self._watched_fn(*self._external_args,
+                                 stop_flag=self._fn_shutdown,
                                  sample_gauge=self.sample_gauge)
             except Exception as e:
-                logger.info(e)
+                logger.info(f"{type(e).__name__}: {e}")
                 self._fn_shutdown.clear()
                 time.sleep(30)  # Give the game time to reset
                 continue

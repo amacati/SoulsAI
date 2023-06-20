@@ -64,6 +64,8 @@ class DQNSerializer(Serializer):
     def _serialize_SoulsGymIudex_v0_sample(self, sample: dict) -> bytes:
         sample["obs"] = sample["obs"].tolist()
         sample["nextObs"] = sample["nextObs"].tolist()
+        sample["reward"] = float(sample["reward"])
+        sample["info"] = {"allowedActions": sample["info"]["allowed_actions"]}
         return self.capnp_msgs.DQNSample.new_message(**sample).to_bytes()
 
     def _deserialize_SoulsGymIudex_v0_sample(self, data: bytes) -> dict:
@@ -71,6 +73,7 @@ class DQNSerializer(Serializer):
             x = sample.to_dict()
         x["obs"] = np.array(x["obs"])
         x["nextObs"] = np.array(x["nextObs"])
+        x["info"] = {"allowed_actions": x["info"]["allowedActions"]}
         return x
 
     def _serialize_SoulsGymIudex_v0_telemetry(self, tel: dict) -> bytes:
