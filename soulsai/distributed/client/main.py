@@ -18,7 +18,6 @@ Example:
 from pathlib import Path
 import logging
 
-import torch.multiprocessing as mp
 import soulsgym  # noqa: F401, needs to register SoulsGym envs with gym module
 
 from soulsai.distributed.client.dqn_client import dqn_client
@@ -29,7 +28,6 @@ from soulsai.exception import InvalidConfigError
 from soulsai.utils import load_remote_config, load_redis_secret
 
 if __name__ == "__main__":
-    mp.set_start_method("spawn")
     logging.basicConfig()
     node_dir = Path(__file__).parents[3] / "config"
     config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
