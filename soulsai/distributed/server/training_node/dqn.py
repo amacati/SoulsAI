@@ -88,7 +88,7 @@ class DQNTrainingNode(TrainingNode):
         logger.info("DQN training node startup complete")
 
     @property
-    def serializer(self):
+    def serializer(self) -> DQNSerializer:
         return self._serializer
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:

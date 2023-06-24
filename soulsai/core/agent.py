@@ -17,7 +17,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-from soulsai.core.networks import get_net_class, polyak_update
+from soulsai.core.networks import get_net_class
 
 logger = logging.getLogger(__name__)
 
@@ -192,17 +192,16 @@ class DistributionalDQNAgent(Agent):
         super().__init__(dev)
         self.network_type = network_type
         Net = get_net_class(network_type)
-        self.networks.add_module("qr_dqn", Net(**network_kwargs).to(self.dev))
-        self.networks.add_module("qr_dqn_target", Net(**network_kwargs).to(self.dev))
-        for params in self.networks["qr_dqn_target"].parameters():  # Disable param tracking
-            params.requires_grad = False
-        self.opt = torch.optim.Adam(self.networks["qr_dqn"].parameters(), lr)
+        self.networks.add_module("qr_dqn1", Net(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn2", Net(**network_kwargs).to(self.dev))
+        self.opt1 = torch.optim.Adam(self.networks["qr_dqn1"].parameters(), lr)
+        self.opt2 = torch.optim.Adam(self.networks["qr_dqn2"].parameters(), lr)
         self.gamma = gamma
         self.multistep = multistep
         self.grad_clip = grad_clip
         self.q_clip = q_clip
         self.tau = tau  # For Polyak update
-        N = self.networks["qr_dqn"].n_quantiles
+        N = self.networks["qr_dqn1"].n_quantiles
         self.quantile_tau = torch.tensor([i / N for i in range(1, N + 1)]).float().to(self.dev)
 
     def train(self,
@@ -222,8 +221,13 @@ class DistributionalDQNAgent(Agent):
             dones: A batch of episode termination flags.
             action_masks: Optional batch of mask for actions.
         """
-        batch_size, N = states.shape[0], self.networks["qr_dqn"].n_quantiles
-        self.opt.zero_grad()
+        batch_size, N = states.shape[0], self.networks["qr_dqn1"].n_quantiles
+        coin = random.choice([True, False])
+        train_net, estimate_net = ("qr_dqn1", "qr_dqn2") if coin else ("qr_dqn2", "qr_dqn1")
+        train_net, estimate_net = self.networks[train_net], self.networks[estimate_net]
+        self.opt1.zero_grad()
+        self.opt2.zero_grad()
+        train_opt = self.opt1 if coin else self.opt2
         # Move data to tensors. Unsqueeze rewards and dones in preparation for broadcasting
         states = torch.as_tensor(states, dtype=torch.float32).to(self.dev)
         rewards = torch.as_tensor(rewards, dtype=torch.float32).unsqueeze(-1).to(self.dev)
@@ -231,28 +235,28 @@ class DistributionalDQNAgent(Agent):
         dones = torch.as_tensor(dones, dtype=torch.float32).unsqueeze(-1).to(self.dev)
         if action_masks is not None:
             action_masks = torch.as_tensor(action_masks, dtype=torch.bool).to(self.dev)
-        q_a = self.networks["qr_dqn"](states)[range(batch_size), :, actions]
+        q_a = train_net(states)[range(batch_size), :, actions]
         with torch.no_grad():
-            q_next = self.networks["qr_dqn_target"](next_states)
+            q_next = train_net(next_states)  # Let train net choose actions
             if action_masks is not None:
                 assert action_masks.shape == (batch_size, self.networks["qr_dqn"].output_dims)
                 action_masks = action_masks.unsqueeze(1).expand(q_next.shape)
                 q_next = torch.where(action_masks, q_next, -torch.inf)
             a_next = torch.argmax(q_next.mean(dim=1), dim=1)
-            q_next = q_next[range(batch_size), :, a_next]
-            assert q_next.shape == (batch_size, N)
-            q_next = torch.clamp(q_next, -self.q_clip, self.q_clip)
-            q_targets = rewards + self.gamma**self.multistep * q_next * (1 - dones)
+            # Estimate quantiles of actions chosen by train net with estimate net to avoid
+            # overestimation
+            q_a_next = estimate_net(next_states)[range(batch_size), :, a_next]
+            assert q_a_next.shape == (batch_size, N)
+            q_a_next = torch.clamp(q_a_next, -self.q_clip, self.q_clip)
+            q_targets = rewards + self.gamma**self.multistep * q_a_next * (1 - dones)
         td_error = q_targets[:, None, :] - q_a[..., None]  # Broadcast to shape [B N N]
         assert td_error.shape == (batch_size, N, N)
         huber_loss = F.huber_loss(td_error, torch.zeros_like(td_error), reduction="none", delta=1.)
         quantile_loss = abs(self.quantile_tau - (td_error.detach() < 0).float()) * huber_loss
         loss = quantile_loss.sum(dim=1).mean()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.networks["qr_dqn"].parameters(), self.grad_clip)
-        self.opt.step()
-        # Upate the target network
-        polyak_update(self.networks["qr_dqn"], self.networks["qr_dqn_target"], self.tau)
+        torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
+        train_opt.step()
 
 
 class ClientAgent(Agent):
@@ -328,8 +332,8 @@ class DistributionalDQNClientAgent(ClientAgent):
         super().__init__()
         self.network_type = network_type
         Net = get_net_class(network_type)
-        self.networks.add_module("qr_dqn", Net(**network_kwargs).to(self.dev))
-        self.networks.add_module("qr_dqn_target", Net(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn1", Net(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn2", Net(**network_kwargs).to(self.dev))
 
     def __call__(self, x: np.ndarray, action_mask: np.ndarray | None = None) -> int:
         """Calculate the current best action.
@@ -343,7 +347,7 @@ class DistributionalDQNClientAgent(ClientAgent):
         """
         with torch.no_grad():
             x = torch.as_tensor(x).to(self.dev)
-            qvalues = self.networks["qr_dqn"](x)
+            qvalues = self.networks["qr_dqn1"](x) + self.networks["qr_dqn2"](x)
             qvalues = qvalues.mean(dim=1)
             if action_mask is not None:
                 c = torch.as_tensor(action_mask, dtype=torch.bool)
