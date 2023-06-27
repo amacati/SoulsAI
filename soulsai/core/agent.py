@@ -210,7 +210,8 @@ class DistributionalDQNAgent(Agent):
               rewards: np.ndarray,
               next_states: np.ndarray,
               dones: np.ndarray,
-              action_masks: np.ndarray | None = None):
+              action_masks: np.ndarray | None = None,
+              weights: np.ndarray | None = None) -> np.ndarray:
         """Train the agent with quantile regression DQN and a target network.
 
         Args:
@@ -220,6 +221,10 @@ class DistributionalDQNAgent(Agent):
             next_states: A batch of next states.
             dones: A batch of episode termination flags.
             action_masks: Optional batch of mask for actions.
+            weights: Optional batch of weights for prioritized experience replay.
+
+        Returns:
+            The TD error for each sample in the batch.
         """
         batch_size, N = states.shape[0], self.networks["qr_dqn1"].n_quantiles
         coin = random.choice([True, False])
@@ -239,7 +244,7 @@ class DistributionalDQNAgent(Agent):
         with torch.no_grad():
             q_next = train_net(next_states)  # Let train net choose actions
             if action_masks is not None:
-                assert action_masks.shape == (batch_size, self.networks["qr_dqn"].output_dims)
+                assert action_masks.shape == (batch_size, self.networks["qr_dqn1"].output_dims)
                 action_masks = action_masks.unsqueeze(1).expand(q_next.shape)
                 q_next = torch.where(action_masks, q_next, -torch.inf)
             a_next = torch.argmax(q_next.mean(dim=1), dim=1)
@@ -253,10 +258,17 @@ class DistributionalDQNAgent(Agent):
         assert td_error.shape == (batch_size, N, N)
         huber_loss = F.huber_loss(td_error, torch.zeros_like(td_error), reduction="none", delta=1.)
         quantile_loss = abs(self.quantile_tau - (td_error.detach() < 0).float()) * huber_loss
-        loss = quantile_loss.sum(dim=1).mean()
+        assert quantile_loss.shape == (batch_size, N, N), quantile_loss.shape
+        summed_quantile_loss = quantile_loss.mean(dim=2).sum(1)
+        if weights is not None:
+            assert weights.shape == (batch_size,)
+            weights = torch.tensor(weights).to(self.dev)
+            summed_quantile_loss = summed_quantile_loss * weights
+        loss = summed_quantile_loss.mean()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
         train_opt.step()
+        return summed_quantile_loss.detach().cpu().numpy()
 
 
 class ClientAgent(Agent):

@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import torch
 
-from soulsai.core.replay_buffer import PerformanceBuffer
+from soulsai.core.replay_buffer import get_buffer_class
 from soulsai.core.agent import DistributionalDQNAgent, DQNAgent
 from soulsai.core.normalizer import Normalizer
 from soulsai.core.scheduler import EpsilonScheduler
@@ -71,8 +71,13 @@ class DQNTrainingNode(TrainingNode):
         else:
             norm_kwargs = {}
         self.normalizer = Normalizer(self.config.n_states, **norm_kwargs)
-        self.buffer = PerformanceBuffer(self.config.dqn.buffer_size, self.config.n_states,
-                                        self.config.n_actions, self.config.dqn.action_masking)
+        if self.config.dqn.replay_buffer_kwargs is not None:
+            buffer_kwargs = namespace2dict(self.config.dqn.replay_buffer_kwargs)
+        else:
+            buffer_kwargs = {}
+        self.buffer = get_buffer_class(self.config.dqn.replay_buffer)(
+            self.config.dqn.buffer_size, self.config.n_states, self.config.n_actions,
+            self.config.dqn.action_masking, **buffer_kwargs)
         self.eps_scheduler = EpsilonScheduler(self.config.dqn.eps_max,
                                               self.config.dqn.eps_min,
                                               self.config.dqn.eps_steps,
@@ -144,16 +149,27 @@ class DQNTrainingNode(TrainingNode):
 
     def _dqn_step(self):
         """Sample batches, normalize the values if applicable, and update the agent."""
-        batches = self.buffer.sample_batches(self.config.dqn.batch_size,
-                                             self.config.dqn.train_epochs)
+        if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
+            batches, indices, weights = self.buffer.sample_batches(self.config.dqn.batch_size,
+                                                                   self.config.dqn.train_epochs)
+        else:
+            batches = self.buffer.sample_batches(self.config.dqn.batch_size,
+                                                 self.config.dqn.train_epochs)
         if self.config.dqn.normalize:
             for batch in batches:
                 self.normalizer.update(batch[0])  # Use states to update the normalizer
             for batch in batches:
                 batch[0] = self.normalizer.normalize(batch[0])  # Normalize all states for training
                 batch[3] = self.normalizer.normalize(batch[3])  # Normalize next states as well
-        for batch in batches:
-            self.agent.train(*batch)
+        for i, batch in enumerate(batches):
+            if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
+                td_errors = self.agent.train(*batch, weights=weights[i])
+            else:
+                self.agent.train(*batch)
+            if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
+                # Sqrt since alpha in PRB is fixed to 0.5. See e.g. Dopamine implementation
+                # https://github.com/google/dopamine/blob/a6f414ca01a81e933359a4922965178a40e0f38a/dopamine/jax/agents/quantile/quantile_agent.py#L262
+                self.buffer.update_priorities(indices[i], td_errors)
         self.agent.update_callback()
 
     def checkpoint(self, path: Path):

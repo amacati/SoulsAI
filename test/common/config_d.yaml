@@ -66,6 +66,8 @@ dqn:
   noise: "UniformDiscreteNoise"
   noise_kwargs:
     size_n: 4
+  replay_buffer: "ReplayBuffer"
+  replay_buffer_kwargs:
   action_masking: False
   normalize: True
   normalizer_kwargs:

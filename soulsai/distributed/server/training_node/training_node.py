@@ -21,7 +21,6 @@ from types import SimpleNamespace
 
 import numpy as np
 from redis import Redis
-import torch
 from prometheus_client import start_http_server, Info, Counter, Gauge
 
 from soulsai.distributed.common.serialization import Serializer
@@ -41,7 +40,7 @@ class TrainingNode(ABC):
         """
         # Set torch settings: Flush denormal floats. See also:
         # https://discuss.pytorch.org/t/training-time-gets-slower-and-slower-on-cpu/145483
-        torch.set_flush_denormal(True)
+        # torch.set_flush_denormal(True)
         self.np_random = np.random.default_rng()  # https://numpy.org/neps/nep-0019-rng-policy.html
         self._shutdown = mp.Event()
         self._lock = mp.Lock()

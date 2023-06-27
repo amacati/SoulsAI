@@ -1,6 +1,9 @@
 """The replay buffer module offers performant implementations of replay buffers for DQN and PPO."""
+from __future__ import annotations
+
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Type
+import sys
 
 import numpy as np
 import torch
@@ -8,7 +11,25 @@ import torch
 from soulsai.core.agent import PPOAgent
 
 
-class PerformanceBuffer:
+def get_buffer_class(buffer_type: str) -> Type[ReplayBuffer | PrioritizedReplayBuffer]:
+    """Get the buffer class from the buffer string.
+
+    Note:
+        This function returns a type rather than an instance!
+
+    Args:
+        buffer_type: The buffer type name.
+
+    Returns:
+        The buffer type.
+
+    Raises:
+        AttributeError: The specified buffer type does not exist.
+    """
+    return getattr(sys.modules[__name__], buffer_type)
+
+
+class ReplayBuffer:
     """Fast implementation of a replay buffer.
 
     Buffers for states, actions, action masks, rewards, next states, and dones are preallocated.
@@ -281,18 +302,16 @@ class PrioritizedReplayBuffer:
                  maxlen: int,
                  n_states: int,
                  n_actions: int,
-                 alpha: float,
-                 beta: float,
-                 action_masking: bool = False):
+                 action_masking: bool = False,
+                 beta: float = 0.5):
         """Preallocate the buffer arrays and set the index to 0.
 
         Args:
             maxlen: Maximum buffer capacity.
             n_states: State dimensionality.
             n_actions: Number of possible actions.
-            alpha: Prioritization exponent. Controls how much prioritization is used.
-            beta: Weight correction exponent. Controls how much bias correction is used.
             action_masking: Flag to disable/enable action masking.
+            beta: Weight correction exponent. Controls how much bias correction is used.
         """
         self.maxlen = maxlen
         self._idx = 0
@@ -307,8 +326,7 @@ class PrioritizedReplayBuffer:
         self._priorities = np.zeros(maxlen)
         self._sum_priorities_alpha = 0
         self._max_priority_idx = 0
-        self._alpha = alpha
-        self._beta = beta
+        self.beta = beta
 
     def append(self, sample: Dict):
         """Append a sample to the buffer.
@@ -339,8 +357,8 @@ class PrioritizedReplayBuffer:
         # Set the priortiy of the new sample to the current maximum priority and update the sum of
         # priorities
         priority = 1.0 if self._maxidx == -1 else self._priorities[self._max_priority_idx]
-        self._priorities[self._idx] = priority
-        self._sum_priorities_alpha += self._priorities[self._idx]**self._alpha
+        self._priorities[self._idx] = priority + 1e-10
+        self._sum_priorities_alpha += np.sqrt(self._priorities[self._idx])
         # Update the internal index and the maximum index
         self._idx = (self._idx + 1) % self.maxlen
         self._maxidx = min(self._maxidx + 1, self.maxlen - 1)
@@ -379,14 +397,14 @@ class PrioritizedReplayBuffer:
         if batch_size > self._maxidx + 1:
             raise RuntimeError("Asked to sample more elements than available in buffer")
         priorities = self._priorities[:self._maxidx + 1]
-        probabilities = priorities**self._alpha / self._sum_priorities_alpha
+        probabilities = np.sqrt(priorities) / self._sum_priorities_alpha
         i = np.random.choice(self._maxidx + 1, batch_size, replace=False, p=probabilities)
         sample = [self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i]]
         if self._action_masking:
             sample.append(self._b_am[i])
-        weights = ((self._maxidx + 1) * probabilities[i])**-self._beta
+        weights = ((self._maxidx + 1) * probabilities[i])**-self.beta
         normalized_weights = weights / weights.max()
-        return sample, i, normalized_weights
+        return sample, i, normalized_weights.astype(np.float32)
 
     def sample_batches(
             self, batch_size: int,
@@ -409,7 +427,7 @@ class PrioritizedReplayBuffer:
         if batch_size > self._maxidx + 1:
             raise RuntimeError("Asked to sample more elements than available in buffer")
         priorities = self._priorities[:self._maxidx + 1]
-        probabilities = priorities**self._alpha / self._sum_priorities_alpha
+        probabilities = np.sqrt(priorities) / self._sum_priorities_alpha
         # If the buffer contains more samples than requested in total, indices are chosen such that
         # no sample is sampled twice across all batches. If more total samples are requested than
         # available in the buffer, resort to random independent indices in each batch
@@ -432,25 +450,9 @@ class PrioritizedReplayBuffer:
         else:
             batches = [[self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i]]
                        for i in indices]
-        weights = [((self._maxidx + 1) * probabilities[i])**-self._beta for i in indices]
-        normalized_weights = [w / w.max() for w in weights]
+        weights = [((self._maxidx + 1) * probabilities[i])**-self.beta for i in indices]
+        normalized_weights = [(w / w.max()).astype(np.float32) for w in weights]
         return batches, indices, normalized_weights
-
-    def update_alpha_beta(self, alpha: float, beta: float):
-        """Update the alpha and beta values used for prioritization and bias correction.
-
-        Note:
-            An update of alpha and beta forces a recalculation of the sum of priorities. This can be
-            expensive for large buffers. Therefore, it is recommended to update alpha and beta only
-            sparingly.
-
-        Args:
-            alpha: New prioritization exponent.
-            beta: New weight correction exponent.
-        """
-        self._alpha = alpha
-        self._beta = beta
-        self._sum_priorities_alpha = np.sum(self._priorities**alpha)
 
     def update_priorities(self, indices: np.ndarray, priorities: np.ndarray):
         # First, check if the maximum has changed. If so, update the maximum index. Then, update the
@@ -458,9 +460,9 @@ class PrioritizedReplayBuffer:
         # to the sum. Finally, update the priorities in the buffer.
         if np.max(priorities) > self._priorities[self._max_priority_idx]:
             self._max_priority_idx = indices[np.argmax(priorities)]
-        self._sum_priorities_alpha -= np.sum(self._priorities[indices]**self._alpha)
-        self._sum_priorities_alpha += np.sum(priorities**self._alpha)
-        self._priorities[indices] = priorities
+        self._sum_priorities_alpha -= np.sum(np.sqrt(self._priorities[indices]))
+        self._priorities[indices] = priorities + 1e-10
+        self._sum_priorities_alpha += np.sum(np.sqrt(self._priorities[indices]))
 
     def save(self, path: Path):
         """Save the buffers to the specified path.
