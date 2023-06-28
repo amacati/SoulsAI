@@ -347,7 +347,7 @@ class PrioritizedReplayBuffer:
         # Update the sum of priorities (to the power of alpha) and the maximum priority index. We
         # keep track of the sum of priorities to avoid having to recompute it every time we sample
         # from the buffer.
-        self._sum_priorities_alpha -= self._priorities[self._idx]
+        self._sum_priorities_alpha -= np.sqrt(self._priorities[self._idx])
         # Check if the maximum index is about to be overwritten. If it is, we first need to
         # recompute the new maximum index and priority. In practice, this does not happen often, as
         # older samples should generally have a lower TD error and therefore lower priority.
