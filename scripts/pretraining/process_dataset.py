@@ -19,8 +19,8 @@ def create_train_test_split(test_fraction):
     test_folders = folders[-n_test_folders:]
     train_path = root_path / "train_data"
     train_path.mkdir()
-    for folder in train_folders:
-        folder.rename(train_path / folder.name)
+    for idx, folder in enumerate(train_folders):
+        folder.rename(train_path / f"{idx:04d}")
     test_path = root_path / "test_data"
     test_path.mkdir()
     for idx, folder in enumerate(test_folders):  # Rename so that the folders are numbered from 0
@@ -45,7 +45,7 @@ def create_annotations(path):
 def convert_observations(path):
     obs_transformer = GameStateTransformer()
     annotations = pd.read_csv(path / "annotations.csv")
-    all_obs = torch.empty((len(annotations), 71), dtype=torch.float32)
+    all_obs = torch.empty((len(annotations), 74), dtype=torch.float32)
     pbar = tqdm(total=len(annotations), desc="Creating observations")
     labels = []
     for idx, row in annotations.iterrows():
@@ -89,7 +89,7 @@ def create_single_img_file(path):
 
 
 def main(args):
-    # create_train_test_split(args.test_fraction)
+    create_train_test_split(args.test_fraction)
     train_path = Path(__file__).parents[2] / "data" / "soulsgym_dataset" / "train_data"
     test_path = Path(__file__).parents[2] / "data" / "soulsgym_dataset" / "test_data"
     print("Creating train annotations...")

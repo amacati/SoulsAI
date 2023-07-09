@@ -5,6 +5,39 @@ import pandas as pd
 import einops
 
 
+class SoulsGymImageDataset(Dataset):
+
+    def __init__(self, root_dir, device, in_memory, transform=None):
+        self.root_dir = root_dir
+        self.transform = transform
+        self.device = device
+        self._in_memory = in_memory
+        if in_memory:
+            data_path = self.root_dir / "all_images.pt"
+            assert data_path.exists(), "Dataset has not been preprocessed for in-memory loading."
+            self.data = torch.load(self.root_dir / "all_images.pt")
+        self.annotations = pd.read_csv(root_dir / "annotations.csv")
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        data = self._getitem_from_memory(idx) if self._in_memory else self._getitem_from_disk(idx)
+        if self.device:
+            data = data.to(self.device)
+        if self.transform:
+            data = self.transform(data)
+        return data
+
+    def _getitem_from_memory(self, idx: int) -> torch.Tensor:
+        return self.data[idx]
+
+    def _getitem_from_disk(self, idx):
+        row = self.annotations.iloc[idx]
+        folder, local_idx = row["folder"], row["local_idx"]
+        return read_image(str(self.root_dir / f"{folder:04d}" / f"{local_idx:04d}.png"))
+
+
 class SoulsGymDataset(Dataset):
 
     def __init__(self,
