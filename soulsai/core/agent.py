@@ -178,10 +178,10 @@ class DQNAgent(Agent):
             q_a_next = torch.clamp(q_a_next, -self.q_clip, self.q_clip)
             q_td = rewards + self.gamma**self.multistep * q_a_next * (1 - dones)
         sample_loss = (q_a - q_td)**2
-        loss = sample_loss.mean()
         if weights is not None:
             assert weights.shape == (batch_size,)
-            loss = loss * torch.tensor(weights).to(self.dev)
+            sample_loss = sample_loss * torch.tensor(weights).to(self.dev)
+        loss = sample_loss.mean()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
         train_opt.step()

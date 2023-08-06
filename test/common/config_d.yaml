@@ -44,7 +44,7 @@ ppo:
 
 # DQN parameters
 dqn:
-  variant: default  # [default, distributional]
+  variant: vanilla  # [vanilla, distributional]
   lr: 0.001
   eps_max: [0.1, 0.1, 0.05]
   eps_min: [0.1, 0.05, 0.01]

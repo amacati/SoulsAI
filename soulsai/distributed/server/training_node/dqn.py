@@ -58,7 +58,7 @@ class DQNTrainingNode(TrainingNode):
                                                 self.config.dqn.multistep,
                                                 self.config.dqn.grad_clip, self.config.dqn.q_clip,
                                                 self.config.dqn.tau, self.config.device)
-        elif self.config.dqn.variant == "default":
+        elif self.config.dqn.variant == "vanilla":
             self.agent = DQNAgent(self.config.dqn.network_type,
                                   namespace2dict(self.config.dqn.network_kwargs),
                                   self.config.dqn.lr, self.config.gamma, self.config.dqn.multistep,
@@ -157,7 +157,8 @@ class DQNTrainingNode(TrainingNode):
                 batch[3] = self.normalizer.normalize(batch[3])  # Normalize next states as well
         for batch in batches:
             if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
-                td_errors = self.agent.train(*batch[:-1])
+                # -2 because the last two elements are the weights and indices
+                td_errors = self.agent.train(*batch[:-2], weights=batch[-2])
             else:
                 self.agent.train(*batch)
             if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":

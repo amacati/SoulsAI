@@ -221,7 +221,7 @@ class DQNConnector:
         args = (config.dqn.network_type, namespace2dict(config.dqn.network_kwargs))
         if config.dqn.variant == "distributional":
             buffer_agent = DistributionalDQNClientAgent(*args)
-        elif config.dqn.variant == "default":
+        elif config.dqn.variant == "vanilla":
             buffer_agent = DQNClientAgent(*args)
         else:
             raise ValueError(f"DQN variant {config.dqn.variant} is not supported")

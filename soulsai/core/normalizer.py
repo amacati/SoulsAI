@@ -23,12 +23,15 @@ class Normalizer(nn.Module):
     update.
     """
 
-    def __init__(self, size_s: int, eps: float = 1e-2, clip: float = np.inf,
+    def __init__(self,
+                 state_shape: tuple[int, ...],
+                 eps: float = 1e-2,
+                 clip: float = np.inf,
                  idx_list: List | None = None):
         """Initialize the normalizer parameters.
 
         Args:
-            size_s: State dimension.
+            state_shape: State shape.
             eps: Minimum denominator for normalization. Enforces stability in case of low variances.
             clip: Normalization clipping value. Restricts normalized values to the interval of
                 [-clip, clip].
@@ -36,15 +39,19 @@ class Normalizer(nn.Module):
                 are normalized by default.
         """
         super().__init__()
-        self.size = size_s
+        self.state_shape = state_shape
+        self.state_dim = len(state_shape)
         self.clip = clip
-        self.idx = nn.Parameter(torch.tensor(idx_list or range(0, size_s), dtype=torch.int64),
-                                requires_grad=False)
-        self.eps2 = torch.ones(size_s, dtype=torch.float32) * eps**2
+        mask = torch.ones(state_shape, dtype=torch.bool)
+        if idx_list is not None:
+            mask[:] = False
+            mask[idx_list] = True
+        self.mask = nn.Parameter(mask, requires_grad=False)
+        self.eps2 = torch.ones(state_shape, dtype=torch.float32) * eps**2
         self.count = nn.Parameter(torch.tensor(0, dtype=torch.int64), requires_grad=False)
-        self.mean = nn.Parameter(torch.zeros(size_s, dtype=torch.float32), requires_grad=False)
-        self._m2 = nn.Parameter(torch.zeros(size_s, dtype=torch.float32), requires_grad=False)
-        self.std = nn.Parameter(torch.ones(size_s, dtype=torch.float32), requires_grad=False)
+        self.mean = nn.Parameter(torch.zeros(state_shape, dtype=torch.float32), requires_grad=False)
+        self._m2 = nn.Parameter(torch.zeros(state_shape, dtype=torch.float32), requires_grad=False)
+        self.std = nn.Parameter(torch.ones(state_shape, dtype=torch.float32), requires_grad=False)
 
     def normalize(self, x: List | np.ndarray | torch.Tensor) -> torch.Tensor:
         """Normalize the input data with the current mean and variance estimate.
@@ -55,8 +62,8 @@ class Normalizer(nn.Module):
             The normalized data.
         """
         x = self._sanitize_input(x).clone()
-        norm = (x[..., self.idx] - self.mean[self.idx]) / self.std[self.idx]
-        x[..., self.idx] = torch.clip(norm, -self.clip, self.clip)
+        norm = (x[..., self.mask] - self.mean[self.mask]) / self.std[self.mask]
+        x[..., self.mask] = torch.clip(norm, -self.clip, self.clip)
         return x
 
     def update(self, x: List | np.ndarray | torch.Tensor):
@@ -67,7 +74,7 @@ class Normalizer(nn.Module):
         """
         # Use a batched version of Welford's algorithm for numerical stability
         x = self._sanitize_input(x)
-        assert x.ndim == 2
+        assert x.ndim == self.state_dim + 1, "Input data must be a batch of arrays."
         self.count += x.shape[0]
         delta = x - self.mean
         self.mean += torch.sum(delta / self.count, axis=0)
@@ -80,28 +87,30 @@ class Normalizer(nn.Module):
         Returns:
             The dictionary containing the saved tensors.
         """
-        idx_buff, mean_buff, std_buff = io.BytesIO(), io.BytesIO(), io.BytesIO()
-        torch.save(self.idx, idx_buff)
-        idx_buff.seek(0)
+        mask_buff, mean_buff, std_buff = io.BytesIO(), io.BytesIO(), io.BytesIO()
+        torch.save(self.mask, mask_buff)
+        mask_buff.seek(0)
         torch.save(self.mean, mean_buff)
         mean_buff.seek(0)
         torch.save(self.std, std_buff)
         std_buff.seek(0)
-        return {"norm.idx": idx_buff.read(),
-                "norm.mean": mean_buff.read(),
-                "norm.std": std_buff.read()}
+        return {
+            "norm.mask": mask_buff.read(),
+            "norm.mean": mean_buff.read(),
+            "norm.std": std_buff.read()
+        }
 
     @staticmethod
     def deserialize(serialization: dict) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Deserialize the norm parameter buffers in the state dict.
 
-        The dictionary is assumed to contain the ``norm.idx``, ``norm.mean`` and ``norm.std`` keys.
+        The dictionary is assumed to contain the ``norm.mask``, ``norm.mean`` and ``norm.std`` keys.
 
         Args:
             serialization: Dictionary containing the byte objects of torch tensors at predefined
                 keys.
         """
-        idx_buff = io.BytesIO(serialization["norm.idx"])
+        idx_buff = io.BytesIO(serialization["norm.mask"])
         mean_buff = io.BytesIO(serialization["norm.mean"])
         std_buff = io.BytesIO(serialization["norm.std"])
         idx_buff.seek(0)
@@ -109,7 +118,7 @@ class Normalizer(nn.Module):
         std_buff.seek(0)
         return torch.load(idx_buff), torch.load(mean_buff), torch.load(std_buff)
 
-    def load_params(self, idx: torch.Tensor, mean: torch.Tensor, std: torch.Tensor):
+    def load_params(self, mask: torch.Tensor, mean: torch.Tensor, std: torch.Tensor):
         """Load the parameter tensors into the normalizer.
 
         Warning:
@@ -118,11 +127,11 @@ class Normalizer(nn.Module):
             ``count`` values.
 
         Args:
-            idx: The index parameters.
+            mask: The mask parameters.
             mean: The mean parameters.
             std: The standard deviation parameters.
         """
-        self.idx[:] = idx
+        self.mask[:] = mask
         self.mean[:] = mean
         self.std[:] = std
 

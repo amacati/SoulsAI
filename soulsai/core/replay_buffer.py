@@ -353,7 +353,7 @@ class PrioritizedReplayBuffer(AbstractBuffer):
             batch_size: Number of samples in the batch.
 
         Returns:
-            The sampled batch including the indices of the samples and the weights of the samples.
+            The sampled batch including the weights and the indices of the samples.
 
         Raises:
             RuntimeError: Asked to sample more samples than currently available.
@@ -368,7 +368,7 @@ class PrioritizedReplayBuffer(AbstractBuffer):
             batch.append(self._b_am[i])
         weights = ((self._maxidx + 1) * probabilities[i])**-self.beta
         normalized_weights = weights / weights.max()
-        batch.extend([i, normalized_weights.astype(np.float32)])
+        batch.extend([normalized_weights.astype(np.float32), i])
         return batch
 
     def sample_batches(self, batch_size: int, nbatches: int) -> list[list[np.ndarray]]:
@@ -382,7 +382,7 @@ class PrioritizedReplayBuffer(AbstractBuffer):
             nbatches: Number of batches.
 
         Returns:
-            The sampled batches including the sample indices and their weights.
+            The sampled batches including the weights and the indices of the samples.
 
         Raises:
             RuntimeError: Asked to sample more samples per batch than currently available.
@@ -411,11 +411,11 @@ class PrioritizedReplayBuffer(AbstractBuffer):
         if self._action_masking:
             batches = [[
                 self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i],
-                self._b_am[i], i, weight
+                self._b_am[i], weight, i
             ] for i, weight in zip(indices, normalized_weights)]
         else:
             batches = [[
-                self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i], i, weight
+                self._b_s[i], self._b_a[i], self._b_r[i], self._b_sn[i], self._b_d[i], weight, i
             ] for i, weight in zip(indices, normalized_weights)]
         return batches
 
