@@ -7,6 +7,7 @@ import pandas as pd
 from tqdm import tqdm
 import torch
 from torchvision.io import read_image
+from torchvision.transforms.functional import convert_image_dtype
 
 from soulsai.data.transformation import GameStateTransformer
 
@@ -81,10 +82,11 @@ def create_single_img_file(path):
     # We have to iterate so we don't run out of memory
     mean, sq_std = 0, 0
     for img in tqdm(img_tensor, "Calculating mean and std for images"):
-        mean += img.float().mean(dim=(1, 2))
-        sq_std += img.float().std(dim=(1, 2))**2
-    mean /= len(img_tensor)
-    std = torch.sqrt(sq_std / len(img_tensor))  # std = sqrt((std1^2 + std2^2 + ... + stdN^2) / N)
+        img = convert_image_dtype(img, torch.float32)
+        mean += img.mean(dim=(1, 2))
+        sq_std += img.std(dim=(1, 2))**2
+    mean /= img_tensor.shape[0]
+    std = torch.sqrt(sq_std / img_tensor.shape[0])  # std = sqrt((std1^2 + ... + stdN^2) / N)
     torch.save((mean, std), path / "mean_std.pt")
 
 

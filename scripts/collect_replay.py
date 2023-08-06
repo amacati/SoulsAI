@@ -27,11 +27,10 @@ def load_agent(path):
     norm_kwargs = {}
     if config.dqn.normalizer_kwargs is not None:
         norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
+    normalizer = None
     if config.dqn.normalize:
-        normalizer = Normalizer(config.n_states, **norm_kwargs)
+        normalizer = Normalizer(config.state_shape, **norm_kwargs)
         normalizer.load_state_dict(torch.load(path / "normalizer.pt"))
-    else:
-        normalizer = None
     obs_transform = GameStateTransformer().transform
     return agent, normalizer, obs_transform
 

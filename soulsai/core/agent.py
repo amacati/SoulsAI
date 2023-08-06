@@ -133,7 +133,8 @@ class DQNAgent(Agent):
               rewards: np.ndarray,
               next_states: np.ndarray,
               dones: np.ndarray,
-              action_masks: np.ndarray | None = None):
+              action_masks: np.ndarray | None = None,
+              weights: np.ndarray | None = None):
         """Train the agent with dueling Q networks and optional action masks.
 
         Calculates the TD error between the predictions from the trained network and the data with
@@ -148,6 +149,10 @@ class DQNAgent(Agent):
             next_states: A batch of next states.
             dones: A batch of episode termination flags.
             action_masks: Optional batch of mask for actions.
+            weights: Optional batch of weights for prioritized experience replay.
+
+        Returns:
+            The TD error for each sample in the batch.
         """
         batch_size = states.shape[0]
         coin = random.choice([True, False])
@@ -172,10 +177,15 @@ class DQNAgent(Agent):
             q_a_next = estimate_net(next_states)[range(batch_size), a_next]
             q_a_next = torch.clamp(q_a_next, -self.q_clip, self.q_clip)
             q_td = rewards + self.gamma**self.multistep * q_a_next * (1 - dones)
-        loss = F.mse_loss(q_a, q_td)
+        sample_loss = (q_a - q_td)**2
+        loss = sample_loss.mean()
+        if weights is not None:
+            assert weights.shape == (batch_size,)
+            loss = loss * torch.tensor(weights).to(self.dev)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
         train_opt.step()
+        return sample_loss.detach().cpu().numpy()
 
     def update_callback(self):
         """Reset noisy networks after an update."""

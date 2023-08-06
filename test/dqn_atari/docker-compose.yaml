@@ -1,0 +1,115 @@
+version: "3.8"
+services:
+  redis:
+    image: redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ../../config/redis.conf:/usr/local/etc/redis/redis.conf
+      - ../../config/redis.secret:/usr/local/etc/redis/redis.secret
+    ports:
+      - 6379:6379
+    networks:
+      - server_net
+
+  training_node:
+    build:
+      dockerfile: test/dqn_atari/training_node.Dockerfile
+      context: ../../.
+    # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
+    volumes:
+      - ../../config/:/home/SoulsAI/config/
+      - ../../soulsai/:/home/SoulsAI/soulsai/
+      - ../../test/:/home/SoulsAI/test/
+      - ../../saves/:/home/SoulsAI/saves/
+    depends_on:
+      - redis
+    # Comment out the following lines if you don't have a GPU
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    user: "1000"
+    networks:
+      - server_net
+
+  telemetry_node:
+    build:
+      dockerfile: test/common/telemetry_node.Dockerfile
+      context: ../../.
+    # Manually add secrets as volumes during runtime
+    volumes:
+      - ../../config/:/home/SoulsAI/config/
+      - ../../soulsai/:/home/SoulsAI/soulsai/ # Reflect dev changes in docker containers without rebuilding
+      - ../../test/:/home/SoulsAI/test/
+      - ../../saves/:/home/SoulsAI/saves/
+    depends_on:
+      - redis
+    user: "1000"
+    networks:
+      - server_net
+
+  client_node:
+    build:
+      dockerfile: test/dqn_atari/client_node.Dockerfile
+      context: ../../.
+    volumes:
+      - ../../soulsai/:/home/SoulsAI/soulsai/
+      - ../../config/:/home/SoulsAI/config/
+      - ../../test/:/home/SoulsAI/test/
+    depends_on:
+      - redis
+      - training_node
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    user: "1000"
+    networks:
+      - server_net
+
+  prometheus:
+    image: prom/prometheus:v2.39.1
+    volumes:
+      - ../common/prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    ports:
+      - 9090:9090
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    profiles:
+      - monitoring
+    networks:
+      - server_net
+
+  grafana:
+    image: grafana/grafana:8.2.6
+    ports:
+      - 3000:3000
+    restart: unless-stopped
+    volumes:
+      - ../common/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ../common/grafana/grafana_data:/var/lib/grafana
+      - ../common/grafana/grafana.ini:/etc/grafana/grafana.ini
+    profiles:
+      - monitoring
+    user: "1000"
+    networks:
+      - server_net
+
+volumes:
+  prometheus-data:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+
+networks:
+  server_net:
+    name: server
+    external: True

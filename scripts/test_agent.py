@@ -35,7 +35,7 @@ if __name__ == "__main__":
         norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
 
     if config.dqn.normalize:
-        normalizer = Normalizer(config.n_states, **norm_kwargs)
+        normalizer = Normalizer(config.state_shape, **norm_kwargs)
         normalizer.load_state_dict(torch.load(root_path / "normalizer.pt"))
     obs_transform = GameStateTransformer().transform
     env_kwargs = namespace2dict(config.env_kwargs) if config.env_kwargs is not None else {}

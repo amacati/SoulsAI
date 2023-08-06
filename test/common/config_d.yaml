@@ -9,7 +9,7 @@ redis_address: "redis"
 
 # Environment information
 env: LunarLander-v2
-n_states: 8
+state_shape: [8]
 n_actions: 4
 gamma: 0.99
 use_env_kwargs: False

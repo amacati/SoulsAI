@@ -7,9 +7,10 @@ import einops
 
 class SoulsGymImageDataset(Dataset):
 
-    def __init__(self, root_dir, device, in_memory, transform=None):
+    def __init__(self, root_dir, device, in_memory, input_transform=None, target_transform=None):
         self.root_dir = root_dir
-        self.transform = transform
+        self.input_transform = input_transform
+        self.target_transform = target_transform
         self.device = device
         self._in_memory = in_memory
         if in_memory:
@@ -25,9 +26,9 @@ class SoulsGymImageDataset(Dataset):
         data = self._getitem_from_memory(idx) if self._in_memory else self._getitem_from_disk(idx)
         if self.device:
             data = data.to(self.device)
-        if self.transform:
-            data = self.transform(data)
-        return data
+        data_input = self.input_transform(data) if self.input_transform else data
+        data_target = self.target_transform(data) if self.target_transform else data
+        return data_input, data_target
 
     def _getitem_from_memory(self, idx: int) -> torch.Tensor:
         return self.data[idx]

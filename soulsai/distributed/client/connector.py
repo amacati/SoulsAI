@@ -79,7 +79,7 @@ class DQNConnector:
             norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
         else:
             norm_kwargs = {}
-        self.normalizer = Normalizer(config.n_states, **norm_kwargs)
+        self.normalizer = Normalizer(config.state_shape, **norm_kwargs)
         self._eps = mp.Value("d", -1.)
         self._lock = mp.Lock()
         self._update_event = mp.Event()
