@@ -16,13 +16,10 @@ def gs_to_json(gs):
 
 
 def main():
-    env = gymnasium.make("SoulsGymIudex-v0",
-                         game_speed=3.,
-                         init_pose_randomization=True,
-                         use_img=True)
+    env = gymnasium.make("SoulsGymIudex-v0", game_speed=3., init_pose_randomization=True)
     try:
         ep_id = 0
-        n_samples = 1_000_000
+        n_samples = 100_000
         samples = 0
         root = Path(__file__).parents[2] / "data" / "soulsgym_dataset"
         pbar = tqdm(total=n_samples, desc="Creating dataset")
