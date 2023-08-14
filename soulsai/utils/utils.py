@@ -148,7 +148,7 @@ def dict2namespace(ns_dict: dict) -> SimpleNamespace:
     return ns
 
 
-def namespace2dict(ns: SimpleNamespace) -> dict:
+def namespace2dict(ns: SimpleNamespace | None) -> dict:
     """Convert a ``SimpleNamespace`` to a (possibly nested) dictionary.
 
     All namespace attributes are converted to dictionary key value pairs. If the attribute is
@@ -160,6 +160,8 @@ def namespace2dict(ns: SimpleNamespace) -> dict:
     Returns:
         A (possibly nested) dictionary of the namespace.
     """
+    if ns is None:
+        return {}
     ns_dict = copy.deepcopy(vars(ns))
     for key, value in ns_dict.items():
         if isinstance(value, SimpleNamespace):  # Works recursively with nested namespaces

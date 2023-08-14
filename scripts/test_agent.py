@@ -13,7 +13,7 @@ import torch
 
 from soulsai.utils import dict2namespace, namespace2dict
 from soulsai.core.agent import DQNClientAgent
-from soulsai.core.normalizer import Normalizer
+from soulsai.core.normalizer import get_normalizer_class
 from soulsai.data.transformation import GameStateTransformer
 
 logger = logging.getLogger(__name__)
@@ -30,16 +30,15 @@ if __name__ == "__main__":
     # Initialize agent, normalizers and environment
     agent = DQNClientAgent(config.dqn.network_type, namespace2dict(config.dqn.network_kwargs))
     agent.load(root_path)
-    norm_kwargs = {}
-    if config.dqn.normalizer_kwargs is not None:
+    normalizer = None
+    if config.dqn.normalizer:
+        normalizer_cls = get_normalizer_class(config.dqn.normalizer)
         norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
-
-    if config.dqn.normalize:
-        normalizer = Normalizer(config.state_shape, **norm_kwargs)
+        normalizer = normalizer_cls(config.env.state_shape, **norm_kwargs)
         normalizer.load_state_dict(torch.load(root_path / "normalizer.pt"))
     obs_transform = GameStateTransformer().transform
-    env_kwargs = namespace2dict(config.env_kwargs) if config.env_kwargs is not None else {}
-    env = gym.make(config.env, **env_kwargs)
+    env_kwargs = namespace2dict(config.env.kwargs) if config.env.kwargs else {}
+    env = gym.make(config.env.name, **env_kwargs)
     try:
         for i in range(ntests):
             terminated = False
@@ -47,10 +46,10 @@ if __name__ == "__main__":
             obs, info = env.reset()
             obs = obs_transform(obs)
             if config.dqn.action_masking:
-                action_mask = np.zeros(config.n_actions)
+                action_mask = np.zeros(config.env.n_actions)
                 action_mask[info["allowed_actions"]] = 1
             while not terminated:
-                obs = normalizer.normalize(obs) if config.dqn.normalize else obs
+                obs = normalizer.normalize(obs) if normalizer else obs
                 action = agent(obs, action_mask) if config.dqn.action_masking else agent(obs)
                 next_obs, reward, terminated, truncated, info = env.step(action)
                 win = next_obs.boss_hp == 0

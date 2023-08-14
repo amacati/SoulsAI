@@ -3,9 +3,12 @@
 The normalization is ensured to be numerically stable by setting a lower bound on the possible
 standard deviation of values.
 """
+from __future__ import annotations
 import logging
-from typing import List, Tuple
+from typing import List, Any, Type
 import io
+import sys
+from abc import ABC, abstractmethod
 
 import numpy as np
 import torch
@@ -14,7 +17,100 @@ import torch.nn as nn
 logger = logging.getLogger(__name__)
 
 
-class Normalizer(nn.Module):
+def get_normalizer_class(normalizer_type: str) -> Type[AbstractNormalizer]:
+    """Get the normalizer class from the normalizer string.
+
+    Note:
+        This function returns a type rather than an instance!
+
+    Args:
+        normalizer_type: The normalizer type name.
+
+    Returns:
+        The normalizer type.
+
+    Raises:
+        AttributeError: The specified normalizer type does not exist.
+    """
+    return getattr(sys.modules[__name__], normalizer_type)
+
+
+class AbstractNormalizer(nn.Module, ABC):
+
+    def __init__(self):
+        super().__init__()
+        self.norm_params = nn.ParameterDict()
+
+    @abstractmethod
+    def normalize(self, x: List | np.ndarray | torch.Tensor) -> torch.Tensor:
+        """Normalize the input data.
+
+        Args:
+            x: Input data array.
+
+        Returns:
+            The normalized data.
+        """
+
+    @abstractmethod
+    def update(self, x: List | np.ndarray | torch.Tensor):
+        """Update the normalizer parameters with the values in ``x``.
+
+        Args:
+            x: Batch of observations.
+        """
+
+    def serialize(self) -> dict:
+        """Serialize the normalizer by dumping the parameters in the norm parameter dictionary.
+
+        Returns:
+            The dictionary containing the saved parameters.
+        """
+        param_buff = io.BytesIO()
+        torch.save(self.norm_params, param_buff)
+        param_buff.seek(0)
+        return {"norm_params": param_buff.read()}
+
+    @staticmethod
+    def deserialize(serialization: dict) -> nn.ParameterDict:
+        """Deserialize the norm parameter buffers in the state dict.
+
+        Args:
+            serialization: Dictionary containing the byte objects of the normalizer's parameters.
+        """
+        param_buff = io.BytesIO(serialization["norm_params"])
+        param_buff.seek(0)
+        params = torch.load(param_buff)
+        return params
+
+    def load_params(self, norm_params: nn.ParameterDict):
+        """Load the parameter tensors into the normalizer.
+
+        Warning:
+            Parameter loading is intended to update the client normalizers and only updates the
+            parameters required for normalizing. Does `NOT` update non-parameter buffers.
+
+        Args:
+            norm_params: The normalizer parameters.
+        """
+        # If the normalizer parameters are in shared memory, overwriting them will not change the
+        # data in other processes. Therefore, we need to copy the new parameters into the existing
+        # shared buffers
+        for name, param in norm_params.items():
+            self.norm_params[name].copy_(param)
+
+    @staticmethod
+    def _sanitize_input(x: List | np.ndarray | torch.Tensor) -> torch.Tensor:
+        if isinstance(x, torch.Tensor):
+            return x.float()
+        if isinstance(x, np.ndarray):
+            return torch.from_numpy(x).float()
+        if isinstance(x, List):
+            return torch.tensor(x).float()
+        raise TypeError(f"Unsupported input type {x.__class__.__name__} for normalizer")
+
+
+class Normalizer(AbstractNormalizer):
     """Normalizer class for preprocessing on both the client and the server side.
 
     Normalizes tensors to zero mean, unit variance by updating its statistics over previously seen
@@ -46,12 +142,17 @@ class Normalizer(nn.Module):
         if idx_list is not None:
             mask[:] = False
             mask[idx_list] = True
-        self.mask = nn.Parameter(mask, requires_grad=False)
+        self.norm_params = nn.ParameterDict({
+            "mask":
+                nn.Parameter(mask, requires_grad=False),
+            "mean":
+                nn.Parameter(torch.zeros(state_shape, dtype=torch.float32), requires_grad=False),
+            "std":
+                nn.Parameter(torch.ones(state_shape, dtype=torch.float32), requires_grad=False),
+        })
         self.eps2 = torch.ones(state_shape, dtype=torch.float32) * eps**2
         self.count = nn.Parameter(torch.tensor(0, dtype=torch.int64), requires_grad=False)
-        self.mean = nn.Parameter(torch.zeros(state_shape, dtype=torch.float32), requires_grad=False)
         self._m2 = nn.Parameter(torch.zeros(state_shape, dtype=torch.float32), requires_grad=False)
-        self.std = nn.Parameter(torch.ones(state_shape, dtype=torch.float32), requires_grad=False)
 
     def normalize(self, x: List | np.ndarray | torch.Tensor) -> torch.Tensor:
         """Normalize the input data with the current mean and variance estimate.
@@ -62,8 +163,10 @@ class Normalizer(nn.Module):
             The normalized data.
         """
         x = self._sanitize_input(x).clone()
-        norm = (x[..., self.mask] - self.mean[self.mask]) / self.std[self.mask]
-        x[..., self.mask] = torch.clip(norm, -self.clip, self.clip)
+        mean = self.norm_params["mean"][self.norm_params["mask"]]
+        std = self.norm_params["std"][self.norm_params["mask"]]
+        norm = (x[..., self.norm_params["mask"]] - mean) / std
+        x[..., self.norm_params["mask"]] = torch.clip(norm, -self.clip, self.clip)
         return x
 
     def update(self, x: List | np.ndarray | torch.Tensor):
@@ -76,71 +179,43 @@ class Normalizer(nn.Module):
         x = self._sanitize_input(x)
         assert x.ndim == self.state_dim + 1, "Input data must be a batch of arrays."
         self.count += x.shape[0]
-        delta = x - self.mean
-        self.mean += torch.sum(delta / self.count, axis=0)
-        self._m2 += torch.sum(delta * (x - self.mean), axis=0)
-        self.std[:] = torch.sqrt(torch.maximum(self.eps2, self._m2 / self.count))
+        delta = x - self.norm_params["mean"]
+        self.norm_params["mean"] += torch.sum(delta / self.count, axis=0)
+        self._m2 += torch.sum(delta * (x - self.norm_params["mean"]), axis=0)
+        self.norm_params["std"][:] = torch.sqrt(torch.maximum(self.eps2, self._m2 / self.count))
 
-    def serialize(self) -> dict:
-        """Serialize the normalizer by dumping the parameter tensors as bytes into a dictionary.
+
+class ImageNormalizer(AbstractNormalizer):
+    """Normalizer class for preprocessing images on both the client and the server side.
+
+    Normalizes tensors by limiting them to a range of [-1, 1] instead of [0, 255].
+    """
+
+    def __init__(self, state_shape: tuple[int, ...]):
+        """Initialize the normalizer parameters.
+
+        Args:
+            state_shape: State shape.
+        """
+        super().__init__()
+        self.state_shape = state_shape
+        self.state_dim = len(state_shape)
+
+    def normalize(self, x: List | np.ndarray | torch.Tensor) -> torch.Tensor:
+        """Normalize the input data with the current mean and variance estimate.
+
+        Args:
+            x: Input data array.
 
         Returns:
-            The dictionary containing the saved tensors.
+            The normalized data.
         """
-        mask_buff, mean_buff, std_buff = io.BytesIO(), io.BytesIO(), io.BytesIO()
-        torch.save(self.mask, mask_buff)
-        mask_buff.seek(0)
-        torch.save(self.mean, mean_buff)
-        mean_buff.seek(0)
-        torch.save(self.std, std_buff)
-        std_buff.seek(0)
-        return {
-            "norm.mask": mask_buff.read(),
-            "norm.mean": mean_buff.read(),
-            "norm.std": std_buff.read()
-        }
+        x = self._sanitize_input(x).clone()
+        return (x / 255.0) * 2.0 - 1.0
 
-    @staticmethod
-    def deserialize(serialization: dict) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Deserialize the norm parameter buffers in the state dict.
-
-        The dictionary is assumed to contain the ``norm.mask``, ``norm.mean`` and ``norm.std`` keys.
+    def update(self, _: Any):
+        """No-op for compatibility with the normalizer API.
 
         Args:
-            serialization: Dictionary containing the byte objects of torch tensors at predefined
-                keys.
+            x: Batch of arrays used to update the mean and variance estimate for each entry.
         """
-        idx_buff = io.BytesIO(serialization["norm.mask"])
-        mean_buff = io.BytesIO(serialization["norm.mean"])
-        std_buff = io.BytesIO(serialization["norm.std"])
-        idx_buff.seek(0)
-        mean_buff.seek(0)
-        std_buff.seek(0)
-        return torch.load(idx_buff), torch.load(mean_buff), torch.load(std_buff)
-
-    def load_params(self, mask: torch.Tensor, mean: torch.Tensor, std: torch.Tensor):
-        """Load the parameter tensors into the normalizer.
-
-        Warning:
-            Parameter loading is intended to update the client normalizers and only updates the
-            parameters required for normalizing. Does `NOT` update the internal ``_m2`` and
-            ``count`` values.
-
-        Args:
-            mask: The mask parameters.
-            mean: The mean parameters.
-            std: The standard deviation parameters.
-        """
-        self.mask[:] = mask
-        self.mean[:] = mean
-        self.std[:] = std
-
-    @staticmethod
-    def _sanitize_input(x: List | np.ndarray | torch.Tensor) -> torch.Tensor:
-        if isinstance(x, torch.Tensor):
-            return x.float()
-        if isinstance(x, np.ndarray):
-            return torch.from_numpy(x).float()
-        if isinstance(x, List):
-            return torch.tensor(x).float()
-        raise TypeError(f"Unsupported input type {x.__class__.__name__} for normalizer")

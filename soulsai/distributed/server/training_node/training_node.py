@@ -42,6 +42,12 @@ class TrainingNode(ABC):
         # https://discuss.pytorch.org/t/training-time-gets-slower-and-slower-on-cpu/145483
         # torch.set_flush_denormal(True)
         self.np_random = np.random.default_rng()  # https://numpy.org/neps/nep-0019-rng-policy.html
+        # Switch to spawn method for multiprocessing
+        cxt = mp.get_context()
+        if not isinstance(cxt, mp.context.SpawnContext):
+            logger.warning((f"Multiprocessing context already set to {type(cxt)}. Trying to force "
+                            "spawn method..."))
+            mp.set_start_method("spawn", force=True)
         self._shutdown = mp.Event()
         self._lock = mp.Lock()
         # Create unique directory for saves
@@ -50,7 +56,7 @@ class TrainingNode(ABC):
         self.save_dir = mkdir_date(save_root_dir)
         # Set config, load from checkpoint if specified
         self.config = config
-        if self.config.load_checkpoint_config:
+        if self.config.checkpoint.load_config:
             self.load_config(save_root_dir / "checkpoint" / "config.json")
             logger.info("Config loading complete")
         self.config.save_dir = self.save_dir.name
@@ -85,8 +91,9 @@ class TrainingNode(ABC):
             self.prom_update_time = Gauge("soulsai_update_duration",
                                           "Processing time for a model update")
             self.prom_config_info = Info("soulsai_config", "SoulsAI configuration")
-            self.prom_config_info.info(
-                {str(key): str(val) for key, val in namespace2dict(self.config).items()})
+            self.prom_config_info.info({
+                str(key): str(val) for key, val in namespace2dict(self.config).items()
+            })
             self._update_client_gauge_thread = Thread(target=self._update_client_gauge, daemon=True)
             self._update_client_gauge_thread.start()
 
@@ -154,7 +161,7 @@ class TrainingNode(ABC):
         """
         with open(path, "r") as f:
             saved_config = dict2namespace(json.load(f))
-        assert saved_config.env == self.config.env, "Config environments do not match"
+        assert saved_config.env.name == self.config.env.name, "Config environments do not match"
         assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
         self.config = saved_config
 

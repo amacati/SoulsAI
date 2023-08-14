@@ -8,13 +8,15 @@ device: "cpu"
 redis_address: "localhost"
 
 # Environment information
-env: SoulsGymIudex-v0
-state_shape: [74]
-n_actions: 20
+env:
+  name: SoulsGymIudex-v0
+  kwargs:
+    game_speed: 1.
+  state_shape: [74]
+  n_actions: 20
+  wrappers:
+
 gamma: 0.99
-use_env_kwargs: True
-env_kwargs:
-  game_speed: 1.
 max_env_steps: null
 
 # Algorithm choice
@@ -70,15 +72,18 @@ dqn:
   replay_buffer: "ReplayBuffer"
   replay_buffer_kwargs:
   action_masking: True
-  normalize: False
+  normalizer:
   normalizer_kwargs:
   min_samples: null
   tau: 0.05  # Optional, for target network updates
 
 # Training node settings
-checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration
-load_checkpoint: False
-load_checkpoint_config: False
+checkpoint:
+  epochs: 100  # Checkpoint every 100th iteration
+  save_buffer: False
+  load: False
+  load_buffer: False
+  load_config: False
 
 # Telemetry node settings
 telemetry:

@@ -19,7 +19,7 @@ import torch
 
 from soulsai.core.replay_buffer import get_buffer_class
 from soulsai.core.agent import DistributionalDQNAgent, DQNAgent
-from soulsai.core.normalizer import Normalizer
+from soulsai.core.normalizer import get_normalizer_class
 from soulsai.core.scheduler import EpsilonScheduler
 from soulsai.distributed.common.serialization import DQNSerializer
 from soulsai.distributed.server.training_node.training_node import TrainingNode
@@ -39,7 +39,7 @@ class DQNTrainingNode(TrainingNode):
         """
         logger.info("DQN training node startup")
         super().__init__(config)
-        self._serializer = DQNSerializer(self.config.env)
+        self._serializer = DQNSerializer(self.config.env.name)
         # Translate config params
         if self.config.dqn.min_samples:
             assert self.config.dqn.min_samples <= self.config.dqn.buffer_size
@@ -66,22 +66,23 @@ class DQNTrainingNode(TrainingNode):
                                   self.config.device)
         else:
             raise ValueError(f"DQN variant {self.config.dqn.variant} is not supported")
-        norm_kwargs = {}
-        if self.config.dqn.normalizer_kwargs is not None:
-            norm_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs)
-        self.normalizer = Normalizer(self.config.state_shape, **norm_kwargs)
+        self.normalizer = None
+        if self.config.dqn.normalizer:
+            normalizer_cls = get_normalizer_class(self.config.dqn.normalizer)
+            normalizer_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs)
+            self.normalizer = normalizer_cls(self.config.env.state_shape, **normalizer_kwargs)
         buffer_kwargs = {}
         if self.config.dqn.replay_buffer_kwargs is not None:
             buffer_kwargs = namespace2dict(self.config.dqn.replay_buffer_kwargs)
         self.buffer = get_buffer_class(self.config.dqn.replay_buffer)(
-            self.config.dqn.buffer_size, self.config.state_shape, self.config.n_actions,
+            self.config.dqn.buffer_size, self.config.env.state_shape, self.config.env.n_actions,
             self.config.dqn.action_masking, **buffer_kwargs)
         self.eps_scheduler = EpsilonScheduler(self.config.dqn.eps_max,
                                               self.config.dqn.eps_min,
                                               self.config.dqn.eps_steps,
                                               zero_ending=True)
 
-        if self.config.load_checkpoint:
+        if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
             logger.info("Checkpoint loading complete")
 
@@ -132,7 +133,7 @@ class DQNTrainingNode(TrainingNode):
         logger.debug(f"Publishing new model with ID {self.agent.model_id}")
         model_params = self.agent.serialize()
         model_params["eps"] = self.eps_scheduler.epsilon
-        if self.config.dqn.normalize:
+        if self.config.dqn.normalizer:
             model_params |= self.normalizer.serialize()
         self.red.hset("model_params", mapping=model_params)
         self.red.publish("model_update", self.agent.model_id)
@@ -143,13 +144,15 @@ class DQNTrainingNode(TrainingNode):
         self._model_iterations += 1
 
     def _check_checkpoint_cond(self) -> bool:
-        return self._model_iterations % self.config.checkpoint_epochs == 0
+        if not self.config.checkpoint.epochs:
+            return False
+        return self._model_iterations % self.config.checkpoint.epochs == 0
 
     def _dqn_step(self):
         """Sample batches, normalize the values if applicable, and update the agent."""
         batches = self.buffer.sample_batches(self.config.dqn.batch_size,
                                              self.config.dqn.train_epochs)
-        if self.config.dqn.normalize:
+        if self.config.dqn.normalizer:
             for batch in batches:
                 self.normalizer.update(batch[0])  # Use states to update the normalizer
             for batch in batches:
@@ -174,9 +177,10 @@ class DQNTrainingNode(TrainingNode):
         path.mkdir(exist_ok=True)
         with self._lock:
             self.agent.save(path / "agent.pt")
-            self.buffer.save(path / "buffer.pkl")
+            if self.config.checkpoint.save_buffer:
+                self.buffer.save(path / "buffer.pkl")
             self.eps_scheduler.save(path / "eps_scheduler.json")
-            if self.config.dqn.normalize:
+            if self.config.dqn.normalizer:
                 torch.save(self.normalizer.state_dict(), path / "normalizer.pt")
         logger.info("Model checkpoint saved")
 
@@ -187,7 +191,8 @@ class DQNTrainingNode(TrainingNode):
             path: Path to the save folder.
         """
         self.agent.load(path)
-        self.buffer.load(path / "buffer.pkl")
+        if self.config.checkpoint.load_buffer:
+            self.buffer.load(path / "buffer.pkl")
         self.eps_scheduler.load(path / "eps_scheduler.json")
-        if self.config.dqn.normalize:
+        if self.config.dqn.normalizer:
             self.normalizer.load_state_dict(torch.load(path / "normalizer.pt"))

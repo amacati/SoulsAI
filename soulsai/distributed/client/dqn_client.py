@@ -12,7 +12,8 @@ from typing import Callable
 from multiprocessing.sharedctypes import Synchronized
 
 import numpy as np
-import gymnasium as gym
+import gymnasium
+import soulsai.wrappers
 from soulsai.core.noise import get_noise_class
 from soulsai.utils import namespace2dict
 from soulsai.distributed.common.serialization import DQNSerializer
@@ -78,9 +79,12 @@ def _dqn_client(config: SimpleNamespace,
 
     # DQNConnector enables non-blocking server interaction
     con = DQNConnector(config)
-    env_kwargs = namespace2dict(config.env_kwargs) if config.use_env_kwargs else {}
-    env = gym.make(config.env, **env_kwargs)
-    serializer = DQNSerializer(env_id=config.env)
+    # Create the environment and wrap it if wrappers are specified
+    env = gymnasium.make(config.env.name, **namespace2dict(config.env.kwargs))
+    for wrapper, wrapper_args in namespace2dict(config.env.wrappers).items():
+        env = getattr(soulsai.wrappers, wrapper)(env, **(wrapper_args["kwargs"] or {}))
+    # Create message serializer and action noise
+    serializer = DQNSerializer(env_id=config.env.name)
     noise = get_noise_class(config.dqn.noise)(**namespace2dict(config.dqn.noise_kwargs))
     logger.info("Client node running")
     try:
@@ -95,7 +99,7 @@ def _dqn_client(config: SimpleNamespace,
             obs, info = env.reset()
             obs = tf_obs_callback(obs)
             if config.dqn.action_masking:
-                action_mask = np.zeros(config.n_actions)
+                action_mask = np.zeros(config.env.n_actions)
                 action_mask[info["allowed_actions"]] = 1
             if sample_gauge and episode_id == 1:
                 current_gauge_start_time = time.time()
@@ -118,7 +122,7 @@ def _dqn_client(config: SimpleNamespace,
                         else:
                             action = noise.sample()
                     else:
-                        obs_n = con.normalizer.normalize(obs) if config.dqn.normalize else obs
+                        obs_n = con.normalizer.normalize(obs) if config.dqn.normalizer else obs
                         if config.dqn.action_masking:
                             action = con.agent(obs_n, action_mask)
                         else:

@@ -48,9 +48,9 @@ def ppo_client(config: SimpleNamespace,
         keyboard.add_hotkey("enter", exit_callback)
         logger.info("Press 'Enter' to end training")
 
-    env = gym.make(config.env)
+    env = gym.make(config.env.name)
     con = PPOConnector(config)
-    serializer = PPOSerializer(config.env)
+    serializer = PPOSerializer(config.env.name)
     con.sync()  # Wait for the new model to download
 
     logger.info("Client node running")

@@ -49,7 +49,7 @@ class TelemetryNode:
         secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
         self.red = Redis(host='redis', port=6379, password=secret, db=0)
         self.config = load_remote_config(config.redis_address, secret, self.red)
-        self.serializer = get_serializer_cls(self.config.algorithm)(self.config.env)
+        self.serializer = get_serializer_cls(self.config.algorithm)(self.config.env.name)
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
         self.sub_telemetry.subscribe("telemetry", "samples")
         self.lock = Lock()
@@ -86,7 +86,7 @@ class TelemetryNode:
         self.figure_path = save_dir / "SoulsAIDashboard.png"
         self.stats_path = save_dir / "SoulsAIStats.json"
 
-        if self.config.load_checkpoint:
+        if self.config.checkpoint.load:
             self._load_stats()
             self.update_stats_and_dashboard()
         logger.info("Telemetry node startup complete")

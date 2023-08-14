@@ -12,7 +12,7 @@ import torch
 
 from soulsai.utils import dict2namespace, namespace2dict
 from soulsai.core.agent import DQNClientAgent
-from soulsai.core.normalizer import Normalizer
+from soulsai.core.normalizer import get_normalizer_class
 from soulsai.data.transformation import GameStateTransformer
 
 logger = logging.getLogger(__name__)
@@ -24,12 +24,11 @@ def load_agent(path):
     # Initialize agent, normalizers and environment
     agent = DQNClientAgent(config.dqn.network_type, namespace2dict(config.dqn.network_kwargs))
     agent.load(path)
-    norm_kwargs = {}
-    if config.dqn.normalizer_kwargs is not None:
-        norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
     normalizer = None
-    if config.dqn.normalize:
-        normalizer = Normalizer(config.state_shape, **norm_kwargs)
+    if config.dqn.normalizer:
+        normalizer_cls = get_normalizer_class(config.dqn.normalizer)
+        norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
+        normalizer = normalizer_cls(config.env.state_shape, **norm_kwargs)
         normalizer.load_state_dict(torch.load(path / "normalizer.pt"))
     obs_transform = GameStateTransformer().transform
     return agent, normalizer, obs_transform
@@ -64,12 +63,12 @@ if __name__ == "__main__":
             obs = obs_transform(obs)
             phase = 1
             if config.dqn.action_masking:
-                action_mask = np.zeros(config.n_actions)
+                action_mask = np.zeros(config.env.n_actions)
                 action_mask[info["allowed_actions"]] = 1
             while not terminated:
                 normalizer = normalizer_1 if phase == 1 else normalizer_2
                 agent = agent_1 if phase == 1 else agent_2
-                obs = normalizer.normalize(obs) if config.dqn.normalize else obs
+                obs = normalizer.normalize(obs) if config.dqn.normalizer else obs
                 replay_dict[i].append({
                     "obs": obs.tolist(),
                     "action_mask": list(action_mask),

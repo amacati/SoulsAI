@@ -39,20 +39,20 @@ class PPOTrainingNode(TrainingNode):
         """
         logger.info("PPO training node startup")
         super().__init__(config)
-        self._serializer = PPOSerializer(self.config.env)
+        self._serializer = PPOSerializer(self.config.env.name)
         self.agent = PPOAgent(self.config.ppo.actor_net_type,
                               namespace2dict(self.config.ppo.actor_net_kwargs),
                               self.config.ppo.critic_net_type,
                               namespace2dict(self.config.ppo.critic_net_kwargs),
                               self.config.ppo.actor_lr, self.config.ppo.critic_lr)
         self.agent.model_id = str(uuid4())
-        if self.config.load_checkpoint:
+        if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
             logger.info("Checkpoint loading complete")
 
         logger.info(f"Initial model ID: {self.agent.model_id}")
         self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,
-                                       self.config.state_shape)
+                                       self.config.env.state_shape)
         self._model_iterations = 0
         logger.info("PPO training node startup complete")
 
@@ -100,7 +100,9 @@ class PPOTrainingNode(TrainingNode):
         self._model_iterations += 1
 
     def _check_checkpoint_cond(self) -> bool:
-        return self._model_iterations % self.config.checkpoint_epochs == 0
+        if not self.config.checkpoint.epochs:
+            return False
+        return self._model_iterations % self.config.checkpoint.epochs == 0
 
     def _ppo_step(self):
         # Training algorithm based on Cx recommendations from https://arxiv.org/pdf/2006.05990.pdf

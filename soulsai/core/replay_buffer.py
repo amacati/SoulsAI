@@ -124,7 +124,8 @@ class ReplayBuffer(AbstractBuffer):
                  maxlen: int,
                  state_shape: tuple[int, ...],
                  n_actions: int,
-                 action_masking: bool = False):
+                 action_masking: bool = False,
+                 state_dtype: str | np.dtype = np.float32):
         """Preallocate the buffer arrays and set the index to 0.
 
         Args:
@@ -132,16 +133,18 @@ class ReplayBuffer(AbstractBuffer):
             state_shape: State shape.
             n_actions: Number of possible actions.
             action_masking: Flag to disable/enable action masking.
+            state_dtype: State data type. Can reduce memory footprint by using uint8 for images.
         """
         super().__init__()
         self.maxlen = maxlen
         self._idx = 0
         self._maxidx = -1
-        self._b_s = np.zeros((maxlen, *state_shape))
+        state_dtype = getattr(np, state_dtype) if isinstance(state_dtype, str) else state_dtype
+        self._b_s = np.zeros((maxlen, *state_shape), dtype=state_dtype)
         self._b_a = np.zeros(maxlen, dtype=np.int64)
         self._b_am = np.zeros((maxlen, n_actions))
         self._b_r = np.zeros(maxlen)
-        self._b_sn = np.zeros((maxlen, *state_shape))
+        self._b_sn = np.zeros((maxlen, *state_shape), dtype=state_dtype)
         self._b_d = np.zeros(maxlen)
         self._action_masking = action_masking
 

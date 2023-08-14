@@ -8,13 +8,15 @@ device: "cpu"
 redis_address: "redis"
 
 # Environment information
-env: LunarLander-v2
-state_shape: [8]
-n_actions: 4
-gamma: 0.99
-use_env_kwargs: False
-env_kwargs:
+env:
+  name: LunarLander-v2
+  kwargs:
+  state_shape: [8]
+  n_actions: 4
+  wrappers:
+
 max_env_steps: null
+gamma: 0.99
 
 # Algorithm choice
 algorithm: "ppo"
@@ -69,15 +71,18 @@ dqn:
   replay_buffer: "ReplayBuffer"
   replay_buffer_kwargs:
   action_masking: False
-  normalize: True
+  normalizer: Normalizer
   normalizer_kwargs:
   min_samples: null
   tau: 0.05  # For soft target update
 
 # Training node settings
-checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration
-load_checkpoint: False
-load_checkpoint_config: False
+checkpoint:
+  epochs: 100  # Checkpoint every 100th iteration
+  save_buffer: False
+  load: False
+  load_buffer: False
+  load_config: False
 
 # Telemetry node settings
 telemetry:

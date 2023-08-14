@@ -2,60 +2,70 @@
 
 # General settings
 loglevel: info
-device: "cpu"
+device: "cuda:0"
 
 # Redis settings
 redis_address: "redis"
 
 # Environment information
-env: ALE/Pong-v5
-state_shape: [84, 84]
-state_dtype: uint8
-n_actions: 6
+env:
+  name: ALE/Pong-v5
+  kwargs:
+    frameskip: 1
+  state_shape: [1, 84, 84]
+  n_actions: 6
+  wrappers:
+    AtariPreprocessing:
+      kwargs:
+    AtariExpandImage:
+      kwargs:
+
 gamma: 0.99
-use_env_kwargs: False
-env_kwargs:
-max_env_steps: null
+max_env_steps: 10_000_000
 
 # Algorithm choice
 algorithm: "dqn"
 
 # DQN parameters
 dqn:
-  variant: vanilla  # [vanilla, distributional]
-  lr: 0.001
-  eps_max: [0.1, 0.1, 0.05]
-  eps_min: [0.1, 0.05, 0.01]
-  eps_steps: [500, 500, 500]
-  eps_samples: 400
+  variant: distributional  # [vanilla, distributional]
+  lr: 0.0001
+  eps_max: [0.1]
+  eps_min: [0.05]
+  eps_steps: [10000]
+  eps_samples: 1000
   grad_clip: 5.
   q_clip: 200
-  buffer_size: 100_000
+  buffer_size: 500_000
   batch_size: 128
-  train_epochs: 50
+  train_epochs: 25
   update_samples: 50
   fill_buffer: False
-  multistep: 1
-  network_type: "AtariDQN"
+  multistep: 3
+  network_type: "CNNDistributionalDQN" # "CNNDistributionalDQN"
   network_kwargs:
-    input_shape: [84, 84]
+    input_shape: [1, 84, 84]
     output_dims: 6
-    layer_dims: 128
+    n_quantiles: 32
   noise: "UniformDiscreteNoise"
   noise_kwargs:
     size_n: 6
   replay_buffer: "ReplayBuffer"
   replay_buffer_kwargs:
+    state_dtype: uint8
   action_masking: False
-  normalize: True
+  normalizer: ImageNormalizer
   normalizer_kwargs:
   min_samples: null
   tau: 0.05  # For soft target update
 
 # Training node settings
-checkpoint_epochs: 100  # Checkpoint the whole node every 100th iteration
-load_checkpoint: False
-load_checkpoint_config: False
+checkpoint:
+  epochs: 100  # Checkpoint every 100th iteration
+  save_buffer: False
+  load: False
+  load_buffer: False
+  load_config: False
 
 # Telemetry node settings
 telemetry:
@@ -66,7 +76,7 @@ telemetry:
 # Client settings
 max_episodes: -1  # -1 for infinite runs
 enable_interrupt: False
-step_delay: 0
+step_delay: 0.003
 
 # Monitoring
 monitoring:

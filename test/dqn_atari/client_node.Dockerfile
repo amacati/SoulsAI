@@ -1,13 +1,16 @@
 FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
-RUN apt-get update
-RUN apt-get install build-essential -y
+RUN apt update
+RUN apt install build-essential -y
 WORKDIR /home
+# Disable interactive mode for apt
+RUN DEBIAN_FRONTEND=noninteractive apt install ffmpeg libsm6 libxext6  -y
+RUN apt install swig -y
 # Cache requirements install
 COPY test/common/requirements.txt /home/requirements.txt
 RUN pip install -r /home/requirements.txt
 RUN rm /home/requirements.txt
-RUN apt update
-RUN apt install swig -y
+RUN pip install gymnasium[atari,accept-rom-license,other]
+RUN pip install opencv-python
 RUN pip install box2d-py
 COPY . /home/SoulsAI
 # Remove all secret files from the container

@@ -36,14 +36,14 @@ class Serializer(ABC):
 
 class DQNSerializer(Serializer):
 
-    supported_envs = ["SoulsGymIudex-v0", "LunarLander-v2"]
+    supported_envs = ["SoulsGymIudex-v0", "LunarLander-v2", "ALE/Pong-v5"]
 
     def __init__(self, env_id: str):
         assert env_id in self.supported_envs
         self.env_id = env_id
-        self.capnp_msgs = capnp.load(str(Path(__file__).parent / "data" / f"{env_id}_msgs.capnp"))
+        _env_id = env_id.replace("-", "_").replace("/", "_")
+        self.capnp_msgs = capnp.load(str(Path(__file__).parent / "data" / f"{_env_id}_msgs.capnp"))
         # Load functions for serialization and deserialization
-        _env_id = env_id.replace("-", "_")
         self._serialize_sample = getattr(self, f"_serialize_{_env_id}_sample")
         self._deserialize_sample = getattr(self, f"_deserialize_{_env_id}_sample")
         self._serialize_telemetry = getattr(self, f"_serialize_{_env_id}_telemetry")
@@ -108,6 +108,31 @@ class DQNSerializer(Serializer):
         return self.capnp_msgs.Telemetry.new_message(**tel).to_bytes()
 
     def _deserialize_LunarLander_v2_telemetry(self, data: bytes) -> dict:
+        with self.capnp_msgs.Telemetry.from_bytes(data) as sample:
+            return sample.to_dict()
+
+    def _serialize_ALE_Pong_v5_sample(self, sample: dict) -> bytes:
+        sample["obs"] = sample["obs"].tolist()
+        sample["nextObs"] = sample["nextObs"].tolist()
+        sample["reward"] = float(sample["reward"])
+        sample["info"] = {}
+        return self.capnp_msgs.DQNSample.new_message(**sample).to_bytes()
+
+    def _deserialize_ALE_Pong_v5_sample(self, data: bytes) -> dict:
+        with self.capnp_msgs.DQNSample.from_bytes(data) as sample:
+            x = sample.to_dict()
+        x["obs"] = np.array(x["obs"], np.uint8)
+        x["nextObs"] = np.array(x["nextObs"], np.uint8)
+        return x
+
+    def _serialize_ALE_Pong_v5_telemetry(self, tel: dict) -> bytes:
+        tel["bossHp"] = 0
+        del tel["obs"]
+        tel["win"] = bool(tel["reward"] > 200)
+        tel["reward"] = float(tel["reward"])
+        return self.capnp_msgs.Telemetry.new_message(**tel).to_bytes()
+
+    def _deserialize_ALE_Pong_v5_telemetry(self, data: bytes) -> dict:
         with self.capnp_msgs.Telemetry.from_bytes(data) as sample:
             return sample.to_dict()
 

@@ -20,7 +20,7 @@ from redis import Redis
 import torch.multiprocessing as mp
 
 from soulsai.core.agent import DQNClientAgent, DistributionalDQNClientAgent, PPOClientAgent
-from soulsai.core.normalizer import Normalizer
+from soulsai.core.normalizer import get_normalizer_class, AbstractNormalizer
 from soulsai.utils import load_redis_secret, namespace2dict
 from soulsai.exception import ClientRegistrationError, ServerTimeoutError
 
@@ -75,11 +75,11 @@ class DQNConnector:
         else:
             self.agent = DQNClientAgent(config.dqn.network_type,
                                         namespace2dict(config.dqn.network_kwargs))
-        if config.dqn.normalizer_kwargs is not None:
+        self.normalizer = None
+        if config.dqn.normalizer:
+            normalizer_cls = get_normalizer_class(config.dqn.normalizer)
             norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
-        else:
-            norm_kwargs = {}
-        self.normalizer = Normalizer(config.state_shape, **norm_kwargs)
+            self.normalizer = normalizer_cls(config.env.state_shape, **norm_kwargs)
         self._eps = mp.Value("d", -1.)
         self._lock = mp.Lock()
         self._update_event = mp.Event()
@@ -106,7 +106,8 @@ class DQNConnector:
 
         # Start the model update process
         self.agent.share_memory()
-        self.normalizer.share_memory()
+        if self.normalizer:
+            self.normalizer.share_memory()
         args = (self._update_event, self._stop_event, self.agent, self.normalizer, self._eps,
                 self._lock, secret, config)
         self.model_updater = mp.Process(target=self._update_model, args=args, daemon=True)
@@ -188,8 +189,8 @@ class DQNConnector:
 
     @staticmethod
     def _update_model(update_event: Event, stop_event: Event, agent: DQNClientAgent,
-                      normalizer: Normalizer, eps: Synchronized, lock: Lock, secret: str,
-                      config: SimpleNamespace):
+                      normalizer: AbstractNormalizer | None, eps: Synchronized, lock: Lock,
+                      secret: str, config: SimpleNamespace):
         """Update the client model, epsilon values, and normalizers.
 
         Model updates are triggered by a separate process that waits for new model update messages.
@@ -234,15 +235,15 @@ class DQNConnector:
                 _params = red.hgetall("model_params")
                 model_params = {key.decode("utf-8"): value for key, value in _params.items()}
                 buffer_agent.deserialize(model_params)
-                if config.dqn.normalize:
+                if normalizer:
                     norm_params = normalizer.deserialize(model_params)
                 # We can use a blocking approach instead of changing references between multiple
                 # models as writing the new parameters typically only requires ~1e-3s
                 with lock:
                     agent.load_state_dict(buffer_agent.state_dict())
                     eps.value = float(model_params["eps"].decode("utf-8"))
-                    if config.dqn.normalize:
-                        normalizer.load_params(*norm_params)
+                    if normalizer:
+                        normalizer.load_params(norm_params)
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 socket_options = {socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60}

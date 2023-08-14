@@ -149,6 +149,50 @@ class AdvantageDQN(nn.Module):
         return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)
 
 
+class CNNAdvantageDQN(nn.Module):
+    """CNN Advantage DQN network."""
+
+    def __init__(self, input_shape: tuple[int, ...], output_dims: int):
+        super().__init__()
+        assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
+        assert input_shape[0] in (1, 3), "Input shape must have 1 or 3 channels (gray or RGB)"
+        self.output_dims = output_dims
+        self.cnn = nn.Sequential(
+            nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            n_flatten = self.cnn(torch.zeros((1, *input_shape))).shape[1]
+        self.linear = nn.Sequential(nn.Linear(n_flatten, 128), nn.ReLU())
+        self.baseline = nn.Linear(128, 1)
+        self.advantage = nn.Linear(128, output_dims)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the forward pass of the network.
+
+        Args:
+            x: Network input.
+
+        Returns:
+            The network output. Note that the output is a distribution tensor of shape [B A N]
+            instead of [B A], where B is the batch dimension, A is the action dimension, and N is
+            the number of bins (here 32).
+        """
+        assert x.ndim in (3, 4), f"Input must be 3- or 4-dimensional, is {x.ndim}"
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        x = self.linear(self.cnn(x))
+        v_s = self.baseline(x)
+        a_s = self.advantage(x)
+        return a_s + v_s - torch.mean(a_s, dim=-1, keepdim=True)
+
+
 class NoisyDQN(nn.Module):
     """Noisy deep Q network class.
 
@@ -220,6 +264,51 @@ class DistributionalDQN(nn.Module):
         x = F.relu(self.l2(x))
         x = self.l3(x).view(batch_size, self.n_quantiles, self.output_dims)
         return x
+
+
+class CNNDistributionalDQN(nn.Module):
+    """CNN QR-DQN network.
+
+    The network estimates N Q-values, which each have a probability of 1/N.
+    """
+
+    def __init__(self, input_shape: tuple[int, ...], output_dims: int, n_quantiles: int = 32):
+        super().__init__()
+        assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
+        assert input_shape[0] in (1, 3), "Input shape must have 1 or 3 channels (gray or RGB)"
+        self.output_dims = output_dims
+        self.n_quantiles = n_quantiles
+        self.cnn = nn.Sequential(
+            nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            n_flatten = self.cnn(torch.zeros((1, *input_shape))).shape[1]
+        n_out = output_dims * n_quantiles
+        self.linear = nn.Sequential(nn.Linear(n_flatten, n_out * 2), nn.ReLU(),
+                                    nn.Linear(n_out * 2, n_out))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the forward pass of the network.
+
+        Args:
+            x: Network input.
+
+        Returns:
+            The network output. Note that the output is a distribution tensor of shape [B A N]
+            instead of [B A], where B is the batch dimension, A is the action dimension, and N is
+            the number of bins (here 32).
+        """
+        assert x.ndim in (3, 4), f"Input must be 3- or 4-dimensional, is {x.ndim}"
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        return self.linear(self.cnn(x)).view(x.shape[0], self.n_quantiles, self.output_dims)
 
 
 class NoisyAdvantageDQN(nn.Module):
