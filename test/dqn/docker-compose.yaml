@@ -55,6 +55,7 @@ services:
     build:
       dockerfile: test/dqn/client_node.Dockerfile
       context: ../../.
+    # Manually add secrets as volumes during runtime
     volumes:
       - ../../soulsai/:/home/SoulsAI/soulsai/
       - ../../config/:/home/SoulsAI/config/
@@ -62,7 +63,6 @@ services:
     depends_on:
       - redis
       - training_node
-    # Manually add secrets as volumes during runtime
     deploy:
       resources:
         reservations:

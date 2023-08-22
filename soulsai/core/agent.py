@@ -114,6 +114,7 @@ class DQNAgent(Agent):
             multistep: Number of multi-step returns considered in the TD update.
             grad_clip: Gradient clipping value for the Q networks.
             q_clip: Maximal value of the estimator network during training.
+            dev: Torch device for the networks.
         """
         super().__init__(dev)
         self.q_clip = q_clip
@@ -384,7 +385,7 @@ class PPOAgent(Agent):
     """
 
     def __init__(self, actor_net: str, actor_net_kwargs: dict, critic_net: str,
-                 critic_net_kwargs: dict, actor_lr: float, critic_lr: float):
+                 critic_net_kwargs: dict, actor_lr: float, critic_lr: float, dev: torch.device):
         """Initialize the actor and critic networks.
 
         Args:
@@ -394,10 +395,12 @@ class PPOAgent(Agent):
             critic_net_kwargs: Keyword arguments for the critic network.
             actor_lr: Actor learning rate.
             critic_lr: Critic learning rate.
+            dev: Torch device for the networks.
         """
+        super().__init__(dev=dev)
         self.actor_net_type, self.critic_net_type = actor_net, critic_net
-        self.networks.add_module("actor", get_net_class(actor_net)(**actor_net_kwargs))
-        self.networks.add_module("critic", get_net_class(critic_net)(**critic_net_kwargs))
+        self.networks.add_module("actor", get_net_class(actor_net)(**actor_net_kwargs).to(dev))
+        self.networks.add_module("critic", get_net_class(critic_net)(**critic_net_kwargs).to(dev))
 
         self.actor_opt = torch.optim.Adam(self.networks["actor"].parameters(), lr=actor_lr)
         self.critic_opt = torch.optim.Adam(self.networks["critic"].parameters(), lr=critic_lr)
@@ -430,9 +433,9 @@ class PPOAgent(Agent):
             The current state-action value.
         """
         if requires_grad:
-            return self.networks["critic"](x)
+            return self.networks["critic"](x.to(self.dev))
         with torch.no_grad():
-            return self.networks["critic"](x)
+            return self.networks["critic"](x.to(self.dev))
 
     def get_probs(self, x: torch.Tensor) -> torch.Tensor:
         """Get the action probabilities for the input x.
@@ -443,7 +446,7 @@ class PPOAgent(Agent):
         Returns:
             The action probabilities.
         """
-        return self.networks["actor"](x)
+        return self.networks["actor"](x.to(self.dev))
 
     def serialize(self, serialize_critic: bool = False) -> dict:
         """Serialize the network parameters into a dictionary of byte arrays.
@@ -487,14 +490,16 @@ class PPOAgent(Agent):
 class PPOClientAgent(PPOAgent, Agent):
     """PPO client agent for inference on worker nodes."""
 
-    def __init__(self, network_type: str, network_kwargs: dict):
+    def __init__(self, network_type: str, network_kwargs: dict, dev: torch.device):
         """Initialize the policy network.
 
         Args:
             network_type: The policy network type name.
             network_kwargs: Keyword arguments for the policy network.
+            dev: Torch device for the networks.
         """
-        super(PPOAgent, self).__init__()  # Skip PPOAgent, we don't want target network on clients
+        # Skip PPOAgent __init__, we don't want target network on clients
+        super(PPOAgent, self).__init__(dev)
         self.actor_net_type = network_type
-        self.networks.add_module("actor", get_net_class(network_type)(**network_kwargs))
+        self.networks.add_module("actor", get_net_class(network_type)(**network_kwargs).to(dev))
         self.model_id = None

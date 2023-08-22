@@ -8,4 +8,4 @@ if __name__ == "__main__":
     root_dir = Path(__file__).parents[1]
     config = load_config(root_dir / "dqn_atari" / "config_d.yaml",
                          root_dir / "dqn_atari" / "config.yaml")
-    dqn_client(config, tf_obs_callback=lambda x: x)
+    dqn_client(config)

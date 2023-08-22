@@ -44,7 +44,7 @@ class PPOTrainingNode(TrainingNode):
                               namespace2dict(self.config.ppo.actor_net_kwargs),
                               self.config.ppo.critic_net_type,
                               namespace2dict(self.config.ppo.critic_net_kwargs),
-                              self.config.ppo.actor_lr, self.config.ppo.critic_lr)
+                              self.config.ppo.actor_lr, self.config.ppo.critic_lr, config.device)
         self.agent.model_id = str(uuid4())
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
@@ -107,37 +107,42 @@ class PPOTrainingNode(TrainingNode):
     def _ppo_step(self):
         # Training algorithm based on Cx recommendations from https://arxiv.org/pdf/2006.05990.pdf
         b_idx = np.arange(self.buffer.n_batch_samples)
+        dev = self.config.device
         for _ in range(self.config.ppo.train_epochs):
             # Compute GAE advantage (C6) in each epoch (C5)
             self.buffer.compute_advantages_and_values(self.agent, self.config.gamma,
                                                       self.config.ppo.gae_lambda)
-            returns = self.buffer.advantages + self.buffer.values
+            advantages = self.buffer.advantages.to(dev)
+            returns = (self.buffer.advantages + self.buffer.values).to(dev)
+            states = self.buffer.states.to(dev)
+            probs = self.buffer.probs.to(dev)
+            actions = self.buffer.actions.to(dev)
             self.np_random.shuffle(b_idx)
             for j in range(0, self.buffer.n_batch_samples, self.config.ppo.minibatch_size):
                 mb_idx = b_idx[j:j + self.config.ppo.minibatch_size]
-                new_prob = self.agent.get_probs(self.buffer.states[mb_idx])
-                new_prob = torch.gather(new_prob, 1, self.buffer.actions[mb_idx])
-                ratio = new_prob / self.buffer.probs[mb_idx]
+                new_probs = self.agent.get_probs(states[mb_idx])
+                new_probs = torch.gather(new_probs, 1, actions[mb_idx])
+                ratio = new_probs / probs[mb_idx]
                 # Compute policy (actor) loss
-                mb_advantages = self.buffer.advantages[mb_idx]
+                mb_advantages = advantages[mb_idx]
                 policy_loss_1 = -mb_advantages * ratio
                 policy_loss_2 = -mb_advantages * torch.clamp(ratio, 1 - self.config.ppo.clip_range,
                                                              1 + self.config.ppo.clip_range)
                 policy_loss = torch.max(policy_loss_1, policy_loss_2).mean()
                 # Compute value (critic) loss
-                v_estimate = self.agent.get_values(self.buffer.states[mb_idx])
+                v_estimate = self.agent.get_values(states[mb_idx])
                 value_loss = ((v_estimate - returns[mb_idx])**2).mean()
                 value_loss *= 0.5 * self.config.ppo.vf_coef
                 # Update agent
                 self.agent.critic_opt.zero_grad()
                 value_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.agent.critic.parameters(),
+                torch.nn.utils.clip_grad_norm_(self.agent.networks["critic"].parameters(),
                                                self.config.ppo.max_grad_norm)
                 with self._lock:
                     self.agent.critic_opt.step()
                 self.agent.actor_opt.zero_grad()
                 policy_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.agent.actor.parameters(),
+                torch.nn.utils.clip_grad_norm_(self.agent.networks["actor"].parameters(),
                                                self.config.ppo.max_grad_norm)
                 with self._lock:
                     self.agent.actor_opt.step()

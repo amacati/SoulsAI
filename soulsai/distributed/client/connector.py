@@ -386,7 +386,7 @@ class PPOConnector:
         """
         self.config = config
         self.agent = PPOClientAgent(config.ppo.actor_net_type,
-                                    namespace2dict(config.ppo.actor_net_kwargs))
+                                    namespace2dict(config.ppo.actor_net_kwargs), config.device)
         self._stop_event = mp.Event()
         self._update_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")

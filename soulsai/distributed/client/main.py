@@ -35,12 +35,8 @@ if __name__ == "__main__":
     config = load_remote_config(config.redis_address, secret)
     obs_transformer = GameStateTransformer()
     if config.algorithm.lower() == "dqn":
-        dqn_client(config,
-                   tf_obs_callback=obs_transformer.transform,
-                   episode_end_callback=obs_transformer.reset)
+        dqn_client(config)
     elif config.algorithm.lower() == "ppo":
-        ppo_client(config,
-                   tf_obs_callback=obs_transformer.transform,
-                   episode_end_callback=obs_transformer.reset)
+        ppo_client(config)
     else:
         raise InvalidConfigError(f"Algorithm type {config.algorithm} is not supported")

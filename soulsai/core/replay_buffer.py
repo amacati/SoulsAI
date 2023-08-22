@@ -516,8 +516,8 @@ class TrajectoryBuffer:
             gae_lambda: The GAE discount factor. A lower value is only gamma-just for an accurate
                 estimate of the value function, but reduces the estimate's variance.
         """
-        self.values = agent.get_values(self.states, requires_grad=False)
-        self._end_values = agent.get_values(self._end_states, requires_grad=False)
+        self.values = agent.get_values(self.states, requires_grad=False).cpu()
+        self._end_values = agent.get_values(self._end_states, requires_grad=False).cpu()
         for trajectory_id in range(self.n_trajectories):
             last_advantage = 0
             for step_id in reversed(range(self.n_samples)):

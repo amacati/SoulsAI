@@ -10,7 +10,6 @@ from soulsai.data.one_hot_encoder import OneHotEncoder
 
 class IudexObservationWrapper(ObservationWrapper):
 
-    SOULSGYM_STEP_TIME = 0.1
     space_coords_low = np.array([110., 540., -73.])
     space_coords_high = np.array([190., 640., -55.])
     space_coords_diff = space_coords_high - space_coords_low
@@ -136,7 +135,7 @@ class IudexObservationWrapper(ObservationWrapper):
             # of the new animation. We have to calculate the final duration of the previous
             # animation by adding the time from the step at t-1 until the animation first changed to
             # the accumulated time.
-            remaining_duration = self.SOULSGYM_STEP_TIME - obs["boss_animation_duration"]
+            remaining_duration = self.env.step_size - obs["boss_animation_duration"]
             self._acuumulated_time = self._current_time + remaining_duration
         boss_animation_time = obs["boss_animation_duration"] + self._acuumulated_time
         self._current_time = boss_animation_time

@@ -142,12 +142,11 @@ class PPOSerializer(Serializer):
     supported_envs = ["LunarLander-v2"]
 
     def __init__(self, env_id: str):
-        self.env_id = env_id
         assert env_id in self.supported_envs
         self.env_id = env_id
-        self.capnp_msgs = capnp.load(str(Path(__file__).parent / "data" / f"{env_id}_msgs.capnp"))
+        _env_id = env_id.replace("-", "_").replace("/", "_")
+        self.capnp_msgs = capnp.load(str(Path(__file__).parent / "data" / f"{_env_id}_msgs.capnp"))
         # Load functions for serialization and deserialization
-        _env_id = env_id.replace("-", "_")
         self._serialize_sample = getattr(self, f"_serialize_{_env_id}_sample")
         self._deserialize_sample = getattr(self, f"_deserialize_{_env_id}_sample")
         self._serialize_telemetry = getattr(self, f"_serialize_{_env_id}_telemetry")

@@ -8,7 +8,6 @@ import logging
 import time
 from multiprocessing import Event
 from types import SimpleNamespace
-from typing import Callable
 
 import gymnasium as gym
 
@@ -18,9 +17,7 @@ from soulsai.distributed.client.connector import PPOConnector
 logger = logging.getLogger(__name__)
 
 
-def ppo_client(config: SimpleNamespace,
-               tf_obs_callback: Callable,
-               episode_end_callback: Callable | None = None):
+def ppo_client(config: SimpleNamespace):
     """PPO client main function.
 
     Data processing, sample encodings etc. are configurable to customize the client for different
@@ -29,10 +26,6 @@ def ppo_client(config: SimpleNamespace,
 
     Args:
         config: The training configuration.
-        tf_obs_callback: Callback to transform environment observations into agent inputs.
-        encode_sample: Function to encode sample messages for redis.
-        encode_tel: Function to encode the telemetry information for redis.
-        episode_end_callback: Callback for functions that should be called at the end of an episode.
     """
     logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
@@ -60,7 +53,6 @@ def ppo_client(config: SimpleNamespace,
         while not stop_flag.is_set() and episode_id != config.max_episodes:
             episode_id += 1
             obs, info = env.reset()
-            obs = tf_obs_callback(obs)
             terminated = False
             total_reward = 0.
             steps = 1
@@ -68,7 +60,6 @@ def ppo_client(config: SimpleNamespace,
                 action, prob = con.agent.get_action(obs)
                 next_obs, reward, next_terminated, truncated, info = env.step(action)
                 next_terminated = next_terminated or truncated
-                next_obs = tf_obs_callback(next_obs)
                 total_reward += reward
                 sample = serializer.serialize_sample({
                     "obs": obs,
@@ -110,8 +101,6 @@ def ppo_client(config: SimpleNamespace,
                 "eps": 0
             })
             con.push_telemetry(tel)
-            if episode_end_callback is not None:
-                episode_end_callback()
             if con.shutdown.is_set():
                 break
     finally:

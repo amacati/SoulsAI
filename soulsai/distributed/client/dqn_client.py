@@ -8,7 +8,6 @@ from threading import Event
 import time
 from collections import deque
 from types import SimpleNamespace
-from typing import Callable
 from multiprocessing.sharedctypes import Synchronized
 
 import numpy as np
@@ -23,9 +22,7 @@ from soulsai.distributed.client.watchdog import ClientWatchdog
 logger = logging.getLogger(__name__)
 
 
-def dqn_client(config: SimpleNamespace,
-               tf_obs_callback: Callable,
-               episode_end_callback: Callable | None = None):
+def dqn_client(config: SimpleNamespace):
     """Wrap the the DQN client main function and automatically parameterize it.
 
     If the training is configured to use a watchdog, the watchdog starts the training and adds
@@ -33,8 +30,6 @@ def dqn_client(config: SimpleNamespace,
 
     Args:
         config: The training configuration.
-        tf_obs_callback: Callback to transform environment observations into agent inputs.
-        episode_end_callback: Callback for functions that should be called at the end of an episode.
     """
     logging.basicConfig(level=config.loglevel)
     logging.getLogger("soulsai").setLevel(config.loglevel)
@@ -42,16 +37,14 @@ def dqn_client(config: SimpleNamespace,
 
     if config.watchdog.enable:
         minimum_samples_per_minute = config.watchdog.minimum_samples
-        external_args = (config, tf_obs_callback, episode_end_callback)
+        external_args = (config,)
         watchdog = ClientWatchdog(_dqn_client, minimum_samples_per_minute, external_args)
         watchdog.start()
     else:
-        _dqn_client(config, tf_obs_callback, episode_end_callback)
+        _dqn_client(config)
 
 
 def _dqn_client(config: SimpleNamespace,
-                tf_obs_callback: Callable,
-                episode_end_callback: Callable | None = None,
                 stop_flag: Event = Event(),
                 sample_gauge: Synchronized | None = None):
     """DQN client main function.
@@ -62,8 +55,6 @@ def _dqn_client(config: SimpleNamespace,
 
     Args:
         config: The training configuration.
-        tf_obs_callback: Callback to transform environment observations into agent inputs.
-        episode_end_callback: Callback for functions that should be called at the end of an episode.
         stop_flag: Event flag to stop the training.
         sample_gauge: Optional parameter that allows external processes to measure the current
             sample rate.
@@ -97,7 +88,6 @@ def _dqn_client(config: SimpleNamespace,
                not con.shutdown.is_set()):
             episode_id += 1
             obs, info = env.reset()
-            obs = tf_obs_callback(obs)
             if config.dqn.action_masking:
                 action_mask = np.zeros(config.env.n_actions)
                 action_mask[info["allowed_actions"]] = 1
@@ -129,7 +119,6 @@ def _dqn_client(config: SimpleNamespace,
                             action = con.agent(obs_n)
                 next_obs, reward, terminated, truncated, info = env.step(action)
                 terminated = terminated or truncated  # Envs that run into a timeout also terminate
-                next_obs = tf_obs_callback(next_obs)
                 observations.append(next_obs)
                 actions.append(action)
                 rewards.append(reward)
@@ -192,8 +181,6 @@ def _dqn_client(config: SimpleNamespace,
                     "eps": eps
                 })
                 con.push_telemetry(tel)
-            if episode_end_callback is not None:
-                episode_end_callback()
         logger.info("Exiting training")
     finally:
         env.close()
