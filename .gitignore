@@ -36,3 +36,6 @@ test/common/grafana/grafana_data/*
 !**.gitkeep
 !/saves/checkpoint/
 !/docs/img/*
+
+# Add collected replays for testing via observation replays
+!/test/pytest/data/*
