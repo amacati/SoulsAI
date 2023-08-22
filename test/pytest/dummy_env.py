@@ -12,6 +12,7 @@ class IudexDummyEnv(gymnasium.Env):
     """
 
     path = Path(__file__).parent / "data" / "iudex_env_reference_input.json"
+    step_size = 0.1
 
     def __init__(self):
         super().__init__()
