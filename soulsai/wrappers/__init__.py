@@ -1,4 +1,4 @@
-from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
+from gymnasium.wrappers import ResizeObservation, FrameStack, AtariPreprocessing
 
 from soulsai.wrappers.common import ReorderChannels
 from soulsai.wrappers.atari import AtariExpandImage
@@ -10,6 +10,6 @@ try:
 except ModuleNotFoundError:
     soulsgym_installed = False
 
-__all__ = [ReorderChannels, AtariPreprocessing, AtariExpandImage]
+__all__ = [ReorderChannels, ResizeObservation, FrameStack, AtariPreprocessing, AtariExpandImage]
 if soulsgym_installed:
     __all__.append(IudexObservationWrapper)
