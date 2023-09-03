@@ -106,7 +106,9 @@ class DQNSerializer(Serializer):
         msg = {
             "bossHp": float(tel["info"]["boss_hp"]),
             "win": bool(tel["info"]["boss_hp"] == 0),
-            "reward": float(tel["reward"])
+            "reward": float(tel["reward"]),
+            "steps": int(tel["steps"]),
+            "eps": float(tel["eps"])
         }
         return self.capnp_msgs.Telemetry.new_message(**msg).to_bytes()
 
