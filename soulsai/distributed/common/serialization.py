@@ -36,7 +36,7 @@ class Serializer(ABC):
 
 class DQNSerializer(Serializer):
 
-    supported_envs = ["SoulsGymIudex-v0", "LunarLander-v2", "ALE/Pong-v5"]
+    supported_envs = ["SoulsGymIudex-v0", "SoulsGymIudexImg-v0", "LunarLander-v2", "ALE/Pong-v5"]
 
     def __init__(self, env_id: str):
         assert env_id in self.supported_envs
@@ -84,6 +84,33 @@ class DQNSerializer(Serializer):
         return self.capnp_msgs.Telemetry.new_message(**tel).to_bytes()
 
     def _deserialize_SoulsGymIudex_v0_telemetry(self, data: bytes) -> dict:
+        with self.capnp_msgs.Telemetry.from_bytes(data) as sample:
+            return sample.to_dict()
+
+    def _serialize_SoulsGymIudexImg_v0_sample(self, sample: dict) -> bytes:
+        sample["obs"] = sample["obs"].tolist()
+        sample["nextObs"] = sample["nextObs"].tolist()
+        sample["reward"] = float(sample["reward"])
+        sample["info"] = {"allowedActions": sample["info"]["allowed_actions"]}
+        return self.capnp_msgs.DQNSample.new_message(**sample).to_bytes()
+
+    def _deserialize_SoulsGymIudexImg_v0_sample(self, data: bytes) -> dict:
+        with self.capnp_msgs.DQNSample.from_bytes(data) as sample:
+            x = sample.to_dict()
+        x["obs"] = np.array(x["obs"])
+        x["nextObs"] = np.array(x["nextObs"])
+        x["info"] = {"allowed_actions": x["info"]["allowedActions"]}
+        return x
+
+    def _serialize_SoulsGymIudexImg_v0_telemetry(self, tel: dict) -> bytes:
+        msg = {
+            "bossHp": float(tel["info"]["boss_hp"]),
+            "win": bool(tel["info"]["boss_hp"] == 0),
+            "reward": float(tel["reward"])
+        }
+        return self.capnp_msgs.Telemetry.new_message(**msg).to_bytes()
+
+    def _deserialize_SoulsGymIudexImg_v0_telemetry(self, data: bytes) -> dict:
         with self.capnp_msgs.Telemetry.from_bytes(data) as sample:
             return sample.to_dict()
 

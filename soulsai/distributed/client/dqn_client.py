@@ -178,7 +178,8 @@ def _dqn_client(config: SimpleNamespace,
                     "reward": total_reward,
                     "steps": steps,
                     "obs": obs,
-                    "eps": eps
+                    "eps": eps,
+                    "info": info
                 })
                 con.push_telemetry(tel)
         logger.info("Exiting training")
