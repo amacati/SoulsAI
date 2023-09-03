@@ -113,6 +113,10 @@ def _dqn_client(config: SimpleNamespace,
                             action = noise.sample()
                     else:
                         obs_n = con.normalizer.normalize(obs) if config.dqn.normalizer else obs
+                        if isinstance(obs_n, np.ndarray):
+                            obs_n = obs_n.astype(np.float32)
+                        else:
+                            obs_n = obs_n.float()
                         if config.dqn.action_masking:
                             action = con.agent(obs_n, action_mask)
                         else:
