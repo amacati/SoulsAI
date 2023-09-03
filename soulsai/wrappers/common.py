@@ -10,7 +10,7 @@ class ReorderChannels(ObservationWrapper):
         super().__init__(env)
 
     def observation(self, observation: np.ndarray) -> np.ndarray:
-        return einops.rearrange(observation, "w h c -> c w h")
+        return einops.rearrange(observation, "s w h c -> (s c) w h")
 
 
 class MaterializeFrames(ObservationWrapper):
