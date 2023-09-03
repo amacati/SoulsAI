@@ -6,11 +6,14 @@ different network styles such as noisy nets for exploration.
 """
 import sys
 from typing import Type
+import logging
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def get_net_class(network_type: str) -> Type[nn.Module]:
@@ -155,7 +158,9 @@ class CNNAdvantageDQN(nn.Module):
     def __init__(self, input_shape: tuple[int, ...], output_dims: int):
         super().__init__()
         assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
-        assert input_shape[0] in (1, 3), "Input shape must have 1 or 3 channels (gray or RGB)"
+        if not input_shape[0] in (1, 3):
+            logger.warning(("Input shape usually has 1 or 3 channels (gray or RGB), but has "
+                            f"{input_shape[0]}"))
         self.output_dims = output_dims
         self.cnn = nn.Sequential(
             nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4, padding=0),
@@ -275,7 +280,9 @@ class CNNDistributionalDQN(nn.Module):
     def __init__(self, input_shape: tuple[int, ...], output_dims: int, n_quantiles: int = 32):
         super().__init__()
         assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
-        assert input_shape[0] in (1, 3), "Input shape must have 1 or 3 channels (gray or RGB)"
+        if not input_shape[0] in (1, 3):
+            logger.warning(("Input shape usually has 1 or 3 channels (gray or RGB), but has "
+                            f"{input_shape[0]}"))
         self.output_dims = output_dims
         self.n_quantiles = n_quantiles
         self.cnn = nn.Sequential(
