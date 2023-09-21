@@ -216,7 +216,10 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('algorithm', type=str, help='Training algorithm', choices=["ppo", "dqn"])
+    parser.add_argument('algorithm',
+                        type=str,
+                        help='Training algorithm',
+                        choices=["ppo", "dqn", "dqn_atari"])
     parser.add_argument('nruns', type=int, help='Number of training runs')
     parser.add_argument('nclients', type=int, default=1, help='Number of client nodes')
     parser.add_argument('--profile',

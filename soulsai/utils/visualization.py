@@ -8,8 +8,14 @@ import numpy as np
 from soulsai.utils.utils import running_mean, running_std
 
 
-def save_plots(samples: List, episodes_rewards: List, episodes_steps: List, boss_hp: List,
-               wins: List, path: Path, eps: float | None = None, N_av: int = 50):
+def save_plots(samples: List,
+               episodes_rewards: List,
+               episodes_steps: List,
+               boss_hp: List,
+               wins: List,
+               path: Path,
+               eps: float | None = None,
+               N_av: int = 50):
     """Plot and save the training progress dashboard.
 
     Stats are smoothed by computing the mean over a running window. Confidence intervals are given
@@ -38,9 +44,9 @@ def save_plots(samples: List, episodes_rewards: List, episodes_steps: List, boss
     ax[0, 0].set_ylabel("Total Reward")
     ax[0, 0].grid(alpha=0.3)
     if len(samples) > N_av:
-        lim_low = min(reward_mean[N_av:]) - 100
-        lim_up = max(reward_mean[N_av:]) + 100
-        ax[0, 0].set_ylim([lim_low, lim_up])
+        lim_low = min(reward_mean[N_av:] - reward_std[N_av:])
+        lim_up = max(reward_mean[N_av:] + reward_std[N_av:])
+        ax[0, 0].set_ylim([lim_low - 0.1 * abs(lim_low), lim_up + 0.1 * abs(lim_up)])
 
     steps_mean = running_mean(episodes_steps, N_av)
     steps_std = running_std(episodes_steps, N_av)
@@ -54,9 +60,9 @@ def save_plots(samples: List, episodes_rewards: List, episodes_steps: List, boss
     ax[0, 1].set_ylabel("Number of Steps")
     ax[0, 1].grid(alpha=0.3)
     if len(samples) > N_av:
-        lim_low = min(steps_mean[N_av:] - steps_std[N_av:]) - 100
-        lim_up = max(steps_mean[N_av:] + steps_std[N_av:]) + 100
-        ax[0, 1].set_ylim([lim_low, lim_up])
+        lim_low = min(steps_mean[N_av:] - steps_std[N_av:])
+        lim_up = max(steps_mean[N_av:] + steps_std[N_av:])
+        ax[0, 1].set_ylim([lim_low - abs(lim_low) * 0.1, lim_up + abs(lim_up) * 0.1])
 
     if eps is not None:
         secax_y = ax[0, 1].twinx()

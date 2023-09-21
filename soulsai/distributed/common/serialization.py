@@ -132,6 +132,7 @@ class DQNSerializer(Serializer):
     def _serialize_LunarLander_v2_telemetry(self, tel: dict) -> bytes:
         tel["bossHp"] = 0
         del tel["obs"]
+        del tel["info"]
         tel["win"] = bool(tel["reward"] > 200)
         tel["reward"] = float(tel["reward"])
         return self.capnp_msgs.Telemetry.new_message(**tel).to_bytes()
@@ -157,6 +158,7 @@ class DQNSerializer(Serializer):
     def _serialize_ALE_Pong_v5_telemetry(self, tel: dict) -> bytes:
         tel["bossHp"] = 0
         del tel["obs"]
+        del tel["info"]
         tel["win"] = bool(tel["reward"] > 200)
         tel["reward"] = float(tel["reward"])
         return self.capnp_msgs.Telemetry.new_message(**tel).to_bytes()
