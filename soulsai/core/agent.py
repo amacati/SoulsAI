@@ -344,8 +344,8 @@ class DQNClientAgent(ClientAgent):
             x = torch.as_tensor(x).to(self.dev)
             qvalues = self.networks["dqn1"](x) + self.networks["dqn1"](x)
             if action_mask is not None:
-                c = torch.as_tensor(action_mask, dtype=torch.bool)
-                qvalues = torch.where(c, qvalues, torch.tensor([-torch.inf], dtype=torch.float32))
+                c = torch.as_tensor(action_mask, dtype=torch.bool, device=self.dev)
+                qvalues = torch.where(c, qvalues, -torch.inf)
             return torch.argmax(qvalues).item()
 
 
@@ -373,8 +373,8 @@ class DistributionalDQNClientAgent(ClientAgent):
             qvalues = self.networks["qr_dqn1"](x) + self.networks["qr_dqn2"](x)
             qvalues = qvalues.mean(dim=1)
             if action_mask is not None:
-                c = torch.as_tensor(action_mask, dtype=torch.bool)
-                qvalues = torch.where(c, qvalues, torch.tensor([-torch.inf], dtype=torch.float32))
+                c = torch.as_tensor(action_mask, dtype=torch.bool, device=self.dev)
+                qvalues = torch.where(c, qvalues, -torch.inf)
             return torch.argmax(qvalues).item()
 
 
