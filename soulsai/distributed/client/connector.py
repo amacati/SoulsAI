@@ -71,10 +71,12 @@ class DQNConnector:
         self.config = config
         if self.config.dqn.variant == "distributional":
             self.agent = DistributionalDQNClientAgent(config.dqn.network_type,
-                                                      namespace2dict(config.dqn.network_kwargs))
+                                                      namespace2dict(config.dqn.network_kwargs),
+                                                      config.device)
         else:
             self.agent = DQNClientAgent(config.dqn.network_type,
-                                        namespace2dict(config.dqn.network_kwargs))
+                                        namespace2dict(config.dqn.network_kwargs),
+                                        config.device)
         self.normalizer = None
         if config.dqn.normalizer:
             normalizer_cls = get_normalizer_class(config.dqn.normalizer)
@@ -219,7 +221,7 @@ class DQNConnector:
                     })
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
         # first and then overwrite the tensors of the main agent with load_state_dict
-        args = (config.dqn.network_type, namespace2dict(config.dqn.network_kwargs))
+        args = (config.dqn.network_type, namespace2dict(config.dqn.network_kwargs), config.device)
         if config.dqn.variant == "distributional":
             buffer_agent = DistributionalDQNClientAgent(*args)
         elif config.dqn.variant == "vanilla":

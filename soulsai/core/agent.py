@@ -284,9 +284,9 @@ class DistributionalDQNAgent(Agent):
 
 class ClientAgent(Agent):
 
-    def __init__(self):
+    def __init__(self, dev: torch.device):
         self.shared = False  # Shared before super init since model_id property gets called
-        super().__init__()
+        super().__init__(dev)
 
     def share_memory(self):
         """Share the client network and model ID memory."""
@@ -323,8 +323,8 @@ class DQNClientAgent(ClientAgent):
     Q-networks.
     """
 
-    def __init__(self, network_type: str, network_kwargs: dict):
-        super().__init__()
+    def __init__(self, network_type: str, network_kwargs: dict, dev: torch.device):
+        super().__init__(dev)
         self.network_type = network_type
         Net = get_net_class(network_type)
         self.networks.add_module("dqn1", Net(**network_kwargs).to(self.dev))
@@ -351,8 +351,8 @@ class DQNClientAgent(ClientAgent):
 
 class DistributionalDQNClientAgent(ClientAgent):
 
-    def __init__(self, network_type: str, network_kwargs: dict):
-        super().__init__()
+    def __init__(self, network_type: str, network_kwargs: dict, dev: torch.device):
+        super().__init__(dev)
         self.network_type = network_type
         Net = get_net_class(network_type)
         self.networks.add_module("qr_dqn1", Net(**network_kwargs).to(self.dev))

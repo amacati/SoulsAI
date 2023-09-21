@@ -1,7 +1,7 @@
 numpy==1.23.1
 redis==4.3.4
 gymnasium [box2d] == 0.28.1
-torch==2.0.1
+torch==2.0.1 -i https://download.pytorch.org/whl/cu118  # Cuda 11.8 Toolkit
 pyyaml==6.0
 matplotlib==3.6.0
 prometheus_client==0.15.0
