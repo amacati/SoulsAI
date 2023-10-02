@@ -318,6 +318,77 @@ class CNNDistributionalDQN(nn.Module):
         return self.linear(self.cnn(x)).view(x.shape[0], self.n_quantiles, self.output_dims)
 
 
+class ResidualCNNBlock(nn.Module):
+    """Residual CNN block from the Impala paper."""
+
+    def __init__(self, n_channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(n_channels, n_channels, 3, padding=1)
+        self.conv2 = nn.Conv2d(n_channels, n_channels, 3, padding=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.conv2(F.relu(self.conv1(F.relu(x))))  #  + x
+
+
+class ImpalaBlock(nn.Module):
+    """CNN block of the deep Impala architecture.
+
+    Link: https://arxiv.org/pdf/1802.01561.pdf
+    """
+
+    def __init__(self, channel_in, channel_out):
+        super().__init__()
+        self.base_conv = nn.Conv2d(channel_in, channel_out, 3, padding=1)
+        self.base_max = nn.MaxPool2d(3, 2)
+        self.res_block1 = ResidualCNNBlock(channel_out)
+        self.res_block2 = ResidualCNNBlock(channel_out)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.base_max(self.base_conv(x))
+        out = self.res_block2(self.res_block1(out))
+        return out
+
+
+class ImpalaDistributionalDQN(nn.Module):
+    """CNN QR-DQN network with residual blocks.
+
+    The network estimates N Q-values, which each have a probability of 1/N.
+    """
+
+    def __init__(self, input_shape: tuple[int, ...], output_dims: int, n_quantiles: int = 32):
+        super().__init__()
+        assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
+        if not input_shape[0] in (1, 3):
+            logger.warning(("Input shape usually has 1 or 3 channels (gray or RGB), but has "
+                            f"{input_shape[0]}"))
+        self.output_dims = output_dims
+        self.n_quantiles = n_quantiles
+        self.cnn = nn.Sequential(ImpalaBlock(input_shape[0], 16), ImpalaBlock(16, 32),
+                                 ImpalaBlock(32, 32), nn.Flatten(), nn.ReLU())
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            n_flatten = self.cnn(torch.zeros((1, *input_shape))).shape[1]
+        n_out = output_dims * n_quantiles
+        self.linear = nn.Sequential(nn.Linear(n_flatten, n_out * 2), nn.ReLU(),
+                                    nn.Linear(n_out * 2, n_out))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the forward pass of the network.
+
+        Args:
+            x: Network input.
+
+        Returns:
+            The network output. Note that the output is a distribution tensor of shape [B A N]
+            instead of [B A], where B is the batch dimension, A is the action dimension, and N is
+            the number of bins (here 32).
+        """
+        assert x.ndim in (3, 4), f"Input must be 3- or 4-dimensional, is {x.ndim}"
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        return self.linear(self.cnn(x)).view(x.shape[0], self.n_quantiles, self.output_dims)
+
+
 class NoisyAdvantageDQN(nn.Module):
     """Noisy advantage deep Q network class.
 
