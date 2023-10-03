@@ -9,6 +9,9 @@ from threading import Lock
 from typing import List
 from types import SimpleNamespace
 
+temp_dir = tempfile.TemporaryDirectory()
+os.environ['MPLCONFIGDIR'] = temp_dir.name  # Set matplotlib config dir
+
 from redis import Redis
 from prometheus_client import start_http_server
 
@@ -17,8 +20,6 @@ from soulsai.utils.visualization import save_plots
 from soulsai.distributed.common.serialization import get_serializer_cls
 from soulsai.distributed.server.telemetry_node.grafana_connector import GrafanaConnector
 
-temp_dir = tempfile.TemporaryDirectory()
-os.environ['MPLCONFIGDIR'] = temp_dir.name  # Set matplotlib config dir
 
 logger = logging.getLogger(__name__)
 

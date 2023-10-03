@@ -66,6 +66,9 @@ class DQNTrainingNode(TrainingNode):
                                   self.config.device)
         else:
             raise ValueError(f"DQN variant {self.config.dqn.variant} is not supported")
+        # Compile all agent networks
+        torch.compile(self.agent.networks, mode="reduce-overhead")
+
         self.normalizer = None
         if self.config.dqn.normalizer:
             normalizer_cls = get_normalizer_class(self.config.dqn.normalizer)
