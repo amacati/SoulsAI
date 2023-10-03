@@ -327,7 +327,7 @@ class ResidualCNNBlock(nn.Module):
         self.conv2 = nn.Conv2d(n_channels, n_channels, 3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv2(F.relu(self.conv1(F.relu(x))))  #  + x
+        return self.conv2(F.relu(self.conv1(F.relu(x)))) + x
 
 
 class ImpalaBlock(nn.Module):

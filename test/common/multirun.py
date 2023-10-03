@@ -93,13 +93,16 @@ def save_plots(results: dict, path: Path):
     x = results["samples"]
     rewards_mean, rewards_std = results["rewards_mean"], results["rewards_std"]
     ax[0, 0].plot(x, rewards_mean)
-    ax[0, 0].fill_between(x, rewards_mean - rewards_std, rewards_mean + rewards_std, alpha=0.4)
+    lower, upper = rewards_mean - rewards_std, rewards_mean + rewards_std
+    ax[0, 0].fill_between(x, lower, upper, alpha=0.4)
     ax[0, 0].legend(["Mean episode reward", "Std deviation episode reward"])
     ax[0, 0].set_title("Total reward vs Episodes")
     ax[0, 0].set_xlabel("Episodes")
     ax[0, 0].set_ylabel("Total reward")
     ax[0, 0].grid(alpha=0.3)
-    ax[0, 0].set_ylim([-350, 350])
+    lower_ylim = np.min(lower) - abs(np.min(lower)) * 0.1
+    upper_ylim = np.max(upper) + abs(np.max(upper)) * 0.1
+    ax[0, 0].set_ylim([lower_ylim, upper_ylim])
 
     steps_mean, steps_std = results["steps_mean"], results["steps_std"]
     ax[0, 1].plot(x, steps_mean, label="Mean episode steps")
@@ -111,7 +114,9 @@ def save_plots(results: dict, path: Path):
     ax[0, 1].set_xlabel("Episodes")
     ax[0, 1].set_ylabel("Number of steps")
     ax[0, 1].grid(alpha=0.3)
-    ax[0, 1].set_ylim([0, 1100])
+    lower_ylim = np.min(lower) - abs(np.min(lower)) * 0.1
+    upper_ylim = np.max(upper) + abs(np.max(upper)) * 0.1
+    ax[0, 1].set_ylim([lower_ylim, upper_ylim])
 
     if results["eps"] is not None:
         secax_y = ax[0, 1].twinx()
