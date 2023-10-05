@@ -16,7 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from redis import Redis
 
-from soulsai.utils import mkdir_date, load_redis_secret
+from soulsai.utils import mkdir_date, load_redis_secret, running_mean
 
 
 def launch_training(dock: DockerClient, algorithm: str, n_clients: int, profile: str) -> Popen:
@@ -91,7 +91,9 @@ def save_plots(results: dict, path: Path):
     fig.suptitle("SoulsAI Multi-Run Dashboard")
 
     x = results["samples"]
-    rewards_mean, rewards_std = results["rewards_mean"], results["rewards_std"]
+    smoothing_window_size = max(int(len(x) * 0.01), 1)
+    rewards_mean = running_mean(results["rewards_mean"], smoothing_window_size)
+    rewards_std = running_mean(results["rewards_std"], smoothing_window_size)
     ax[0, 0].plot(x, rewards_mean)
     lower, upper = rewards_mean - rewards_std, rewards_mean + rewards_std
     ax[0, 0].fill_between(x, lower, upper, alpha=0.4)
@@ -104,7 +106,8 @@ def save_plots(results: dict, path: Path):
     upper_ylim = np.max(upper) + abs(np.max(upper)) * 0.1
     ax[0, 0].set_ylim([lower_ylim, upper_ylim])
 
-    steps_mean, steps_std = results["steps_mean"], results["steps_std"]
+    steps_mean = running_mean(results["steps_mean"], smoothing_window_size)
+    steps_std = running_mean(results["steps_std"], smoothing_window_size)
     ax[0, 1].plot(x, steps_mean, label="Mean episode steps")
     lower, upper = steps_mean - steps_std, steps_mean + steps_std
     ax[0, 1].fill_between(x, lower, upper, alpha=0.4, label="Std deviation episode steps")
@@ -132,7 +135,8 @@ def save_plots(results: dict, path: Path):
     ax[1, 0].set_ylabel("N/A")
     ax[1, 0].grid(alpha=0.3)
 
-    wins_mean, wins_std = results["wins_mean"], results["wins_std"]
+    wins_mean = running_mean(results["wins_mean"], smoothing_window_size)
+    wins_std = running_mean(results["wins_std"], smoothing_window_size)
     ax[1, 1].plot(x, wins_mean)
     ax[1, 1].fill_between(x, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
     ax[1, 1].legend(["Mean wins", "Std deviation wins"])

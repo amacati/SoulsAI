@@ -8,6 +8,8 @@ import logging
 import numpy as np
 import matplotlib.pyplot as plt
 
+from soulsai.utils import running_mean
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,17 +20,45 @@ def plot_comparison(names: List[str], results: dict):
     """
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Comparison")
+
+    reward_ymin, reward_ymax = 0, 0
+    steps_ymin, steps_ymax = 0, 0
+    for name, result in zip(names, results):
+        x = result["samples"]
+        smoothing_window_size = max(int(len(x) * 0.01), 1)
+        
+        rewards_mean = running_mean(result["rewards_mean"], smoothing_window_size)
+        rewards_std = running_mean(result["rewards_std"], smoothing_window_size)
+        lower, upper = rewards_mean - rewards_std, rewards_mean + rewards_std
+        ax[0, 0].plot(x, rewards_mean, label="Mean reward " + name)
+        ax[0, 0].fill_between(x, lower, upper, alpha=0.4)
+        reward_ymin = min(reward_ymin, np.min(lower) - abs(np.min(lower)) * 0.1)
+        reward_ymax = max(reward_ymax, np.max(upper) + abs(np.max(upper)) * 0.1)
+
+        steps_mean = running_mean(result["steps_mean"], smoothing_window_size)
+        steps_std = running_mean(result["steps_std"], smoothing_window_size)
+        lower, upper = steps_mean - steps_std, steps_mean + steps_std
+        ax[0, 1].plot(x, steps_mean, label="Mean steps " + name)
+        ax[0, 1].fill_between(x, lower, upper, alpha=0.4)
+        steps_ymin = min(steps_ymin, np.min(lower) - abs(np.min(lower)) * 0.1)
+        steps_ymax = max(steps_ymax, np.max(upper) + abs(np.max(upper)) * 0.1)
+
+        wins_mean = running_mean(result["wins_mean"], smoothing_window_size)
+        wins_std = running_mean(result["wins_std"], smoothing_window_size)
+        ax[1, 1].plot(x, wins_mean, label="Mean wins " + name)
+        ax[1, 1].fill_between(x, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
+    
     # Plot settings
     ax[0, 0].set_title("Total reward vs Episodes")
     ax[0, 0].set_xlabel("Episodes")
     ax[0, 0].set_ylabel("Total reward")
     ax[0, 0].grid(alpha=0.3)
-    ax[0, 0].set_ylim([-350, 350])
+    ax[0, 0].set_ylim([reward_ymin, reward_ymax])
     ax[0, 1].set_title("Number of steps vs Episodes")
     ax[0, 1].set_xlabel("Episodes")
     ax[0, 1].set_ylabel("Number of steps")
     ax[0, 1].grid(alpha=0.3)
-    ax[0, 1].set_ylim([0, 1100])
+    ax[0, 1].set_ylim([steps_ymin, steps_ymax])
     ax[1, 0].legend(["N/A", "N/A"])
     ax[1, 0].set_title("N/A")
     ax[1, 0].set_xlabel("Episodes")
@@ -40,20 +70,7 @@ def plot_comparison(names: List[str], results: dict):
     ax[1, 1].set_ylabel("Success rate")
     ax[1, 1].set_ylim([0, 1])
     ax[1, 1].grid(alpha=0.3)
-
-    for name, result in zip(names, results):
-        x = result["samples"]
-        rewards_mean, rewards_std = result["rewards_mean"], result["rewards_std"]
-        ax[0, 0].plot(x, rewards_mean, label="Mean reward " + name)
-        ax[0, 0].fill_between(x, rewards_mean - rewards_std, rewards_mean + rewards_std, alpha=0.4)
-
-        steps_mean, steps_std = result["steps_mean"], result["steps_std"]
-        ax[0, 1].plot(x, steps_mean, label="Mean steps " + name)
-        ax[0, 1].fill_between(x, steps_mean - steps_std, steps_mean + steps_std, alpha=0.4)
-
-        wins_mean, wins_std = result["wins_mean"], result["wins_std"]
-        ax[1, 1].plot(x, wins_mean, label="Mean wins " + name)
-        ax[1, 1].fill_between(x, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
+    
     # Plot legends
     if results[0]["eps"] is None:
         ax[0, 1].legend()
