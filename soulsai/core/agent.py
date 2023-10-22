@@ -299,6 +299,8 @@ class ClientAgent(Agent):
     def model_id(self) -> str:
         """The current model ID identifies each unique iteration of the agent.
 
+        The model ID is a 36 character long string, exactly the length of a uuid4 string.
+
         Returns:
             The model ID.
         """
@@ -309,6 +311,7 @@ class ClientAgent(Agent):
     @model_id.setter
     def model_id(self, value: str):
         if self.shared:
+            assert len(value) == 36, f"Model ID must be 36 characters long, got {len(value)}"
             self._model_id[:] = bytes(value, encoding="utf-8")
         else:
             self._model_id = value

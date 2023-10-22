@@ -109,6 +109,7 @@ class DQNConnector:
         self.agent.share_memory()
         if self.normalizer:
             self.normalizer.share_memory()
+
         args = (self._update_event, self._stop_event, self.agent, self.normalizer, self._eps,
                 self._lock, secret, config)
         self.model_updater = mp.Process(target=self._update_model, args=args, daemon=True)
@@ -116,9 +117,12 @@ class DQNConnector:
 
         # Block while first model is not here
         logger.info("Waiting for model download...")
+        self.agent.model_id = "x" * 36
         while self.model_id[0] == " ":
             time.sleep(0.01)
         logger.info("Download complete, connector initialized")
+
+        # Start the heartbeat process
         args = (address, secret, self._stop_event)
         self.heartbeat = mp.Process(target=self._heartbeat, args=args, daemon=True)
         self.heartbeat.start()
@@ -227,6 +231,7 @@ class DQNConnector:
             buffer_agent = DQNClientAgent(*args)
         else:
             raise ValueError(f"DQN variant {config.dqn.variant} is not supported")
+
         update_event.set()  # Ensure load on first start up
         while not stop_event.is_set():
             if not update_event.wait(1):
@@ -368,7 +373,7 @@ class DQNConnector:
 class PPOConnector:
     """The PPO client connector abstracts the communication with the training server.
 
-    The connector sends samples and telemetry messages into a pipe. A separate message consumer
+    The connector sends samples and episode end messages into a pipe. A separate message consumer
     process is responsible to consume the messages and upload them to Redis. This allows the main
     script to avoid blocking uploads between environment steps.
 
@@ -438,13 +443,13 @@ class PPOConnector:
         """
         self._msg_pipe.send(("samples", sample))
 
-    def push_telemetry(self, telemetry: bytes):
-        """Send a telemetry message over the message pipe.
+    def push_episode_info(self, episode_info: bytes):
+        """Send an episode info message over the message pipe.
 
         Args:
-            telemetry: Telemetry dictionary.
+            episode_info: Episode info dictionary.
         """
-        self._msg_pipe.send(("telemetry", telemetry))
+        self._msg_pipe.send(("episode_info", episode_info))
 
     def close(self):
         """Close the connector by stopping the message consumer and heartbeat process."""
@@ -506,7 +511,7 @@ class PPOConnector:
             if not msg_pipe.poll(1):
                 continue  # Check again if stop event has been set
             msg = msg_pipe.recv()
-            assert msg[0] in ["samples", "telemetry"], f"Unknown message type {msg[0]}"
+            assert msg[0] in ["samples", "episode_info"], f"Unknown message type {msg[0]}"
             red.publish(msg[0], msg[1])
 
     def _client_shutdown(self, _):

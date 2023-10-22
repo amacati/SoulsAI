@@ -54,13 +54,13 @@ def ppo_client(config: SimpleNamespace):
             episode_id += 1
             obs, info = env.reset()
             terminated = False
-            total_reward = 0.
-            steps = 1
+            episode_reward = 0.
+            episode_steps = 1
             while not terminated and not stop_flag.is_set():
                 action, prob = con.agent.get_action(obs)
                 next_obs, reward, next_terminated, truncated, info = env.step(action)
                 next_terminated = next_terminated or truncated
-                total_reward += reward
+                episode_reward += reward
                 sample = serializer.serialize_sample({
                     "obs": obs,
                     "action": action,
@@ -76,7 +76,7 @@ def ppo_client(config: SimpleNamespace):
                 logger.debug(f"Pushed sample {ppo_steps} for model {con.agent.model_id}")
                 obs = next_obs
                 terminated = next_terminated
-                steps += 1
+                episode_steps += 1
                 ppo_steps += 1
                 if config.step_delay:
                     time.sleep(config.step_delay)
@@ -94,13 +94,13 @@ def ppo_client(config: SimpleNamespace):
                     con.push_sample(sample)
                     ppo_steps = 0
                     con.sync(config.ppo.client_sync_timeout)  # Wait for the new model
-            tel = serializer.serialize_telemetry({
-                "reward": total_reward,
-                "steps": steps,
+            episode_info = serializer.serialize_episode_info({
+                "epReward": episode_reward,
+                "epSteps": episode_steps,
                 "obs": obs,
                 "eps": 0
             })
-            con.push_telemetry(tel)
+            con.push_episode_info(episode_info)
             if con.shutdown.is_set():
                 break
     finally:

@@ -187,3 +187,8 @@ class PPOTrainingNode(TrainingNode):
 
     def _required_client_ids(self) -> List[int]:
         return list(range(self.config.ppo.n_clients))
+
+    def _episode_info_callback(self, episode_info: bytes):
+        data = self.serializer.deserialize_episode_info(episode_info)
+        data["totalSteps"] = self._total_env_steps
+        self.red.publish("telemetry", self.serializer.serialize_telemetry(data))

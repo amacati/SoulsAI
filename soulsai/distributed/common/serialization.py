@@ -203,22 +203,22 @@ class DQNSerializer(Serializer):
         return x
 
     def _serialize_ALE_Pong_v5_episode_info(self, data: dict) -> bytes:
-        return self.capnp_msgs.EpisodeInfo.new_message(**data).to_bytes()
+        msg = {
+            "epReward": data["epReward"],
+            "epSteps": data["epSteps"],
+            "bossHp": 0,
+            "win": data["epReward"] > 0,
+            "eps": data["eps"],
+            "modelId": data["modelId"]
+        }
+        return self.capnp_msgs.EpisodeInfo.new_message(**msg).to_bytes()
 
     def _deserialize_ALE_Pong_v5_episode_info(self, data: bytes) -> dict:
         with self.capnp_msgs.EpisodeInfo.from_bytes(data) as episode_info:
             return episode_info.to_dict()
 
     def _serialize_ALE_Pong_v5_telemetry(self, tel: dict) -> bytes:
-        msg = {
-            "bossHp": 0,
-            "win": bool(tel["reward"] > 200),
-            "reward": float(tel["reward"]),
-            "epSteps": int(tel["epSteps"]),
-            "totalSteps": int(tel["totalSteps"]),
-            "eps": float(tel["eps"])
-        }
-        return self.capnp_msgs.Telemetry.new_message(**msg).to_bytes()
+        return self.capnp_msgs.Telemetry.new_message(**tel).to_bytes()
 
     def _deserialize_ALE_Pong_v5_telemetry(self, data: bytes) -> dict:
         with self.capnp_msgs.Telemetry.from_bytes(data) as sample:
@@ -237,6 +237,8 @@ class PPOSerializer(Serializer):
         # Load functions for serialization and deserialization
         self._serialize_sample = getattr(self, f"_serialize_{_env_id}_sample")
         self._deserialize_sample = getattr(self, f"_deserialize_{_env_id}_sample")
+        self._serialize_episode_info = getattr(self, f"_serialize_{_env_id}_episode_info")
+        self._deserialize_episode_info = getattr(self, f"_deserialize_{_env_id}_episode_info")
         self._serialize_telemetry = getattr(self, f"_serialize_{_env_id}_telemetry")
         self._deserialize_telemetry = getattr(self, f"_deserialize_{_env_id}_telemetry")
 
@@ -245,6 +247,12 @@ class PPOSerializer(Serializer):
 
     def deserialize_sample(self, data: bytes) -> dict:
         return self._deserialize_sample(data)
+
+    def serialize_episode_info(self, episode_info) -> bytes:
+        return self._serialize_episode_info(episode_info)
+
+    def deserialize_episode_info(self, data: bytes) -> dict:
+        return self._deserialize_episode_info(data)
 
     def serialize_telemetry(self, tel: dict) -> bytes:
         return self._serialize_telemetry(tel)
@@ -264,11 +272,18 @@ class PPOSerializer(Serializer):
         x["obs"] = np.array(x["obs"])
         return x
 
+    def _serialize_LunarLander_v2_episode_info(self, episode_info: dict) -> bytes:
+        episode_info["bossHp"] = 0
+        del episode_info["obs"]
+        episode_info["win"] = bool(episode_info["epReward"] > 200)
+        episode_info["epReward"] = float(episode_info["epReward"])
+        return self.capnp_msgs.EpisodeInfo.new_message(**episode_info).to_bytes()
+
+    def _deserialize_LunarLander_v2_episode_info(self, data: bytes) -> dict:
+        with self.capnp_msgs.EpisodeInfo.from_bytes(data) as sample:
+            return sample.to_dict()
+
     def _serialize_LunarLander_v2_telemetry(self, tel: dict) -> bytes:
-        tel["bossHp"] = 0
-        del tel["obs"]
-        tel["win"] = bool(tel["reward"] > 200)
-        tel["reward"] = float(tel["reward"])
         return self.capnp_msgs.Telemetry.new_message(**tel).to_bytes()
 
     def _deserialize_LunarLander_v2_telemetry(self, data: bytes) -> dict:
