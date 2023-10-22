@@ -107,7 +107,7 @@ class DQNTrainingNode(TrainingNode):
             self.prom_num_samples.inc() if valid else self.prom_num_samples_reject.inc()
         return valid
 
-    def _sample_received_hook(self):
+    def _sample_received_hook(self, _: dict):
         if self._total_env_steps % self.config.dqn.eps_samples == 0:
             with self._lock:  # Avoid races when checkpointing
                 self.eps_scheduler.step()
@@ -150,6 +150,15 @@ class DQNTrainingNode(TrainingNode):
         if not self.config.checkpoint.epochs:
             return False
         return self._model_iterations % self.config.checkpoint.epochs == 0
+
+    def _episode_info_callback(self, episode_info: bytes):
+        episode_info = self.serializer.deserialize_episode_info(episode_info)
+        if not episode_info["modelId"] in self.model_ids:
+            logger.warning("Stale episode info rejected")
+            return
+        episode_info["totalSteps"] = self._total_env_steps
+        del episode_info["modelId"]
+        self.red.publish("telemetry", self.serializer.serialize_telemetry(episode_info))
 
     def _dqn_step(self):
         """Sample batches, normalize the values if applicable, and update the agent."""

@@ -1,9 +1,10 @@
 """The ``watchdog`` module allows the execution of functions under special surveillance."""
 import time
-from threading import Thread, Event
 import logging
-from multiprocessing import Value
 from typing import Callable, Any
+from threading import Thread, Event
+from multiprocessing import Value
+from multiprocessing.sharedctypes import Synchronized
 
 logger = logging.getLogger(__name__)
 
@@ -71,3 +72,30 @@ class ClientWatchdog:
             else:
                 logger.debug(f"Watchdog check passed ({self.sample_gauge.value} samples/min)")
             time.sleep(10.)
+
+
+class WatchdogGauge:
+
+    def __init__(self, sync_value: Synchronized, update_time: float = 60.):
+        """Create a wrapper around the synchronized shared value.
+
+        Args:
+            sync_value: The shared value to store the current sample rate.
+            update_time: The time interval in seconds in which the sample rate is updated.
+        """
+        self.sync_value = sync_value
+        self._cnt = -1
+        self._t_last = 0
+        self._update_time = update_time
+
+    def inc(self, amount: int = 1):
+        if self._cnt == -1:
+            self._cnt = 1
+            self._t_start = time.time()
+            return
+        self._cnt += amount
+        t_now = time.time()
+        if t_now - self._t_last > self._update_time:
+            self.sync_value.value = int(self._cnt * 60 / (t_now - self._t_start))
+            self._cnt = 0
+            self._t_start = t_now

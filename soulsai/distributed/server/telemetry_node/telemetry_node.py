@@ -20,12 +20,11 @@ from soulsai.utils.visualization import save_plots
 from soulsai.distributed.common.serialization import get_serializer_cls
 from soulsai.distributed.server.telemetry_node.grafana_connector import GrafanaConnector
 
-
 logger = logging.getLogger(__name__)
 
 
 class TelemetryNode:
-    """The telemetry node receives telemetry from the clients to track the training progress.
+    """The telemetry node receives telemetry from the training node to track the training progress.
 
     Samples are received from Redis and added to the telemetry history. Every ``update_interval``
     message, the results are plotted and saved both to a figure and to a json file.
@@ -52,7 +51,7 @@ class TelemetryNode:
         self.config = load_remote_config(config.redis_address, secret, self.red)
         self.serializer = get_serializer_cls(self.config.algorithm)(self.config.env.name)
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
-        self.sub_telemetry.subscribe("telemetry", "samples")
+        self.sub_telemetry.subscribe("telemetry")
         self.lock = Lock()
         self._shutdown = False
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
@@ -109,22 +108,19 @@ class TelemetryNode:
             if not (msg := self.sub_telemetry.get_message()):
                 time.sleep(0.1)
                 continue
-            if msg["channel"] == b"samples":
-                self._n_env_steps += 1
-                continue
             sample = self.serializer.deserialize_telemetry(msg["data"])
             # Appending automatically changes data in GrafanaConnector
             with self.lock:
-                self.rewards.append(sample["reward"])
+                self.rewards.append(sample["epReward"])
                 self.rewards_av.append(self._latest_moving_av(self.rewards))
-                self.steps.append(sample["steps"])
+                self.steps.append(sample["epSteps"])
                 self.steps_av.append(self._latest_moving_av(self.steps))
                 self.boss_hp.append(sample["bossHp"])
                 self.boss_hp_av.append(self._latest_moving_av(self.boss_hp))
                 self.wins.append(int(sample["win"]))
                 self.wins_av.append(self._latest_moving_av(self.wins))
                 self.eps.append(sample["eps"])
-                self.samples.append(self._n_env_steps)
+                self.samples.append(sample["totalSteps"])
             n_rewards = len(self.rewards)
             if n_rewards % self.config.telemetry.update_interval == 0:
                 self.update_stats_and_dashboard()

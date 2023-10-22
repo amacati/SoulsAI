@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class DQNConnector:
     """The DQN client connector abstracts the communication with the training server.
 
-    The connector sends samples and telemetry messages into a message queue. A separate message
+    The connector sends samples and episode info messages into a message queue. A separate message
     consumer process is responsible to consume the messages and upload them to Redis. This allows
     the main script to avoid blocking uploads between environment steps.
 
@@ -53,8 +53,8 @@ class DQNConnector:
 
     If the communication with Redis is interrupted, the connector will automatically try to
     reestablish the connection. In the client thread, this is only visible through a logger warning.
-    After reestablishing the connection, sample and telemetry messages will be sent again, and model
-    updates will resume.
+    After reestablishing the connection, sample and episode info messages will be sent again, and
+    model updates will resume.
     """
 
     def __init__(self, config: SimpleNamespace):
@@ -75,8 +75,7 @@ class DQNConnector:
                                                       config.device)
         else:
             self.agent = DQNClientAgent(config.dqn.network_type,
-                                        namespace2dict(config.dqn.network_kwargs),
-                                        config.device)
+                                        namespace2dict(config.dqn.network_kwargs), config.device)
         self.normalizer = None
         if config.dqn.normalizer:
             normalizer_cls = get_normalizer_class(config.dqn.normalizer)
@@ -164,13 +163,13 @@ class DQNConnector:
         """
         self._push_msg("samples", sample)
 
-    def push_telemetry(self, telemetry: bytes):
-        """Send a telemetry message over the message queue.
+    def push_episode_info(self, episode_info: bytes):
+        """Send an episode info summary message over the message queue.
 
         Args:
-            telemetry: Telemetry dictionary.
+            episode_info: Episode info dictionary.
         """
-        self._push_msg("telemetry", telemetry)
+        self._push_msg("episode_info", episode_info)
 
     def _push_msg(self, msg_type: str, msg: Any):
         try:
@@ -269,7 +268,7 @@ class DQNConnector:
                 continue  # Check again if stop event has been set
             try:
                 # msg[0] is the message type, msg[1] the message encoded by capnproto
-                assert msg[0] in ["samples", "telemetry"], f"Unknown message type {msg[0]}"
+                assert msg[0] in ["samples", "episode_info"], f"Unknown message type {msg[0]}"
                 assert isinstance(msg[1], bytes), f"Message is not of type bytes but {type(msg[1])}"
                 red.publish(msg[0], msg[1])
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):

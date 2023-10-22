@@ -13,11 +13,11 @@ from multiprocessing.sharedctypes import Synchronized
 import numpy as np
 import gymnasium
 import soulsai.wrappers
-from soulsai.core.noise import get_noise_class
+from soulsai.core.noise import get_noise_class, Noise
 from soulsai.utils import namespace2dict
 from soulsai.distributed.common.serialization import DQNSerializer
 from soulsai.distributed.client.connector import DQNConnector
-from soulsai.distributed.client.watchdog import ClientWatchdog
+from soulsai.distributed.client.watchdog import ClientWatchdog, WatchdogGauge
 
 logger = logging.getLogger(__name__)
 
@@ -84,50 +84,32 @@ def _dqn_client(config: SimpleNamespace,
         actions = deque(maxlen=config.dqn.multistep)
         rewards = deque(maxlen=config.dqn.multistep)
         infos = deque(maxlen=config.dqn.multistep)
+        gauge = WatchdogGauge(sample_gauge) if sample_gauge else None
         while (not stop_flag.is_set() and episode_id != config.max_episodes and  # noqa: W504
                not con.shutdown.is_set()):
             episode_id += 1
             obs, info = env.reset()
-            if config.dqn.action_masking:
-                action_mask = np.zeros(config.env.n_actions)
+            action_mask = np.zeros(config.env.n_actions) if config.dqn.action_masking else None
+            if action_mask:
                 action_mask[info["allowed_actions"]] = 1
-            if sample_gauge and episode_id == 1:
-                current_gauge_start_time = time.time()
-                current_gauge_cnt = 0
             terminated = False
-            total_reward = 0.
-            steps = 1
+            steps, episode_reward = 1, 0.
             observations.clear()
             actions.clear()
             rewards.clear()
             infos.clear()
             observations.append(obs)
             while not terminated and not stop_flag.is_set():
-                with con:
-                    eps = con.eps
-                    model_id = con.model_id
-                    if np.random.rand() < eps:
-                        if config.dqn.noise == "MaskedDiscreteNoise":
-                            action = noise.sample(action_mask)
-                        else:
-                            action = noise.sample()
-                    else:
-                        obs_n = con.normalizer.normalize(obs) if config.dqn.normalizer else obs
-                        if isinstance(obs_n, np.ndarray):
-                            obs_n = obs_n.astype(np.float32)
-                        else:
-                            obs_n = obs_n.float()
-                        if config.dqn.action_masking:
-                            action = con.agent(obs_n, action_mask)
-                        else:
-                            action = con.agent(obs_n)
+                with con:  # Context makes action and model_id consistent
+                    action = _choose_action(con, obs, action_mask, noise)
+                    eps, model_id = con.eps, con.model_id
                 next_obs, reward, terminated, truncated, info = env.step(action)
                 terminated = terminated or truncated  # Envs that run into a timeout also terminate
                 observations.append(next_obs)
                 actions.append(action)
                 rewards.append(reward)
                 infos.append(info)
-                total_reward += reward
+                episode_reward += reward
                 if len(rewards) == config.dqn.multistep:
                     sum_r = sum([rewards[i] * config.gamma**i for i in range(config.dqn.multistep)])
                     sample = serializer.serialize_sample({
@@ -140,14 +122,8 @@ def _dqn_client(config: SimpleNamespace,
                         "modelId": model_id
                     })
                     con.push_sample(sample)
-                    if sample_gauge:
-                        current_gauge_cnt += 1
-                        tnow = time.time()
-                        if tnow - current_gauge_start_time > 60:
-                            td = tnow - current_gauge_start_time
-                            sample_gauge.value = int(current_gauge_cnt * 60 / td)
-                            current_gauge_cnt = 0
-                            current_gauge_start_time = tnow
+                    if gauge:
+                        gauge.inc(1)
                 obs = next_obs
                 if config.dqn.action_masking:
                     action_mask[:] = 0
@@ -169,24 +145,30 @@ def _dqn_client(config: SimpleNamespace,
                         "modelId": model_id
                     })
                     con.push_sample(sample)
-                    if sample_gauge:
-                        current_gauge_cnt += 1
-                        tnow = time.time()
-                        if tnow - current_gauge_start_time > 60:
-                            td = tnow - current_gauge_start_time
-                            sample_gauge.value = int(current_gauge_cnt * 60 / td)
-                            current_gauge_cnt = 0
-                            current_gauge_start_time = tnow
-                noise.reset()
-                tel = serializer.serialize_telemetry({
-                    "reward": total_reward,
-                    "steps": steps,
-                    "obs": obs,
+                if gauge:
+                    gauge.inc(len(rewards) - 1)
+                ep_info = serializer.serialize_episode_info({
+                    "epReward": episode_reward,
+                    "epSteps": steps,
                     "eps": eps,
-                    "info": info
+                    "modelId": model_id,
+                    "obs": observations[-1]
                 })
-                con.push_telemetry(tel)
+                con.push_episode_info(ep_info)
+                noise.reset()
         logger.info("Exiting training")
     finally:
         env.close()
         con.close()
+
+
+def _choose_action(con: DQNConnector, obs: np.ndarray, action_mask: np.ndarray,
+                   noise: Noise) -> int:
+    if np.random.rand() < con.eps:
+        action = noise.sample(action_mask) if action_mask is not None else noise.sample()
+    else:
+        obs_n = con.normalizer.normalize(obs) if con.normalizer else obs
+        # Convert numpy or torch tensor to float32
+        obs_n = obs_n.astype(np.float32) if isinstance(obs_n, np.ndarray) else obs_n.float()
+        action = con.agent(obs_n, action_mask) if action_mask is not None else con.agent(obs_n)
+    return action
