@@ -8,12 +8,14 @@ buffer. Older samples are rejected and discarded.
 This approach also allows us to dynamically add and remove worker nodes, making the overall
 architecture more resilient against connection failures, client errors etc.
 """
+from __future__ import annotations
+
 from uuid import uuid4
 import logging
 from pathlib import Path
 from collections import deque
 import time
-from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -24,6 +26,9 @@ from soulsai.core.scheduler import EpsilonScheduler
 from soulsai.distributed.common.serialization import DQNSerializer
 from soulsai.distributed.server.training_node.training_node import TrainingNode
 from soulsai.utils import namespace2dict
+
+if TYPE_CHECKING:
+    from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 

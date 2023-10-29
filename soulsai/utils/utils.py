@@ -206,7 +206,6 @@ def load_redis_secret(path: Path) -> str:
     Returns:
         The secret.
     """
-    assert path.suffix == ".secret", "Secrets have to be stored as .secret files!"
     with open(path, "r") as f:
         conf = f.readlines()
     secret = None

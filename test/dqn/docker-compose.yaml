@@ -15,7 +15,7 @@ services:
     build:
       dockerfile: test/dqn/training_node.Dockerfile
       context: ../../.
-    # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
+    # Manually add save directory to make persistent saves on crash
     volumes:
       - ../../config/:/home/SoulsAI/config/
       - ../../soulsai/:/home/SoulsAI/soulsai/
@@ -23,6 +23,8 @@ services:
       - ../../saves/:/home/SoulsAI/saves/
     depends_on:
       - redis
+    secrets:
+      - redis_secret
     # Comment out the following lines if you don't have a GPU
     deploy:
       resources:
@@ -30,14 +32,14 @@ services:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     user: "1000"
     networks:
       - server_net
 
   telemetry_node:
     build:
-      dockerfile: test/common/telemetry_node.Dockerfile
+      dockerfile: soulsai/distributed/server/telemetry_node/Dockerfile
       context: ../../.
     # Manually add secrets as volumes during runtime
     volumes:
@@ -45,6 +47,10 @@ services:
       - ../../soulsai/:/home/SoulsAI/soulsai/ # Reflect dev changes in docker containers without rebuilding
       - ../../test/:/home/SoulsAI/test/
       - ../../saves/:/home/SoulsAI/saves/
+      - /etc/passwd:/etc/passwd:ro # Workaround for WandB pwd.getpwuid(os.getuid())[0] error
+    secrets:
+      - redis_secret
+      - wandb_api_key
     depends_on:
       - redis
     user: "1000"
@@ -69,7 +75,7 @@ services:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     user: "1000"
     networks:
       - server_net
@@ -114,3 +120,9 @@ networks:
   server_net:
     name: server
     external: True
+
+secrets:
+  redis_secret:
+    file: ../../config/redis.secret
+  wandb_api_key:
+    file: ../../config/wandb_api_key.secret

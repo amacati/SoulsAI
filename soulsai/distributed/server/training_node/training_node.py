@@ -8,23 +8,28 @@ Each training node also has a heartbeat service that determines how many clients
 active. The heartbeat service can also be customized to require nodes (or a subset of them) to be
 continuously connected.
 """
+from __future__ import annotations
+
 from pathlib import Path
 import logging
 import multiprocessing as mp
-from multiprocessing.sharedctypes import Synchronized
 import json
 import time
 from abc import ABC, abstractmethod
 from threading import Thread, Event
-from typing import List, Any
-from types import SimpleNamespace
+from typing import List, Any, TYPE_CHECKING
 
 import numpy as np
 from redis import Redis
 from prometheus_client import start_http_server, Info, Counter, Gauge
 
-from soulsai.distributed.common.serialization import Serializer
 from soulsai.utils import mkdir_date, load_redis_secret, namespace2dict, dict2namespace
+
+if TYPE_CHECKING:
+    from types import SimpleNamespace
+    from multiprocessing.sharedctypes import Synchronized
+
+    from soulsai.distributed.common.serialization import Serializer
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +69,7 @@ class TrainingNode(ABC):
         # Translate config values that are incompatible with json
         self._max_env_steps = self.config.max_env_steps or float("inf")
         # Load redis secret, create redis connection and subscribers
-        secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
+        secret = load_redis_secret(Path("/run/secrets/redis_secret"))
         self.red = Redis(host='redis', port=6379, password=secret, db=0)
         self.sample_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.sample_sub.subscribe("samples", "episode_info")

@@ -321,7 +321,7 @@ class CNNDistributionalDQN(nn.Module):
 class ResidualCNNBlock(nn.Module):
     """Residual CNN block from the Impala paper."""
 
-    def __init__(self, n_channels):
+    def __init__(self, n_channels: int):
         super().__init__()
         self.conv1 = nn.Conv2d(n_channels, n_channels, 3, padding=1)
         self.conv2 = nn.Conv2d(n_channels, n_channels, 3, padding=1)
@@ -336,7 +336,7 @@ class ImpalaBlock(nn.Module):
     Link: https://arxiv.org/pdf/1802.01561.pdf
     """
 
-    def __init__(self, channel_in, channel_out):
+    def __init__(self, channel_in: int, channel_out: int):
         super().__init__()
         self.base_conv = nn.Conv2d(channel_in, channel_out, 3, padding=1)
         self.base_max = nn.MaxPool2d(3, 2)

@@ -97,7 +97,15 @@ step_delay: 0
 
 # Monitoring
 monitoring:
-  enable: True
+  file_storage:
+    path: "/home/SoulsAI/saves"
+    plot: True
+  grafana: True
+  wandb:
+    project: "soulsai_dqn"
+    entity: "amacati"
+    group: "test"
+    save_dir: "/home/SoulsAI/saves"
 
 watchdog:
   enable: False

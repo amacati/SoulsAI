@@ -90,7 +90,7 @@ def save_plots(results: dict, path: Path):
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Dashboard")
 
-    x = results["samples"]
+    x = results["n_env_steps"]
     smoothing_window_size = max(int(len(x) * 0.01), 1)
     rewards_mean = running_mean(results["rewards_mean"], smoothing_window_size)
     rewards_std = running_mean(results["rewards_std"], smoothing_window_size)
@@ -160,7 +160,7 @@ def average_results(results: dict) -> dict:
         The averaged datapoints.
     """
     # Calculate min stats
-    nsamples = min([max(results[run]["samples"]) for run in results])
+    nsamples = min([max(results[run]["n_env_steps"]) for run in results])
     x = np.linspace(0, nsamples, 1000)
     # Interpolate data with N_episodes datapoints between 0 and nsamples
     # Restrict results to the shortest experiment length
@@ -168,7 +168,7 @@ def average_results(results: dict) -> dict:
     averaged_results = {}
     for run in results:
         for key in ("rewards", "steps", "wins"):
-            results[run][key] = np.interp(x, results[run]["samples"], results[run][key])
+            results[run][key] = np.interp(x, results[run]["n_env_steps"], results[run][key])
     for key in ("rewards", "steps", "wins"):
         data = np.array([run[key] for run in results.values()])
         averaged_results[key + "_mean"] = np.mean(data, axis=0)
@@ -176,8 +176,9 @@ def average_results(results: dict) -> dict:
     if results["run0"]["eps"][0] is None:
         averaged_results["eps"] = None
     else:
-        averaged_results["eps"] = np.interp(x, results["run0"]["samples"], results["run0"]["eps"])
-    averaged_results["samples"] = x
+        averaged_results["eps"] = np.interp(x, results["run0"]["n_env_steps"],
+                                            results["run0"]["eps"])
+    averaged_results["n_env_steps"] = x
     return averaged_results
 
 
