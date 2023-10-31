@@ -92,14 +92,14 @@ def _dqn_client(config: SimpleNamespace,
             action_mask = np.zeros(config.env.n_actions) if config.dqn.action_masking else None
             if action_mask:
                 action_mask[info["allowed_actions"]] = 1
-            terminated = False
+            terminated, truncated = False, False
             steps, episode_reward = 1, 0.
             observations.clear()
             actions.clear()
             rewards.clear()
             infos.clear()
             observations.append(obs)
-            while not terminated and not stop_flag.is_set():
+            while not (terminated or truncated) and not stop_flag.is_set():
                 with con:  # Context makes action and model_id consistent
                     action = _choose_action(con, obs, action_mask, noise)
                     eps, model_id = con.eps, con.model_id
@@ -117,7 +117,8 @@ def _dqn_client(config: SimpleNamespace,
                         "action": actions[0],
                         "reward": sum_r,
                         "nextObs": observations[-1],
-                        "done": terminated,
+                        "terminated": terminated,
+                        "truncated": truncated,
                         "info": infos[-1],
                         "modelId": model_id
                     })
@@ -131,7 +132,17 @@ def _dqn_client(config: SimpleNamespace,
                 steps += 1
                 if config.step_delay:  # Enable Dockerfiles to simulate slow clients
                     time.sleep(config.step_delay)
-            if not stop_flag.is_set():
+            # Sent the remaining samples for multistep > 1. We have no access to the remaining
+            # required samples for a multistep reward. There are two cases:
+            # 1) If the environment has terminated, we can send the samples since the remaining
+            # trace calculates the MC reward correctly. The training step will not add the
+            # Q estimate of future states to it.
+            # 2) The environment was truncated. We cannot send these samples. The environment has
+            # not terminated, so the training step would add the Q estimate discounted by
+            # gamma ** multistep to the reward. However, our multistep samples are missing terms in
+            # the reward sum because we can't generate the future samples for the estimate.
+            # Therefore, the samples have to be discarded to prevent false estimates of the reward.
+            if not stop_flag.is_set() and not truncated:
                 for i in range(1, len(rewards)):
                     sum_r = sum(
                         [rewards[i + j] * config.gamma**j for j in range(config.dqn.multistep - i)])
@@ -140,13 +151,15 @@ def _dqn_client(config: SimpleNamespace,
                         "action": actions[i],
                         "reward": sum_r,
                         "nextObs": observations[-1],
-                        "done": terminated,
+                        "terminated": terminated,
+                        "truncated": truncated,
                         "info": infos[-1],
                         "modelId": model_id
                     })
                     con.push_sample(sample)
                 if gauge:
                     gauge.inc(len(rewards) - 1)
+            if terminated or truncated:
                 ep_info = serializer.serialize_episode_info({
                     "epReward": episode_reward,
                     "epSteps": steps,

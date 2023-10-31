@@ -6,9 +6,10 @@ struct DQNSample {
   reward @2 :Float32;
   nextObs @3 :List(List(List(UInt8)));
   done @4 :Bool;
-  info @5 :Info;
-  epSteps @6 :Int32;
-  modelId @7 :Text;
+  truncated @5 :Bool;
+  info @6 :Info;
+  epSteps @7 :Int32;
+  modelId @8 :Text;
 }
 
 struct Info {

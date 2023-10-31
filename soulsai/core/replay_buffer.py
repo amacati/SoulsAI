@@ -140,12 +140,15 @@ class ReplayBuffer(AbstractBuffer):
         self._idx = 0
         self._maxidx = -1
         state_dtype = getattr(np, state_dtype) if isinstance(state_dtype, str) else state_dtype
-        self._b_s = np.zeros((maxlen, *state_shape), dtype=state_dtype)
-        self._b_a = np.zeros(maxlen, dtype=np.int64)
-        self._b_am = np.zeros((maxlen, n_actions))
-        self._b_r = np.zeros(maxlen)
-        self._b_sn = np.zeros((maxlen, *state_shape), dtype=state_dtype)
-        self._b_d = np.zeros(maxlen)
+        self.buffers = {
+            "obs": np.zeros((maxlen, *state_shape), dtype=state_dtype),
+            "action": np.zeros(maxlen, dtype=np.int64),
+            "action_mask": np.zeros((maxlen, n_actions)),
+            "reward": np.zeros(maxlen),
+            "nextObs": np.zeros((maxlen, *state_shape), dtype=state_dtype),
+            "terminated": np.zeros(maxlen),
+            "truncated": np.zeros(maxlen)
+        }
         self._action_masking = action_masking
 
     def append(self, sample: Dict):
@@ -156,11 +159,8 @@ class ReplayBuffer(AbstractBuffer):
             observation, and the done flag. If action masking is used, the info dict must contain a
             key "allowed_actions" with the list of allowed actions.
         """
-        self._b_s[self._idx] = sample["obs"]
-        self._b_a[self._idx] = sample["action"]
-        self._b_r[self._idx] = sample["reward"]
-        self._b_sn[self._idx] = sample["nextObs"]
-        self._b_d[self._idx] = sample["done"]
+        for key in ("obs", "action", "reward", "nextObs", "terminated", "truncated"):
+            self.buffers[key][self._idx] = sample[key]
         if self._action_masking:
             self._b_am[self._idx] = 0
             self._b_am[self._idx, sample["info"]["allowed_actions"]] = 1
