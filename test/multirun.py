@@ -3,20 +3,25 @@
 It is useful to check the performance of algorithms and parameters with statistical significance
 using the ``SoulsAI`` framework.
 """
-from subprocess import Popen
+from __future__ import annotations
+
 import time
-import argparse
-from pathlib import Path
 import shutil
 import json
+import argparse
+from typing import TYPE_CHECKING
+from pathlib import Path
+from subprocess import Popen
 
 import docker
-from docker.client import DockerClient
 import numpy as np
 import matplotlib.pyplot as plt
 from redis import Redis
 
 from soulsai.utils import mkdir_date, load_redis_secret, running_mean
+
+if TYPE_CHECKING:
+    from docker.client import DockerClient
 
 
 def launch_training(dock: DockerClient, algorithm: str, n_clients: int, profile: str) -> Popen:
@@ -32,7 +37,7 @@ def launch_training(dock: DockerClient, algorithm: str, n_clients: int, profile:
     Returns:
         The handle to the subprocess.
     """
-    path = Path(__file__).parents[1] / algorithm
+    path = Path(__file__).parent / algorithm
     profile_cmd = "--profile " + profile if profile else ""
     cmd = f"(cd {path}; docker compose {profile_cmd} up --scale client_node={n_clients})"
     p = Popen(cmd, shell=True)  # Yes, this is hacky af. It works though
@@ -60,8 +65,8 @@ def shutdown_nodes(dock: DockerClient):
 
 def publish_shutdown_cmd():
     """Send the shutdown command to all active client nodes."""
-    config_dir = Path(__file__).parents[2] / "config"
-    secret = load_redis_secret(config_dir / "redis.secret")
+    redis_secret_path = Path(__file__).parents[1] / "config/secrets/redis.secret"
+    secret = load_redis_secret(redis_secret_path)
     red = Redis(host="localhost", port=6379, password=secret, db=0, decode_responses=True)
     red.publish("shutdown", 1)
 
@@ -205,7 +210,7 @@ def main(args: argparse.Namespace):
         time.sleep(2)
     # Summarize results in multirun experiment save
     if args.nruns:
-        save_root = Path(__file__).parents[2] / "saves"
+        save_root = Path(__file__).parents[1] / "saves"
         save_dirs = [d for d in save_root.iterdir() if d.is_dir() and d.name[:4].isdigit()]
         run_dirs = sorted(save_dirs)[-args.nruns:]
         save_path = mkdir_date(save_root)

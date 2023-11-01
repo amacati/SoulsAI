@@ -2,57 +2,33 @@
 
 # General settings
 loglevel: info
-device: "cpu"
+device: "cuda"
 
 # Redis settings
-redis_address: "localhost"
+redis_address: "redis"
 
 # Environment information
 env:
-  name: SoulsGymIudex-v0
+  name: LunarLander-v2
   kwargs:
-    game_speed: 1.
-  obs_shape: [74]
-  n_actions: 20
+  obs_shape: [8]
+  n_actions: 4
   wrappers:
 
-max_env_steps: null
+max_env_steps: 100_000
 gamma: 0.99
 
 # Algorithm choice
-algorithm: "DQN"
-
-# PPO settings
-ppo:
-  n_clients: 1
-  n_steps: 2048
-  actor_net_type: "PPOActor"
-  actor_net_kwargs:
-    input_dims: 74
-    output_dims: 20
-    layer_dims: 64
-  critic_net_type: "PPOCritic"
-  critic_net_kwargs:
-    input_dims: 74
-    layer_dims: 64
-  vf_coef: 0.5
-  max_grad_norm: 0.5
-  clip_range: 0.2
-  train_epochs: 10
-  minibatch_size: 64
-  actor_lr: 0.0003
-  critic_lr: 0.0003
-  gae_lambda: 0.95
-  client_sync_timeout: 20
+algorithm: "dqn"
 
 # DQN parameters
 dqn:
-  variant: "vanilla"  # [vanilla, distributional]
+  variant: distributional  # [vanilla, distributional]
   lr: 0.001
-  eps_max: [0.1, 0.1, 0.05]
-  eps_min: [0.1, 0.05, 0.01]
-  eps_steps: [500, 500, 500]
-  eps_samples: 500
+  eps_max: [0.1]
+  eps_min: [0.1]
+  eps_steps: [100]
+  eps_samples: 1000
   grad_clip: 5.
   q_clip: 200
   buffer_size: 100_000
@@ -61,25 +37,25 @@ dqn:
   update_samples: 25
   fill_buffer: False
   multistep: 4
-  network_type: "DQN"
+  network_type: "DistributionalDQN"
   network_kwargs:
-    input_dims: 74
-    output_dims: 20
+    input_dims: 8
+    output_dims: 4
     layer_dims: 128
   noise: "UniformDiscreteNoise"
   noise_kwargs:
-    size_n: 20
+    size_n: 4
   replay_buffer: "ReplayBuffer"
   replay_buffer_kwargs:
-  action_masking: True
-  normalizer:
+  action_masking: False
+  normalizer: Normalizer
   normalizer_kwargs:
   min_samples: null
-  tau: 0.05  # Optional, for target network updates
+  tau: 0.05  # For soft target update
 
 # Training node settings
 checkpoint:
-  save: True
+  save: False
   epochs: 100  # Checkpoint every 100th iteration
   save_buffer: False
   load: False
@@ -89,10 +65,8 @@ checkpoint:
 # Telemetry node settings
 telemetry:
   update_interval: 5
-  save_best_interval: 5
   moving_average: 20
 
-# Monitoring
 monitoring:
   file_storage:
     path: "/home/SoulsAI/saves"
@@ -107,8 +81,8 @@ monitoring:
 
 # Client settings
 max_episodes: -1  # -1 for infinite runs
-enable_interrupt: True
-step_delay: 0
+enable_interrupt: False
+step_delay: 0.003
 
 watchdog:
   enable: False

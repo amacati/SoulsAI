@@ -1,10 +1,14 @@
 """The ``watchdog`` module allows the execution of functions under special surveillance."""
+from __future__ import annotations
+
 import time
 import logging
-from typing import Callable, Any
+from typing import Callable, Any, TYPE_CHECKING
 from threading import Thread, Event
 from multiprocessing import Value
-from multiprocessing.sharedctypes import Synchronized
+
+if TYPE_CHECKING:
+    from multiprocessing.sharedctypes import Synchronized
 
 logger = logging.getLogger(__name__)
 

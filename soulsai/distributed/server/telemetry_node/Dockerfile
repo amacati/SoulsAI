@@ -12,4 +12,4 @@ RUN rm -rf /home/SoulsAI/.git
 RUN find /home/SoulsAI -type f -name '*.secret' -delete
 WORKDIR /home/SoulsAI
 RUN python setup.py develop
-ENTRYPOINT ["python", "soulsai/distributed/server/telemetry_node/launch_node.py"]
+ENTRYPOINT ["python", "soulsai/distributed/server/telemetry_node/launch.py"]

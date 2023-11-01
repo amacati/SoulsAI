@@ -1,7 +1,13 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 from gymnasium import ObservationWrapper, Env
-from gymnasium.wrappers.frame_stack import LazyFrames
 import einops
+
+if TYPE_CHECKING:
+    from gymnasium.wrappers.frame_stack import LazyFrames
 
 
 class ReorderChannels(ObservationWrapper):

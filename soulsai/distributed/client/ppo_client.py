@@ -4,15 +4,20 @@ Note:
     The implementation of PPO is synchronous. Therefore, the client and server are currently not
     resilient against disconnects.
 """
+from __future__ import annotations
+
 import logging
 import time
 from multiprocessing import Event
-from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import gymnasium as gym
 
 from soulsai.distributed.common.serialization import PPOSerializer
 from soulsai.distributed.client.connector import PPOConnector
+
+if TYPE_CHECKING:
+    from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +71,7 @@ def ppo_client(config: SimpleNamespace):
                     "action": action,
                     "prob": prob,
                     "reward": reward,
-                    "done": terminated,
+                    "terminated": terminated,
                     "info": info,
                     "modelId": con.agent.model_id,
                     "clientId": con.client_id,
@@ -86,7 +91,7 @@ def ppo_client(config: SimpleNamespace):
                         "action": 0,
                         "prob": 0,
                         "reward": 0,
-                        "done": terminated,
+                        "terminated": terminated,
                         "modelId": con.agent.model_id,
                         "clientId": con.client_id,
                         "stepId": ppo_steps

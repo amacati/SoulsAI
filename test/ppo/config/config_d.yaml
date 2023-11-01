@@ -2,7 +2,7 @@
 
 # General settings
 loglevel: info
-device: "cpu"
+device: "cuda"
 
 # Redis settings
 redis_address: "redis"
@@ -11,11 +11,11 @@ redis_address: "redis"
 env:
   name: LunarLander-v2
   kwargs:
-  state_shape: [8]
+  obs_shape: [8]
   n_actions: 4
   wrappers:
 
-max_env_steps: null
+max_env_steps: 200_000
 gamma: 0.99
 
 # Algorithm choice
@@ -23,7 +23,7 @@ algorithm: "ppo"
 
 # PPO settings
 ppo:
-  n_clients: 2
+  n_clients: 1
   n_steps: 2048
   actor_net_type: "PPOActor"
   actor_net_kwargs:
@@ -44,40 +44,9 @@ ppo:
   gae_lambda: 0.95
   client_sync_timeout: 20
 
-# DQN parameters
-dqn:
-  variant: vanilla  # [vanilla, distributional]
-  lr: 0.001
-  eps_max: [0.1, 0.1, 0.05]
-  eps_min: [0.1, 0.05, 0.01]
-  eps_steps: [500, 500, 500]
-  eps_samples: 400
-  grad_clip: 5.
-  q_clip: 200
-  buffer_size: 100_000
-  batch_size: 128
-  train_epochs: 50
-  update_samples: 50
-  fill_buffer: False
-  multistep: 1
-  network_type: "DQN"
-  network_kwargs:
-    input_dims: 8
-    output_dims: 4
-    layer_dims: 128
-  noise: "UniformDiscreteNoise"
-  noise_kwargs:
-    size_n: 4
-  replay_buffer: "ReplayBuffer"
-  replay_buffer_kwargs:
-  action_masking: False
-  normalizer: Normalizer
-  normalizer_kwargs:
-  min_samples: null
-  tau: 0.05  # For soft target update
-
 # Training node settings
 checkpoint:
+  save: False
   epochs: 100  # Checkpoint every 100th iteration
   save_buffer: False
   load: False
@@ -90,22 +59,23 @@ telemetry:
   save_best_interval: 5
   moving_average: 20
 
-# Client settings
-max_episodes: -1  # -1 for infinite runs
-enable_interrupt: False
-step_delay: 0
-
 # Monitoring
 monitoring:
   file_storage:
     path: "/home/SoulsAI/saves"
     plot: True
   grafana: True
+  prometheus: True
   wandb:
-    project: "soulsai_dqn"
+    project: "soulsai_ppo"
     entity: "amacati"
-    group: "test"
+    group: "testing"
     save_dir: "/home/SoulsAI/saves"
+
+# Client settings
+max_episodes: -1  # -1 for infinite runs
+enable_interrupt: False
+step_delay: 0
 
 watchdog:
   enable: False

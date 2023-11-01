@@ -1,4 +1,6 @@
 """The connector module provides connectors that abstract the client communication with Redis."""
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
@@ -6,14 +8,9 @@ import socket
 import time
 import queue
 from uuid import uuid4
-import multiprocessing as python_mp
-from multiprocessing import Event
-from multiprocessing.connection import Connection
-from multiprocessing.sharedctypes import Synchronized
-from multiprocessing.synchronize import Lock
-from multiprocessing.queues import Queue
+from typing import TYPE_CHECKING
+
 from typing import Any
-from types import SimpleNamespace
 
 import redis
 from redis import Redis
@@ -23,6 +20,14 @@ from soulsai.core.agent import DQNClientAgent, DistributionalDQNClientAgent, PPO
 from soulsai.core.normalizer import get_normalizer_class, AbstractNormalizer
 from soulsai.utils import load_redis_secret, namespace2dict
 from soulsai.exception import ClientRegistrationError, ServerTimeoutError
+
+if TYPE_CHECKING:
+    from multiprocessing import Event
+    from multiprocessing.connection import Connection
+    from multiprocessing.sharedctypes import Synchronized
+    from multiprocessing.synchronize import Lock
+    from multiprocessing.queues import Queue
+    from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +53,7 @@ class DQNConnector:
 
                 con = DQNConnector(config)
                 with con:
-                    con.agent(state)
+                    con.agent(obs)
                     print(con.model_id)
 
     If the communication with Redis is interrupted, the connector will automatically try to
@@ -63,11 +68,8 @@ class DQNConnector:
         Args:
             config: Client config.
         """
-        cxt = mp.get_context()
-        if not isinstance(cxt, python_mp.context.SpawnContext):
-            logger.warning(f"Multiprocessing context already set to {type(cxt)}")
-            logger.warning("Trying to force spawn method...")
-            mp.set_start_method("spawn", force=True)  # Required for network weight swap!
+        cxt = mp.get_context("spawn")
+        mp.set_start_method("spawn")
         self.config = config
         if self.config.dqn.variant == "distributional":
             self.agent = DistributionalDQNClientAgent(config.dqn.network_type,
@@ -80,29 +82,29 @@ class DQNConnector:
         if config.dqn.normalizer:
             normalizer_cls = get_normalizer_class(config.dqn.normalizer)
             norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
-            self.normalizer = normalizer_cls(config.env.state_shape, **norm_kwargs)
-        self._eps = mp.Value("d", -1.)
-        self._lock = mp.Lock()
-        self._update_event = mp.Event()
-        self._stop_event = mp.Event()
-        secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
+            self.normalizer = normalizer_cls(config.env.obs_shape, **norm_kwargs)
+        self._eps = cxt.Value("d", -1.)
+        self._lock = cxt.Lock()
+        self._update_event = cxt.Event()
+        self._stop_event = cxt.Event()
+        secret = load_redis_secret(Path(__file__).parents[3] / "config/secrets/redis.secret")
         address = self.config.redis_address
 
         # Start the model update notification process
         args = (self._update_event, address, secret, self._stop_event)
-        self.update_sub = mp.Process(target=self._update_msg, args=args, daemon=True)
+        self.update_sub = cxt.Process(target=self._update_msg, args=args, daemon=True)
         self.update_sub.start()
 
         # Start the shutdown notification process
-        self.shutdown = mp.Event()
+        self.shutdown = cxt.Event()
         args = (self.shutdown, address, secret)
-        self.shutdown_sub = mp.Process(target=self._client_shutdown, args=args, daemon=True)
+        self.shutdown_sub = cxt.Process(target=self._client_shutdown, args=args, daemon=True)
         self.shutdown_sub.start()
 
         # Start the message consumer process
-        self._msg_queue = mp.Queue(maxsize=100)
+        self._msg_queue = cxt.Queue(maxsize=100)
         args = (self._msg_queue, address, secret, self._stop_event)
-        self.msg_consumer = mp.Process(target=self._consume_msgs, args=args, daemon=True)
+        self.msg_consumer = cxt.Process(target=self._consume_msgs, args=args, daemon=True)
         self.msg_consumer.start()
 
         # Start the model update process
@@ -112,7 +114,7 @@ class DQNConnector:
 
         args = (self._update_event, self._stop_event, self.agent, self.normalizer, self._eps,
                 self._lock, secret, config)
-        self.model_updater = mp.Process(target=self._update_model, args=args, daemon=True)
+        self.model_updater = cxt.Process(target=self._update_model, args=args, daemon=True)
         self.model_updater.start()
 
         # Block while first model is not here
@@ -124,7 +126,7 @@ class DQNConnector:
 
         # Start the heartbeat process
         args = (address, secret, self._stop_event)
-        self.heartbeat = mp.Process(target=self._heartbeat, args=args, daemon=True)
+        self.heartbeat = cxt.Process(target=self._heartbeat, args=args, daemon=True)
         self.heartbeat.start()
         # Utility attributes
         self._full_queue_warn_time = 0

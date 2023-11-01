@@ -3,12 +3,13 @@
 If specified, the training function is executed by a :class:`.ClientWatchdog` to restart the
 sampling whenever the sampling rate drops below the expected value.
 """
+from __future__ import annotations
+
 import logging
 from threading import Event
 import time
 from collections import deque
-from types import SimpleNamespace
-from multiprocessing.sharedctypes import Synchronized
+from typing import TYPE_CHECKING
 
 import numpy as np
 import gymnasium
@@ -18,6 +19,10 @@ from soulsai.utils import namespace2dict
 from soulsai.distributed.common.serialization import DQNSerializer
 from soulsai.distributed.client.connector import DQNConnector
 from soulsai.distributed.client.watchdog import ClientWatchdog, WatchdogGauge
+
+if TYPE_CHECKING:
+    from types import SimpleNamespace
+    from multiprocessing.sharedctypes import Synchronized
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +141,7 @@ def _dqn_client(config: SimpleNamespace,
             # required samples for a multistep reward. There are two cases:
             # 1) If the environment has terminated, we can send the samples since the remaining
             # trace calculates the MC reward correctly. The training step will not add the
-            # Q estimate of future states to it.
+            # Q estimate of future observations to it.
             # 2) The environment was truncated. We cannot send these samples. The environment has
             # not terminated, so the training step would add the Q estimate discounted by
             # gamma ** multistep to the reward. However, our multistep samples are missing terms in

@@ -8,12 +8,13 @@ network errors etc.
 In our PPO implementation, we use General Advantage Estimation with the design decisions recommended
 in https://arxiv.org/pdf/2006.05990.pdf.
 """
+from __future__ import annotations
+
 import logging
 from uuid import uuid4
 from pathlib import Path
 import time
-from typing import List
-from types import SimpleNamespace
+from typing import List, TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -24,6 +25,9 @@ from soulsai.distributed.common.serialization import PPOSerializer
 from soulsai.distributed.server.training_node.training_node import TrainingNode
 from soulsai.utils import namespace2dict
 from soulsai.exception import ServerDiscoveryTimeout
+
+if TYPE_CHECKING:
+    from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +56,7 @@ class PPOTrainingNode(TrainingNode):
 
         logger.info(f"Initial model ID: {self.agent.model_id}")
         self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,
-                                       self.config.env.state_shape)
+                                       self.config.env.obs_shape)
         self._model_iterations = 0
         logger.info("PPO training node startup complete")
 
@@ -114,13 +118,13 @@ class PPOTrainingNode(TrainingNode):
                                                       self.config.ppo.gae_lambda)
             advantages = self.buffer.advantages.to(dev)
             returns = (self.buffer.advantages + self.buffer.values).to(dev)
-            states = self.buffer.states.to(dev)
+            obs = self.buffer.obs.to(dev)
             probs = self.buffer.probs.to(dev)
             actions = self.buffer.actions.to(dev)
             self.np_random.shuffle(b_idx)
             for j in range(0, self.buffer.n_batch_samples, self.config.ppo.minibatch_size):
                 mb_idx = b_idx[j:j + self.config.ppo.minibatch_size]
-                new_probs = self.agent.get_probs(states[mb_idx])
+                new_probs = self.agent.get_probs(obs[mb_idx])
                 new_probs = torch.gather(new_probs, 1, actions[mb_idx])
                 ratio = new_probs / probs[mb_idx]
                 # Compute policy (actor) loss
@@ -130,7 +134,7 @@ class PPOTrainingNode(TrainingNode):
                                                              1 + self.config.ppo.clip_range)
                 policy_loss = torch.max(policy_loss_1, policy_loss_2).mean()
                 # Compute value (critic) loss
-                v_estimate = self.agent.get_values(states[mb_idx])
+                v_estimate = self.agent.get_values(obs[mb_idx])
                 value_loss = ((v_estimate - returns[mb_idx])**2).mean()
                 value_loss *= 0.5 * self.config.ppo.vf_coef
                 # Update agent
@@ -158,7 +162,7 @@ class PPOTrainingNode(TrainingNode):
                 continue
             self.red.publish(msg["data"], n_registered)
             n_registered += 1
-            if self.config.monitoring.enable:
+            if self.config.monitoring.prometheus:
                 self.prom_num_workers.inc()
             logger.info(f"Discovered client {n_registered}/{self.config.ppo.n_clients}")
             if n_registered == self.config.ppo.n_clients:

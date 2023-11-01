@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class Serializer(ABC):
 
     @abstractmethod
-    def serialize_sample(self, **kwargs) -> bytes:
+    def serialize_sample(self, **kwargs: dict) -> bytes:
         ...
 
     @abstractmethod
@@ -21,7 +21,7 @@ class Serializer(ABC):
         ...
 
     @abstractmethod
-    def serialize_episode_info(self, **kwargs) -> bytes:
+    def serialize_episode_info(self, **kwargs: dict) -> bytes:
         ...
 
     @abstractmethod
@@ -29,7 +29,7 @@ class Serializer(ABC):
         ...
 
     @abstractmethod
-    def serialize_telemetry(self, **kwargs) -> bytes:
+    def serialize_telemetry(self, **kwargs: dict) -> bytes:
         ...
 
     @abstractmethod
@@ -248,7 +248,7 @@ class PPOSerializer(Serializer):
     def deserialize_sample(self, data: bytes) -> dict:
         return self._deserialize_sample(data)
 
-    def serialize_episode_info(self, episode_info) -> bytes:
+    def serialize_episode_info(self, episode_info: dict) -> bytes:
         return self._serialize_episode_info(episode_info)
 
     def deserialize_episode_info(self, data: bytes) -> dict:

@@ -81,7 +81,7 @@ class TrainingNode(ABC):
         # Initialize monitoring server and metrics
         self._total_env_steps = 0
         self._client_counter = mp.Value("i", 0)
-        if self.config.monitoring.enable:
+        if self.config.monitoring.prometheus:
             logger.info("Starting prometheus monitoring server")
             start_http_server(8080)
             self.prom_num_workers = Gauge("soulsai_num_workers",
@@ -129,14 +129,14 @@ class TrainingNode(ABC):
                 self._episode_info_callback(msg["data"])
                 continue
             sample = self.serializer.deserialize_sample(msg["data"])
-            if not self._validate_sample(sample, monitoring=self.config.monitoring.enable):
+            if not self._validate_sample(sample, monitoring=self.config.monitoring.prometheus):
                 continue
             self._total_env_steps += 1
             with self._lock:
                 self.buffer.append(sample)
             self._sample_received_hook(sample)
             if self._check_update_cond():
-                self._update_model(monitoring=self.config.monitoring.enable)
+                self._update_model(monitoring=self.config.monitoring.prometheus)
                 self._publish_model()
                 self._post_update_hook()
                 if self._check_checkpoint_cond():

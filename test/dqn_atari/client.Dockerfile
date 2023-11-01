@@ -6,7 +6,7 @@ WORKDIR /home
 RUN DEBIAN_FRONTEND=noninteractive apt install ffmpeg libsm6 libxext6  -y
 RUN apt install swig -y
 # Cache requirements install
-COPY test/common/requirements.txt /home/requirements.txt
+COPY test/dqn_atari/requirements.txt /home/requirements.txt
 RUN pip install -r /home/requirements.txt
 RUN rm /home/requirements.txt
 RUN pip install gymnasium[atari,accept-rom-license,other]
@@ -18,4 +18,4 @@ RUN find /home/SoulsAI -type f -name '*.secret' -delete
 WORKDIR /home/SoulsAI
 RUN python setup.py develop
 
-ENTRYPOINT ["python", "test/dqn_atari/launch_client_node.py"]
+ENTRYPOINT ["python", "test/dqn_atari/launch_client.py"]

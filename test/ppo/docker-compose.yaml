@@ -6,7 +6,8 @@ services:
     command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
       - ../../config/redis.conf:/usr/local/etc/redis/redis.conf
-      - ../../config/redis.secret:/usr/local/etc/redis/redis.secret
+    secrets:
+      - redis_secret
     ports:
       - 6379:6379
     networks:
@@ -14,14 +15,15 @@ services:
 
   training_node:
     build:
-      dockerfile: test/ppo/training_node.Dockerfile
+      dockerfile: soulsai/distributed/server/training_node/Dockerfile
       context: ../../.
-    # Manually add secrets as volumes during runtime. Also add save directory to make persistent saves on crash
     volumes:
-      - ../../config/:/home/SoulsAI/config/
+      - ./config/:/home/SoulsAI/config/ # Mount test config in place of server config
+      - ../:/home/SoulsAI/test/
       - ../../soulsai/:/home/SoulsAI/soulsai/
-      - ../../test/:/home/SoulsAI/test/
       - ../../saves/:/home/SoulsAI/saves/
+    secrets:
+      - redis_secret
     depends_on:
       - redis
     # Comment out the following lines if you don't have a GPU
@@ -31,21 +33,24 @@ services:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     user: "1000"
     networks:
       - server_net
 
   telemetry_node:
     build:
-      dockerfile: test/common/telemetry_node.Dockerfile
+      dockerfile: soulsai/distributed/server/telemetry_node/Dockerfile
       context: ../../.
-    # Manually add secrets as volumes during runtime
     volumes:
-      - ../../config/:/home/SoulsAI/config/
+      - ./config/:/home/SoulsAI/config/ # Mount test config in place of server config
+      - ../:/home/SoulsAI/test/
       - ../../soulsai/:/home/SoulsAI/soulsai/ # Reflect dev changes in docker containers without rebuilding
-      - ../../test/:/home/SoulsAI/test/
       - ../../saves/:/home/SoulsAI/saves/
+      - /etc/passwd:/etc/passwd:ro # Workaround for WandB pwd.getpwuid(os.getuid())[0] error
+    secrets:
+      - redis_secret
+      - wandb_api_key
     depends_on:
       - redis
     user: "1000"
@@ -54,12 +59,14 @@ services:
 
   client_node:
     build:
-      dockerfile: test/ppo/client_node.Dockerfile
+      dockerfile: test/ppo/client.Dockerfile
       context: ../../.
     volumes:
+      - ./config/:/home/SoulsAI/config/
+      - ../:/home/SoulsAI/test/
       - ../../soulsai/:/home/SoulsAI/soulsai/
-      - ../../config/:/home/SoulsAI/config/
-      - ../../test/:/home/SoulsAI/test/
+    secrets:
+      - redis_secret
     depends_on:
       - redis
       - training_node
@@ -69,7 +76,7 @@ services:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     user: "1000"
     networks:
       - server_net
@@ -77,7 +84,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.39.1
     volumes:
-      - ../common/prometheus:/etc/prometheus
+      - ../monitoring/prometheus:/etc/prometheus
       - prometheus-data:/prometheus
     ports:
       - 9090:9090
@@ -95,9 +102,9 @@ services:
       - 3000:3000
     restart: unless-stopped
     volumes:
-      - ../common/grafana/datasources:/etc/grafana/provisioning/datasources
-      - ../common/grafana/grafana_data:/var/lib/grafana
-      - ../common/grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ../monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ../monitoring/grafana/grafana_data:/var/lib/grafana
+      - ../monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini
     profiles:
       - monitoring
     user: "1000"
@@ -114,3 +121,9 @@ networks:
   server_net:
     name: server
     external: True
+
+secrets:
+  redis_secret:
+    file: ../../config/secrets/redis.secret
+  wandb_api_key:
+    file: ../../config/secrets/wandb_api_key.secret

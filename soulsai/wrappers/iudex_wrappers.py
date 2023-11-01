@@ -1,7 +1,7 @@
 from typing import Any, Dict, Iterable, List, Tuple
 
 import numpy as np
-from gymnasium import ObservationWrapper
+from gymnasium import ObservationWrapper, Env
 from gymnasium.spaces import Box
 from soulsgym.games.game import StaticGameData
 
@@ -14,7 +14,7 @@ class IudexObservationWrapper(ObservationWrapper):
     space_coords_high = np.array([190., 640., -55.])
     space_coords_diff = space_coords_high - space_coords_low
 
-    def __init__(self, env):
+    def __init__(self, env: Env):
         super().__init__(env)
         self.game_id = "DarkSoulsIII"
         self.boss_id = "iudex"

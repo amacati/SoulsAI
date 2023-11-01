@@ -14,4 +14,4 @@ WORKDIR /home/SoulsGym
 RUN pip install -e .
 WORKDIR /home/SoulsAI
 RUN python setup.py develop
-ENTRYPOINT ["python", "soulsai/distributed/server/training_node/launch_node.py"]
+ENTRYPOINT ["python", "soulsai/distributed/server/training_node/launch.py"]

@@ -78,12 +78,12 @@ class DQNTrainingNode(TrainingNode):
         if self.config.dqn.normalizer:
             normalizer_cls = get_normalizer_class(self.config.dqn.normalizer)
             normalizer_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs)
-            self.normalizer = normalizer_cls(self.config.env.state_shape, **normalizer_kwargs)
+            self.normalizer = normalizer_cls(self.config.env.obs_shape, **normalizer_kwargs)
         buffer_kwargs = {}
         if self.config.dqn.replay_buffer_kwargs is not None:
             buffer_kwargs = namespace2dict(self.config.dqn.replay_buffer_kwargs)
         self.buffer = get_buffer_class(self.config.dqn.replay_buffer)(
-            self.config.dqn.buffer_size, self.config.env.state_shape, self.config.env.n_actions,
+            self.config.dqn.buffer_size, self.config.env.obs_shape, self.config.env.n_actions,
             self.config.dqn.action_masking, **buffer_kwargs)
         self.eps_scheduler = EpsilonScheduler(self.config.dqn.eps_max,
                                               self.config.dqn.eps_min,
@@ -171,10 +171,10 @@ class DQNTrainingNode(TrainingNode):
                                              self.config.dqn.train_epochs)
         if self.config.dqn.normalizer:
             for batch in batches:
-                self.normalizer.update(batch[0])  # Use states to update the normalizer
+                self.normalizer.update(batch[0])  # Use observations to update the normalizer
             for batch in batches:
-                batch[0] = self.normalizer.normalize(batch[0])  # Normalize all states for training
-                batch[3] = self.normalizer.normalize(batch[3])  # Normalize next states as well
+                batch[0] = self.normalizer.normalize(batch[0])  # Normalize all observations
+                batch[3] = self.normalizer.normalize(batch[3])  # Normalize next observations too
         for batch in batches:
             if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
                 # -2 because the last two elements are the weights and indices
@@ -191,6 +191,9 @@ class DQNTrainingNode(TrainingNode):
         Args:
             path: Path to the save folder.
         """
+        if not self.config.checkpoint.save:
+            logger.info("Checkpoint saving disabled")
+            return
         path.mkdir(exist_ok=True)
         with self._lock:
             self.agent.save(path / "agent.pt")

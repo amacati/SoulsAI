@@ -6,18 +6,20 @@ to deserialize this data and load the new weights into their policy or value net
 """
 from __future__ import annotations
 
-import logging
-import random
-import multiprocessing as mp
 import io
-from typing import Tuple
-from pathlib import Path
+import random
+import logging
+import multiprocessing as mp
+from typing import Tuple, TYPE_CHECKING
 
 import torch
 import torch.nn.functional as F
 import numpy as np
 
 from soulsai.core.networks import get_net_class
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -129,13 +131,13 @@ class DQNAgent(Agent):
         self.grad_clip = grad_clip
 
     def train(self,
-              states: np.ndarray,
+              obs: np.ndarray,
               actions: np.ndarray,
               rewards: np.ndarray,
-              next_states: np.ndarray,
-              dones: np.ndarray,
+              next_obs: np.ndarray,
+              terminated: np.ndarray,
               action_masks: np.ndarray | None = None,
-              weights: np.ndarray | None = None):
+              weights: np.ndarray | None = None) -> np.ndarray:
         """Train the agent with dueling Q networks and optional action masks.
 
         Calculates the TD error between the predictions from the trained network and the data with
@@ -144,40 +146,40 @@ class DQNAgent(Agent):
         network.
 
         Args:
-            states: A batch of states.
-            actions: A batch of actions.
-            rewards: A batch of rewards.
-            next_states: A batch of next states.
-            dones: A batch of episode termination flags.
+            obs: Batch of observations.
+            actions: Batch of actions.
+            rewards: Batch of rewards.
+            next_obs: Batch of next observations.
+            terminated: Batch of episode termination flags.
             action_masks: Optional batch of mask for actions.
             weights: Optional batch of weights for prioritized experience replay.
 
         Returns:
             The TD error for each sample in the batch.
         """
-        batch_size = states.shape[0]
+        batch_size = obs.shape[0]
         coin = random.choice([True, False])
         train_net, estimate_net = ("dqn1", "dqn2") if coin else ("dqn2", "dqn1")
         train_net, estimate_net = self.networks[train_net], self.networks[estimate_net]
         self.dqn1_opt.zero_grad()
         self.dqn2_opt.zero_grad()
         train_opt = self.dqn1_opt if coin else self.dqn2_opt
-        states = torch.as_tensor(states, dtype=torch.float32).to(self.dev)
+        obs = torch.as_tensor(obs, dtype=torch.float32).to(self.dev)
         rewards = torch.as_tensor(rewards, dtype=torch.float32).to(self.dev)
-        next_states = torch.as_tensor(next_states, dtype=torch.float32).to(self.dev)
+        next_obs = torch.as_tensor(next_obs, dtype=torch.float32).to(self.dev)
         actions = torch.as_tensor(actions)
-        dones = torch.as_tensor(dones, dtype=torch.float32).to(self.dev)
+        terminated = torch.as_tensor(terminated, dtype=torch.float32).to(self.dev)
         if action_masks is not None:
             action_masks = torch.as_tensor(action_masks, dtype=torch.bool).to(self.dev)
-        q_a = train_net(states)[range(batch_size), actions]
+        q_a = train_net(obs)[range(batch_size), actions]
         with torch.no_grad():
-            q_next = train_net(next_states)
+            q_next = train_net(next_obs)
             if action_masks is not None:
                 q_next = torch.where(action_masks, q_next, -torch.inf)
             a_next = torch.max(q_next, 1).indices
-            q_a_next = estimate_net(next_states)[range(batch_size), a_next]
+            q_a_next = estimate_net(next_obs)[range(batch_size), a_next]
             q_a_next = torch.clamp(q_a_next, -self.q_clip, self.q_clip)
-            q_td = rewards + self.gamma**self.multistep * q_a_next * (1 - dones)
+            q_td = rewards + self.gamma**self.multistep * q_a_next * (1 - terminated)
         sample_loss = (q_a - q_td)**2
         if weights is not None:
             assert weights.shape == (batch_size,)
@@ -216,44 +218,44 @@ class DistributionalDQNAgent(Agent):
         self.quantile_tau = torch.tensor([i / N for i in range(1, N + 1)]).float().to(self.dev)
 
     def train(self,
-              states: np.ndarray,
+              obs: np.ndarray,
               actions: np.ndarray,
               rewards: np.ndarray,
-              next_states: np.ndarray,
-              dones: np.ndarray,
+              next_obs: np.ndarray,
+              terminated: np.ndarray,
               action_masks: np.ndarray | None = None,
               weights: np.ndarray | None = None) -> np.ndarray:
         """Train the agent with quantile regression DQN and a target network.
 
         Args:
-            states: A batch of states.
+            obs: Batch of observations.
             actions: A batch of actions.
             rewards: A batch of rewards.
-            next_states: A batch of next states.
-            dones: A batch of episode termination flags.
+            next_obs: A batch of next observations.
+            terminated: A batch of episode termination flags.
             action_masks: Optional batch of mask for actions.
             weights: Optional batch of weights for prioritized experience replay.
 
         Returns:
             The TD error for each sample in the batch.
         """
-        batch_size, N = states.shape[0], self.networks["qr_dqn1"].n_quantiles
+        batch_size, N = obs.shape[0], self.networks["qr_dqn1"].n_quantiles
         coin = random.choice([True, False])
         train_net, estimate_net = ("qr_dqn1", "qr_dqn2") if coin else ("qr_dqn2", "qr_dqn1")
         train_net, estimate_net = self.networks[train_net], self.networks[estimate_net]
         self.opt1.zero_grad()
         self.opt2.zero_grad()
         train_opt = self.opt1 if coin else self.opt2
-        # Move data to tensors. Unsqueeze rewards and dones in preparation for broadcasting
-        states = torch.as_tensor(states, dtype=torch.float32).to(self.dev)
+        # Move data to tensors. Unsqueeze rewards and terminated in preparation for broadcasting
+        obs = torch.as_tensor(obs, dtype=torch.float32).to(self.dev)
         rewards = torch.as_tensor(rewards, dtype=torch.float32).unsqueeze(-1).to(self.dev)
-        next_states = torch.as_tensor(next_states, dtype=torch.float32).to(self.dev)
-        dones = torch.as_tensor(dones, dtype=torch.float32).unsqueeze(-1).to(self.dev)
+        next_obs = torch.as_tensor(next_obs, dtype=torch.float32).to(self.dev)
+        terminated = torch.as_tensor(terminated, dtype=torch.float32).unsqueeze(-1).to(self.dev)
         if action_masks is not None:
             action_masks = torch.as_tensor(action_masks, dtype=torch.bool).to(self.dev)
-        q_a = train_net(states)[range(batch_size), :, actions]
+        q_a = train_net(obs)[range(batch_size), :, actions]
         with torch.no_grad():
-            q_next = train_net(next_states)  # Let train net choose actions
+            q_next = train_net(next_obs)  # Let train net choose actions
             if action_masks is not None:
                 assert action_masks.shape == (batch_size, self.networks["qr_dqn1"].output_dims)
                 action_masks = action_masks.unsqueeze(1).expand(q_next.shape)
@@ -261,10 +263,10 @@ class DistributionalDQNAgent(Agent):
             a_next = torch.argmax(q_next.mean(dim=1), dim=1)
             # Estimate quantiles of actions chosen by train net with estimate net to avoid
             # overestimation
-            q_a_next = estimate_net(next_states)[range(batch_size), :, a_next]
+            q_a_next = estimate_net(next_obs)[range(batch_size), :, a_next]
             assert q_a_next.shape == (batch_size, N)
             q_a_next = torch.clamp(q_a_next, -self.q_clip, self.q_clip)
-            q_targets = rewards + self.gamma**self.multistep * q_a_next * (1 - dones)
+            q_targets = rewards + self.gamma**self.multistep * q_a_next * (1 - terminated)
         td_error = q_targets[:, None, :] - q_a[..., None]  # Broadcast to shape [B N N]
         assert td_error.shape == (batch_size, N, N)
         huber_loss = F.huber_loss(td_error, torch.zeros_like(td_error), reduction="none", delta=1.)

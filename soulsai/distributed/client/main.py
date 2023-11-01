@@ -23,7 +23,6 @@ import soulsgym  # noqa: F401, needs to register SoulsGym envs with gym module
 from soulsai.distributed.client.dqn_client import dqn_client
 from soulsai.distributed.client.ppo_client import ppo_client
 from soulsai.utils import load_config
-from soulsai.data.transformation import GameStateTransformer
 from soulsai.exception import InvalidConfigError
 from soulsai.utils import load_remote_config, load_redis_secret
 
@@ -33,7 +32,6 @@ if __name__ == "__main__":
     config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
     secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
     config = load_remote_config(config.redis_address, secret)
-    obs_transformer = GameStateTransformer()
     if config.algorithm.lower() == "dqn":
         dqn_client(config)
     elif config.algorithm.lower() == "ppo":

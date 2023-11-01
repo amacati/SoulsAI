@@ -245,13 +245,22 @@ class DistributionalDQN(nn.Module):
     The network estimates N Q-values, which each have a probability of 1/N.
     """
 
-    def __init__(self, input_dims: int, output_dims: int, layer_dims: int, n_quantiles: int = 32):
+    def __init__(self,
+                 input_dims: int,
+                 output_dims: int,
+                 layer_dims: int,
+                 n_quantiles: int = 32,
+                 final_layer_init: bool = False):
         super().__init__()
         self.output_dims = output_dims
         self.n_quantiles = n_quantiles
         self.l1 = nn.Linear(input_dims, layer_dims)
         self.l2 = nn.Linear(layer_dims, layer_dims)
         self.l3 = nn.Linear(layer_dims, output_dims * n_quantiles)
+        if final_layer_init:
+            bound = 1 / np.sqrt(layer_dims) * 0.001
+            torch.nn.init.uniform_(self.l3.weight, -bound, bound)
+            torch.nn.init.uniform_(self.l3.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the forward pass of the network.
@@ -483,7 +492,7 @@ class NoisyAdvantageSkipDQN(nn.Module):
 
 
 class PPOActor(nn.Module):
-    """PPOActor network parameterizing a stochasic policy from state inputs."""
+    """PPOActor network parameterizing a stochasic policy from observation inputs."""
 
     def __init__(self, input_dims: int, output_dims: int, layer_dims: int):
         """Initialize the layers of the actor network.
@@ -513,7 +522,7 @@ class PPOActor(nn.Module):
 
 
 class PPOCritic(nn.Module):
-    """PPO critic network to generate value estimates from states."""
+    """PPO critic network to generate value estimates from observations."""
 
     def __init__(self, input_dims: int, layer_dims: int):
         """Initialize the layers of the critic network.

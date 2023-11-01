@@ -12,7 +12,7 @@ env:
   name: ALE/Pong-v5
   kwargs:
     frameskip: 1
-  state_shape: [1, 84, 84]
+  obs_shape: [1, 84, 84]
   n_actions: 6
   wrappers:
     AtariPreprocessing:
@@ -52,7 +52,7 @@ dqn:
     size_n: 6
   replay_buffer: "ReplayBuffer"
   replay_buffer_kwargs:
-    state_dtype: uint8
+    obs_dtype: uint8
   action_masking: False
   normalizer: ImageNormalizer
   normalizer_kwargs:
@@ -61,6 +61,7 @@ dqn:
 
 # Training node settings
 checkpoint:
+  save: False
   epochs: 100  # Checkpoint every 100th iteration
   save_buffer: False
   load: False
@@ -80,7 +81,16 @@ step_delay: 0.003
 
 # Monitoring
 monitoring:
-  enable: True
+  file_storage:
+    path: "/home/SoulsAI/saves"
+    plot: True
+  grafana: True
+  prometheus: True
+  wandb:
+    project: "soulsai_dqn_atari"
+    entity: "amacati"
+    group: "test"
+    save_dir: "/home/SoulsAI/saves"
 
 watchdog:
   enable: False

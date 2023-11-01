@@ -5,7 +5,7 @@ struct DQNSample {
   action @1 :Int32;
   reward @2 :Float32;
   nextObs @3 :List(List(List(UInt8)));
-  done @4 :Bool;
+  terminated @4 :Bool;
   truncated @5 :Bool;
   info @6 :Info;
   epSteps @7 :Int32;

@@ -120,39 +120,36 @@ class Normalizer(AbstractNormalizer):
     """
 
     def __init__(self,
-                 state_shape: tuple[int, ...],
+                 obs_shape: tuple[int, ...],
                  eps: float = 1e-2,
                  clip: float = np.inf,
                  idx_list: List | None = None):
         """Initialize the normalizer parameters.
 
         Args:
-            state_shape: State shape.
+            obs_shape: Observation shape.
             eps: Minimum denominator for normalization. Enforces stability in case of low variances.
             clip: Normalization clipping value. Restricts normalized values to the interval of
                 [-clip, clip].
-            idx_list: List of indices to include in the normalization. If not provided, all states
-                are normalized by default.
+            idx_list: List of indices to include in the normalization. If not provided, all indices
+                are normalized.
         """
         super().__init__()
-        self.state_shape = state_shape
-        self.state_dim = len(state_shape)
+        self.obs_shape = obs_shape
+        self.obs_dim = len(obs_shape)
         self.clip = clip
-        mask = torch.ones(state_shape, dtype=torch.bool)
+        mask = torch.ones(obs_shape, dtype=torch.bool)
         if idx_list is not None:
             mask[:] = False
             mask[idx_list] = True
         self.norm_params = nn.ParameterDict({
-            "mask":
-                nn.Parameter(mask, requires_grad=False),
-            "mean":
-                nn.Parameter(torch.zeros(state_shape, dtype=torch.float32), requires_grad=False),
-            "std":
-                nn.Parameter(torch.ones(state_shape, dtype=torch.float32), requires_grad=False),
+            "mask": nn.Parameter(mask, requires_grad=False),
+            "mean": nn.Parameter(torch.zeros(obs_shape, dtype=torch.float32), requires_grad=False),
+            "std": nn.Parameter(torch.ones(obs_shape, dtype=torch.float32), requires_grad=False),
         })
-        self.eps2 = torch.ones(state_shape, dtype=torch.float32) * eps**2
+        self.eps2 = torch.ones(obs_shape, dtype=torch.float32) * eps**2
         self.count = nn.Parameter(torch.tensor(0, dtype=torch.int64), requires_grad=False)
-        self._m2 = nn.Parameter(torch.zeros(state_shape, dtype=torch.float32), requires_grad=False)
+        self._m2 = nn.Parameter(torch.zeros(obs_shape, dtype=torch.float32), requires_grad=False)
 
     def normalize(self, x: List | np.ndarray | torch.Tensor) -> torch.Tensor:
         """Normalize the input data with the current mean and variance estimate.
@@ -177,7 +174,7 @@ class Normalizer(AbstractNormalizer):
         """
         # Use a batched version of Welford's algorithm for numerical stability
         x = self._sanitize_input(x)
-        assert x.ndim == self.state_dim + 1, "Input data must be a batch of arrays."
+        assert x.ndim == self.obs_dim + 1, "Input data must be a batch of arrays."
         self.count += x.shape[0]
         delta = x - self.norm_params["mean"]
         self.norm_params["mean"] += torch.sum(delta / self.count, axis=0)
@@ -191,15 +188,15 @@ class ImageNormalizer(AbstractNormalizer):
     Normalizes tensors by limiting them to a range of [-1, 1] instead of [0, 255].
     """
 
-    def __init__(self, state_shape: tuple[int, ...]):
+    def __init__(self, obs_shape: tuple[int, ...]):
         """Initialize the normalizer parameters.
 
         Args:
-            state_shape: State shape.
+            obs_shape: Observation shape.
         """
         super().__init__()
-        self.state_shape = state_shape
-        self.state_dim = len(state_shape)
+        self.obs_shape = obs_shape
+        self.obs_dim = len(obs_shape)
 
     def normalize(self, x: List | np.ndarray | torch.Tensor) -> torch.Tensor:
         """Normalize the input data with the current mean and variance estimate.

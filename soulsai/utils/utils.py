@@ -195,17 +195,28 @@ def load_remote_config(address: str, secret: str, red: RedisType | None = None) 
     return config
 
 
-def load_redis_secret(path: Path) -> str:
+def load_redis_secret(path: Path, default_path: Path = Path("/run/secrets/redis_secret")) -> str:
     """Load the redis secret from a `.secret` file.
 
     The file is expected to contain the the line "requirepass XXX", where XXX is the redis secret.
+    If no file is found, the default path is used.
+
+    Warning:
+        If a secret file is present under /run/secrets/redis.secret, the supplied path argument is
+        ignored!
 
     Args:
         path: Path to the secret file.
+        default_path: Default path that is checked if the secret is not found under ``path``.
 
     Returns:
         The secret.
     """
+    if not path.is_file():
+        logger.info(f"No secret detected under {path}. Using default path {default_path}")
+        path = default_path
+    if not path.is_file():
+        raise MissingConfigError(f"Missing password configuration for redis in {path}")
     with open(path, "r") as f:
         conf = f.readlines()
     secret = None
@@ -214,5 +225,5 @@ def load_redis_secret(path: Path) -> str:
             secret = line[12:]
             break
     if secret is None:
-        raise MissingConfigError(f"Missing password configuration for redis in {path}")
+        raise MissingConfigError(f"Password configuration for redis in {path} is invalid")
     return secret

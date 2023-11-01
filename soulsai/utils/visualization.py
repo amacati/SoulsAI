@@ -1,11 +1,15 @@
 """Visualization module for creating training plots from the training statistics."""
-from typing import List
-from pathlib import Path
+from __future__ import annotations
+
+from typing import List, TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from soulsai.utils.utils import running_mean, running_std
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def save_plots(samples: List,
