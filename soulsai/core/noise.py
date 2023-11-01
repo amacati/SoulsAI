@@ -17,7 +17,7 @@ class Noise(ABC):
         self.np_random = np.random.default_rng()
 
     @abstractmethod
-    def sample(self):
+    def sample(self) -> int:
         """Generate a single noise sample."""
 
     @abstractmethod
@@ -81,7 +81,7 @@ class MaskedDiscreteNoise(Noise):
         """Reset the noise process in case of stateful noise."""
 
 
-def get_noise_class(noise_type: str) -> Noise:
+def get_noise_class(noise_type: str) -> type[Noise]:
     """Get the noise class from the noise name.
 
     Note:

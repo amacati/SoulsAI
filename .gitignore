@@ -15,10 +15,12 @@ docs/_static/*
 
 config/config.yaml
 
+data/*
+
 soulsai/distributed/server/training_node/config.yaml
 soulsai/distributed/client/config.yaml
 soulsai/distributed/server/reverse-proxy/certbot/*
-soulsai/distributed/server/reverse-proxy/nginx/*
+# soulsai/distributed/server/reverse-proxy/nginx/*
 soulsai/distributed/server/monitoring/grafana/grafana_data
 
 test/distributed/dqn/client/config.yaml
@@ -34,3 +36,6 @@ test/common/grafana/grafana_data/*
 !**.gitkeep
 !/saves/checkpoint/
 !/docs/img/*
+
+# Add collected replays for testing via observation replays
+!/test/pytest/data/*

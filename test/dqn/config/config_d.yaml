@@ -1,0 +1,89 @@
+# Create config.yaml file to overwrite default settings
+
+# General settings
+loglevel: info
+device: "cuda"
+
+# Redis settings
+redis_address: "redis"
+
+# Environment information
+env:
+  name: LunarLander-v2
+  kwargs:
+  obs_shape: [8]
+  n_actions: 4
+  wrappers:
+
+max_env_steps: 100_000
+gamma: 0.99
+
+# Algorithm choice
+algorithm: "dqn"
+
+# DQN parameters
+dqn:
+  variant: distributional  # [vanilla, distributional]
+  lr: 0.001
+  eps_max: [0.1]
+  eps_min: [0.1]
+  eps_steps: [100]
+  eps_samples: 1000
+  grad_clip: 5.
+  q_clip: 200
+  buffer_size: 100_000
+  batch_size: 64
+  train_epochs: 25
+  update_samples: 25
+  fill_buffer: False
+  multistep: 4
+  network_type: "DistributionalDQN"
+  network_kwargs:
+    input_dims: 8
+    output_dims: 4
+    layer_dims: 128
+  noise: "UniformDiscreteNoise"
+  noise_kwargs:
+    size_n: 4
+  replay_buffer: "ReplayBuffer"
+  replay_buffer_kwargs:
+  action_masking: False
+  normalizer: Normalizer
+  normalizer_kwargs:
+  min_samples: null
+  tau: 0.05  # For soft target update
+
+# Training node settings
+checkpoint:
+  save: False
+  epochs: 100  # Checkpoint every 100th iteration
+  save_buffer: False
+  load: False
+  load_buffer: False
+  load_config: False
+
+# Telemetry node settings
+telemetry:
+  update_interval: 5
+  moving_average: 20
+
+monitoring:
+  file_storage:
+    path: "/home/SoulsAI/saves"
+    plot: True
+  grafana: True
+  prometheus: True
+  wandb:
+    project: "soulsai_dqn"
+    entity: "amacati"
+    group: "testing"
+    save_dir: "/home/SoulsAI/saves"
+
+# Client settings
+max_episodes: -1  # -1 for infinite runs
+enable_interrupt: False
+step_delay: 0.003
+
+watchdog:
+  enable: False
+  minimum_samples: -1

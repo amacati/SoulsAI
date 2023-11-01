@@ -2,11 +2,14 @@
 
 The scheduler can be saved and loaded to allow for checkpointing of the complete training process.
 """
-from pathlib import Path
+from __future__ import annotations
 import json
-from typing import List
+from typing import List, TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class EpsilonScheduler:
@@ -15,7 +18,10 @@ class EpsilonScheduler:
     Multiple decay sections with their own start, end and step values of epsilon are supported.
     """
 
-    def __init__(self, epsilon_max: List[float], epsilon_min: List[float], decay_steps: List[int],
+    def __init__(self,
+                 epsilon_max: List[float],
+                 epsilon_min: List[float],
+                 decay_steps: List[int],
                  zero_ending: bool = False):
         """Initialize the max, min and step arrays as numpy arrays.
 

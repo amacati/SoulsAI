@@ -4,7 +4,8 @@ from __future__ import annotations
 from typing import List, Iterable, Tuple, Dict
 
 import numpy as np
-from soulsgym.core.static import player_animations, boss_animations
+
+from soulsgym.games.game import StaticGameData
 
 from soulsai.data.one_hot_encoder import OneHotEncoder
 
@@ -21,26 +22,28 @@ class GameStateTransformer:
     space_coords_high = np.array([190., 640., -55.])
     space_coords_diff = space_coords_high - space_coords_low
 
-    def __init__(self, boss_id: str = "iudex"):
+    def __init__(self, game_id: str = "DarkSoulsIII", boss_id: str = "iudex"):
         """Initialize the one-hot encoders and set up attributes for the stateful transformation.
 
         Args:
             boss_id: Boss ID.
         """
+        self.game_id = game_id
         self.boss_id = boss_id
-        # Get all movement animations with their ID
-        bma = [a for a in boss_animations[self.boss_id]["all"].values() if a["type"] == "movement"]
-        self.boss_move_animations = [a["ID"] for a in bma]
+        self.game_data = StaticGameData(game_id)
+        # Initialize player one-hot encoder
         self.player_animation_encoder = OneHotEncoder(allow_unknown=True)
-        p_animations = [a["ID"] for a in player_animations.values()]
+        p_animations = [a["ID"] for a in self.game_data.player_animations.values()]
         filtered_player_animations = unique(map(self.filter_player_animation, p_animations))
         self.player_animation_encoder.fit(filtered_player_animations)
+        # Initialize boss one-hot encoder
         self.boss_animation_encoder = OneHotEncoder(allow_unknown=True)
-        b_animations = [a["ID"] for a in boss_animations["iudex"]["all"].values()]
+        iudex_animations = self.game_data.boss_animations[self.boss_id]["all"]
+        boss_animations = [a["ID"] for a in iudex_animations.values()]
         filtered_boss_animations = unique(
-            map(lambda x: self.filter_boss_animation(x)[0], b_animations))
+            map(lambda x: self.filter_boss_animation(x)[0], boss_animations))
         self.boss_animation_encoder.fit(filtered_boss_animations)
-
+        # Initialize stateful attributes
         self._current_time = 0.
         self._acuumulated_time = 0.
         self._last_animation = None
@@ -59,6 +62,12 @@ class GameStateTransformer:
         Returns:
             A transformed observation as a numerical array.
         """
+        # The final observation has the following entries:
+        # 0-3: player_hp, player_sp, boss_hp, boss_distance
+        # 4-15: player_pos, player_rot, boss_pos, boss_rot, camera_rot
+        # 16-17: player_animation_duration, boss_animation_duration
+        # 17-48: player_animation_onehot
+        # 49-73: boss_animation_onehot
         obs = self._unpack_obs(obs)
         player_animation = self.filter_player_animation(obs["player_animation"])
         player_animation_onehot = self.player_animation_encoder(player_animation)
@@ -196,7 +205,9 @@ class GameStateTransformer:
         Returns:
             The animation name and a flag set to True if it was binned (else False).
         """
-        if animation in self.boss_move_animations:
+        # <WalkFront, WalkLeft, WalkRight, WalkBack, TurnRight90, TurnRight180, TurnLeft90,
+        # TurnLeft180>
+        if animation in [19, 20, 21, 22, 24, 25, 26, 27]:
             return 100, True
         return animation, False
 
@@ -215,7 +226,13 @@ class GameStateTransformer:
             "player_animation_duration"
         ]
         for key in scalars:
-            obs[key] = obs[key].item()
+            if isinstance(obs[key], np.ndarray):
+                obs[key] = obs[key].item()
+        arrays = ["player_pose", "boss_pose", "camera_pose"]
+        for key in arrays:
+            if not isinstance(obs[key], np.ndarray):
+                assert isinstance(obs[key], list)
+                obs[key] = np.array(obs[key])
         return obs
 
 

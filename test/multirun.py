@@ -3,20 +3,25 @@
 It is useful to check the performance of algorithms and parameters with statistical significance
 using the ``SoulsAI`` framework.
 """
-from subprocess import Popen
+from __future__ import annotations
+
 import time
-import argparse
-from pathlib import Path
 import shutil
 import json
+import argparse
+from typing import TYPE_CHECKING
+from pathlib import Path
+from subprocess import Popen
 
 import docker
-from docker.client import DockerClient
 import numpy as np
 import matplotlib.pyplot as plt
 from redis import Redis
 
-from soulsai.utils import mkdir_date, load_redis_secret
+from soulsai.utils import mkdir_date, load_redis_secret, running_mean
+
+if TYPE_CHECKING:
+    from docker.client import DockerClient
 
 
 def launch_training(dock: DockerClient, algorithm: str, n_clients: int, profile: str) -> Popen:
@@ -32,7 +37,7 @@ def launch_training(dock: DockerClient, algorithm: str, n_clients: int, profile:
     Returns:
         The handle to the subprocess.
     """
-    path = Path(__file__).parents[1] / algorithm
+    path = Path(__file__).parent / algorithm
     profile_cmd = "--profile " + profile if profile else ""
     cmd = f"(cd {path}; docker compose {profile_cmd} up --scale client_node={n_clients})"
     p = Popen(cmd, shell=True)  # Yes, this is hacky af. It works though
@@ -60,8 +65,8 @@ def shutdown_nodes(dock: DockerClient):
 
 def publish_shutdown_cmd():
     """Send the shutdown command to all active client nodes."""
-    config_dir = Path(__file__).parents[2] / "config"
-    secret = load_redis_secret(config_dir / "redis.secret")
+    redis_secret_path = Path(__file__).parents[1] / "config/secrets/redis.secret"
+    secret = load_redis_secret(redis_secret_path)
     red = Redis(host="localhost", port=6379, password=secret, db=0, decode_responses=True)
     red.publish("shutdown", 1)
 
@@ -90,18 +95,24 @@ def save_plots(results: dict, path: Path):
     fig, ax = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle("SoulsAI Multi-Run Dashboard")
 
-    x = results["samples"]
-    rewards_mean, rewards_std = results["rewards_mean"], results["rewards_std"]
+    x = results["n_env_steps"]
+    smoothing_window_size = max(int(len(x) * 0.01), 1)
+    rewards_mean = running_mean(results["rewards_mean"], smoothing_window_size)
+    rewards_std = running_mean(results["rewards_std"], smoothing_window_size)
     ax[0, 0].plot(x, rewards_mean)
-    ax[0, 0].fill_between(x, rewards_mean - rewards_std, rewards_mean + rewards_std, alpha=0.4)
+    lower, upper = rewards_mean - rewards_std, rewards_mean + rewards_std
+    ax[0, 0].fill_between(x, lower, upper, alpha=0.4)
     ax[0, 0].legend(["Mean episode reward", "Std deviation episode reward"])
     ax[0, 0].set_title("Total reward vs Episodes")
     ax[0, 0].set_xlabel("Episodes")
     ax[0, 0].set_ylabel("Total reward")
     ax[0, 0].grid(alpha=0.3)
-    ax[0, 0].set_ylim([-350, 350])
+    lower_ylim = np.min(lower) - abs(np.min(lower)) * 0.1
+    upper_ylim = np.max(upper) + abs(np.max(upper)) * 0.1
+    ax[0, 0].set_ylim([lower_ylim, upper_ylim])
 
-    steps_mean, steps_std = results["steps_mean"], results["steps_std"]
+    steps_mean = running_mean(results["steps_mean"], smoothing_window_size)
+    steps_std = running_mean(results["steps_std"], smoothing_window_size)
     ax[0, 1].plot(x, steps_mean, label="Mean episode steps")
     lower, upper = steps_mean - steps_std, steps_mean + steps_std
     ax[0, 1].fill_between(x, lower, upper, alpha=0.4, label="Std deviation episode steps")
@@ -111,7 +122,9 @@ def save_plots(results: dict, path: Path):
     ax[0, 1].set_xlabel("Episodes")
     ax[0, 1].set_ylabel("Number of steps")
     ax[0, 1].grid(alpha=0.3)
-    ax[0, 1].set_ylim([0, 1100])
+    lower_ylim = np.min(lower) - abs(np.min(lower)) * 0.1
+    upper_ylim = np.max(upper) + abs(np.max(upper)) * 0.1
+    ax[0, 1].set_ylim([lower_ylim, upper_ylim])
 
     if results["eps"] is not None:
         secax_y = ax[0, 1].twinx()
@@ -127,7 +140,8 @@ def save_plots(results: dict, path: Path):
     ax[1, 0].set_ylabel("N/A")
     ax[1, 0].grid(alpha=0.3)
 
-    wins_mean, wins_std = results["wins_mean"], results["wins_std"]
+    wins_mean = running_mean(results["wins_mean"], smoothing_window_size)
+    wins_std = running_mean(results["wins_std"], smoothing_window_size)
     ax[1, 1].plot(x, wins_mean)
     ax[1, 1].fill_between(x, wins_mean - wins_std, wins_mean + wins_std, alpha=0.4)
     ax[1, 1].legend(["Mean wins", "Std deviation wins"])
@@ -151,7 +165,7 @@ def average_results(results: dict) -> dict:
         The averaged datapoints.
     """
     # Calculate min stats
-    nsamples = min([max(results[run]["samples"]) for run in results])
+    nsamples = min([max(results[run]["n_env_steps"]) for run in results])
     x = np.linspace(0, nsamples, 1000)
     # Interpolate data with N_episodes datapoints between 0 and nsamples
     # Restrict results to the shortest experiment length
@@ -159,7 +173,7 @@ def average_results(results: dict) -> dict:
     averaged_results = {}
     for run in results:
         for key in ("rewards", "steps", "wins"):
-            results[run][key] = np.interp(x, results[run]["samples"], results[run][key])
+            results[run][key] = np.interp(x, results[run]["n_env_steps"], results[run][key])
     for key in ("rewards", "steps", "wins"):
         data = np.array([run[key] for run in results.values()])
         averaged_results[key + "_mean"] = np.mean(data, axis=0)
@@ -167,8 +181,9 @@ def average_results(results: dict) -> dict:
     if results["run0"]["eps"][0] is None:
         averaged_results["eps"] = None
     else:
-        averaged_results["eps"] = np.interp(x, results["run0"]["samples"], results["run0"]["eps"])
-    averaged_results["samples"] = x
+        averaged_results["eps"] = np.interp(x, results["run0"]["n_env_steps"],
+                                            results["run0"]["eps"])
+    averaged_results["n_env_steps"] = x
     return averaged_results
 
 
@@ -195,7 +210,7 @@ def main(args: argparse.Namespace):
         time.sleep(2)
     # Summarize results in multirun experiment save
     if args.nruns:
-        save_root = Path(__file__).parents[2] / "saves"
+        save_root = Path(__file__).parents[1] / "saves"
         save_dirs = [d for d in save_root.iterdir() if d.is_dir() and d.name[:4].isdigit()]
         run_dirs = sorted(save_dirs)[-args.nruns:]
         save_path = mkdir_date(save_root)
@@ -216,7 +231,10 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('algorithm', type=str, help='Training algorithm', choices=["ppo", "dqn"])
+    parser.add_argument('algorithm',
+                        type=str,
+                        help='Training algorithm',
+                        choices=["ppo", "dqn", "dqn_atari"])
     parser.add_argument('nruns', type=int, help='Number of training runs')
     parser.add_argument('nclients', type=int, default=1, help='Number of client nodes')
     parser.add_argument('--profile',

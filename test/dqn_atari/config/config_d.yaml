@@ -1,0 +1,97 @@
+# Create config.yaml file to overwrite default settings
+
+# General settings
+loglevel: info
+device: "cuda:0"
+
+# Redis settings
+redis_address: "redis"
+
+# Environment information
+env:
+  name: ALE/Pong-v5
+  kwargs:
+    frameskip: 1
+  obs_shape: [1, 84, 84]
+  n_actions: 6
+  wrappers:
+    AtariPreprocessing:
+      kwargs:
+    AtariExpandImage:
+      kwargs:
+
+gamma: 0.99
+max_env_steps: 10_000_000
+
+# Algorithm choice
+algorithm: "dqn"
+
+# DQN parameters
+dqn:
+  variant: distributional  # [vanilla, distributional]
+  lr: 0.0001
+  eps_max: [0.1]
+  eps_min: [0.05]
+  eps_steps: [10000]
+  eps_samples: 1000
+  grad_clip: 5.
+  q_clip: 200
+  buffer_size: 500_000
+  batch_size: 128
+  train_epochs: 25
+  update_samples: 50
+  fill_buffer: False
+  multistep: 3
+  network_type: "CNNDistributionalDQN" # "CNNDistributionalDQN"
+  network_kwargs:
+    input_shape: [1, 84, 84]
+    output_dims: 6
+    n_quantiles: 32
+  noise: "UniformDiscreteNoise"
+  noise_kwargs:
+    size_n: 6
+  replay_buffer: "ReplayBuffer"
+  replay_buffer_kwargs:
+    obs_dtype: uint8
+  action_masking: False
+  normalizer: ImageNormalizer
+  normalizer_kwargs:
+  min_samples: null
+  tau: 0.05  # For soft target update
+
+# Training node settings
+checkpoint:
+  save: False
+  epochs: 100  # Checkpoint every 100th iteration
+  save_buffer: False
+  load: False
+  load_buffer: False
+  load_config: False
+
+# Telemetry node settings
+telemetry:
+  update_interval: 5
+  save_best_interval: 5
+  moving_average: 20
+
+# Client settings
+max_episodes: -1  # -1 for infinite runs
+enable_interrupt: False
+step_delay: 0.003
+
+# Monitoring
+monitoring:
+  file_storage:
+    path: "/home/SoulsAI/saves"
+    plot: True
+  grafana: True
+  prometheus: True
+  wandb:
+    project: "soulsai_dqn_atari"
+    entity: "amacati"
+    group: "test"
+    save_dir: "/home/SoulsAI/saves"
+
+watchdog:
+  enable: False
+  minimum_samples: -1

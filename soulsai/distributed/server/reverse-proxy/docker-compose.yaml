@@ -21,8 +21,22 @@ services:
     volumes:
       - ./certbot/conf:/etc/letsencrypt:rw
       - ./certbot/www/:/var/www/certbot/:rw
+      - ./certbot/letsencrypt:/etc/letsencrypt:rw
     # Renew certificates every 12h
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    # command: certonly --webroot --webroot-path=/var/www/certbot --email real.amacati@gmail.com --agree-tos --no-eff-email --force-renewal -d amacati.me
+
+  ddclient:
+    image: lscr.io/linuxserver/ddclient:3.10.0
+    container_name: ddclient
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./ddclient/config:/config
+    restart: unless-stopped
+
 
 networks:
   reverse_proxy_net:

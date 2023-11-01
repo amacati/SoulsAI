@@ -20,6 +20,8 @@ services:
       - ./grafana/grafana_data:/var/lib/grafana
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
     user: "1000"
+    ports:
+      - "3000:3000"
     networks:
       - monitoring_net
       - reverse_proxy_net

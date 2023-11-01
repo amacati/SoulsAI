@@ -1,4 +1,6 @@
 """The connector module provides connectors that abstract the client communication with Redis."""
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
@@ -6,23 +8,26 @@ import socket
 import time
 import queue
 from uuid import uuid4
-import multiprocessing as python_mp
-from multiprocessing import Event
-from multiprocessing.connection import Connection
-from multiprocessing.sharedctypes import Synchronized
-from multiprocessing.synchronize import Lock
-from multiprocessing.queues import Queue
-from typing import Tuple, Any
-from types import SimpleNamespace
+from typing import TYPE_CHECKING
+
+from typing import Any
 
 import redis
 from redis import Redis
 import torch.multiprocessing as mp
 
-from soulsai.core.agent import DQNClientAgent, PPOClientAgent
-from soulsai.core.normalizer import Normalizer
+from soulsai.core.agent import DQNClientAgent, DistributionalDQNClientAgent, PPOClientAgent
+from soulsai.core.normalizer import get_normalizer_class, AbstractNormalizer
 from soulsai.utils import load_redis_secret, namespace2dict
 from soulsai.exception import ClientRegistrationError, ServerTimeoutError
+
+if TYPE_CHECKING:
+    from multiprocessing import Event
+    from multiprocessing.connection import Connection
+    from multiprocessing.sharedctypes import Synchronized
+    from multiprocessing.synchronize import Lock
+    from multiprocessing.queues import Queue
+    from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +35,7 @@ logger = logging.getLogger(__name__)
 class DQNConnector:
     """The DQN client connector abstracts the communication with the training server.
 
-    The connector sends samples and telemetry messages into a message queue. A separate message
+    The connector sends samples and episode info messages into a message queue. A separate message
     consumer process is responsible to consume the messages and upload them to Redis. This allows
     the main script to avoid blocking uploads between environment steps.
 
@@ -48,13 +53,13 @@ class DQNConnector:
 
                 con = DQNConnector(config)
                 with con:
-                    con.agent(state)
+                    con.agent(obs)
                     print(con.model_id)
 
     If the communication with Redis is interrupted, the connector will automatically try to
     reestablish the connection. In the client thread, this is only visible through a logger warning.
-    After reestablishing the connection, sample and telemetry messages will be sent again, and model
-    updates will resume.
+    After reestablishing the connection, sample and episode info messages will be sent again, and
+    model updates will resume.
     """
 
     def __init__(self, config: SimpleNamespace):
@@ -63,54 +68,65 @@ class DQNConnector:
         Args:
             config: Client config.
         """
-        cxt = mp.get_context()
-        if not isinstance(cxt, python_mp.context.SpawnContext):
-            logger.warning(f"Multiprocessing context already set to {type(cxt)}")
-            logger.warning("Trying to force spawn method...")
-            mp.set_start_method("spawn", force=True)  # Required for network weight swap!
+        cxt = mp.get_context("spawn")
+        mp.set_start_method("spawn")
         self.config = config
-        self.agent = DQNClientAgent(config.dqn.network_type,
-                                    namespace2dict(config.dqn.network_kwargs))
-        if config.dqn.normalizer_kwargs is not None:
-            norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
+        if self.config.dqn.variant == "distributional":
+            self.agent = DistributionalDQNClientAgent(config.dqn.network_type,
+                                                      namespace2dict(config.dqn.network_kwargs),
+                                                      config.device)
         else:
-            norm_kwargs = {}
-        self.normalizer = Normalizer(config.n_states, **norm_kwargs)
-        self._eps = mp.Value("d", -1.)
-        self._lock = mp.Lock()
-        self._update_event = mp.Event()
-        self._stop_event = mp.Event()
-        secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
+            self.agent = DQNClientAgent(config.dqn.network_type,
+                                        namespace2dict(config.dqn.network_kwargs), config.device)
+        self.normalizer = None
+        if config.dqn.normalizer:
+            normalizer_cls = get_normalizer_class(config.dqn.normalizer)
+            norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
+            self.normalizer = normalizer_cls(config.env.obs_shape, **norm_kwargs)
+        self._eps = cxt.Value("d", -1.)
+        self._lock = cxt.Lock()
+        self._update_event = cxt.Event()
+        self._stop_event = cxt.Event()
+        secret = load_redis_secret(Path(__file__).parents[3] / "config/secrets/redis.secret")
         address = self.config.redis_address
 
+        # Start the model update notification process
         args = (self._update_event, address, secret, self._stop_event)
-        self.update_sub = mp.Process(target=self._update_msg, args=args, daemon=True)
+        self.update_sub = cxt.Process(target=self._update_msg, args=args, daemon=True)
         self.update_sub.start()
 
-        self.shutdown = mp.Event()
+        # Start the shutdown notification process
+        self.shutdown = cxt.Event()
         args = (self.shutdown, address, secret)
-        self.shutdown_sub = mp.Process(target=self._client_shutdown, args=args, daemon=True)
+        self.shutdown_sub = cxt.Process(target=self._client_shutdown, args=args, daemon=True)
         self.shutdown_sub.start()
 
-        self._msg_queue = mp.Queue(maxsize=100)
+        # Start the message consumer process
+        self._msg_queue = cxt.Queue(maxsize=100)
         args = (self._msg_queue, address, secret, self._stop_event)
-        self.msg_consumer = mp.Process(target=self._consume_msgs, args=args, daemon=True)
+        self.msg_consumer = cxt.Process(target=self._consume_msgs, args=args, daemon=True)
         self.msg_consumer.start()
 
+        # Start the model update process
         self.agent.share_memory()
-        self.normalizer.share_memory()
+        if self.normalizer:
+            self.normalizer.share_memory()
+
         args = (self._update_event, self._stop_event, self.agent, self.normalizer, self._eps,
                 self._lock, secret, config)
-        self.model_updater = mp.Process(target=self._update_model, args=args, daemon=True)
+        self.model_updater = cxt.Process(target=self._update_model, args=args, daemon=True)
         self.model_updater.start()
 
         # Block while first model is not here
         logger.info("Waiting for model download...")
+        self.agent.model_id = "x" * 36
         while self.model_id[0] == " ":
             time.sleep(0.01)
         logger.info("Download complete, connector initialized")
+
+        # Start the heartbeat process
         args = (address, secret, self._stop_event)
-        self.heartbeat = mp.Process(target=self._heartbeat, args=args, daemon=True)
+        self.heartbeat = cxt.Process(target=self._heartbeat, args=args, daemon=True)
         self.heartbeat.start()
         # Utility attributes
         self._full_queue_warn_time = 0
@@ -145,22 +161,21 @@ class DQNConnector:
         """
         return self._eps.value
 
-    def push_sample(self, model_id: str, sample: Tuple):
+    def push_sample(self, sample: bytes):
         """Send a sample message over the message queue.
 
         Args:
-            model_id: Model ID used to identify the model iteration.
             sample: Experience sample.
         """
-        self._push_msg("sample", (model_id,) + sample)
+        self._push_msg("samples", sample)
 
-    def push_telemetry(self, telemetry: dict):
-        """Send a telemetry message over the message queue.
+    def push_episode_info(self, episode_info: bytes):
+        """Send an episode info summary message over the message queue.
 
         Args:
-            telemetry: Telemetry dictionary.
+            episode_info: Episode info dictionary.
         """
-        self._push_msg("telemetry", telemetry)
+        self._push_msg("episode_info", episode_info)
 
     def _push_msg(self, msg_type: str, msg: Any):
         try:
@@ -181,8 +196,8 @@ class DQNConnector:
 
     @staticmethod
     def _update_model(update_event: Event, stop_event: Event, agent: DQNClientAgent,
-                      normalizer: Normalizer, eps: Synchronized, lock: Lock, secret: str,
-                      config: SimpleNamespace):
+                      normalizer: AbstractNormalizer | None, eps: Synchronized, lock: Lock,
+                      secret: str, config: SimpleNamespace):
         """Update the client model, epsilon values, and normalizers.
 
         Model updates are triggered by a separate process that waits for new model update messages.
@@ -211,8 +226,14 @@ class DQNConnector:
                     })
         # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
         # first and then overwrite the tensors of the main agent with load_state_dict
-        buffer_agent = DQNClientAgent(config.dqn.network_type,
-                                      namespace2dict(config.dqn.network_kwargs))
+        args = (config.dqn.network_type, namespace2dict(config.dqn.network_kwargs), config.device)
+        if config.dqn.variant == "distributional":
+            buffer_agent = DistributionalDQNClientAgent(*args)
+        elif config.dqn.variant == "vanilla":
+            buffer_agent = DQNClientAgent(*args)
+        else:
+            raise ValueError(f"DQN variant {config.dqn.variant} is not supported")
+
         update_event.set()  # Ensure load on first start up
         while not stop_event.is_set():
             if not update_event.wait(1):
@@ -222,15 +243,15 @@ class DQNConnector:
                 _params = red.hgetall("model_params")
                 model_params = {key.decode("utf-8"): value for key, value in _params.items()}
                 buffer_agent.deserialize(model_params)
-                if config.dqn.normalize:
+                if normalizer:
                     norm_params = normalizer.deserialize(model_params)
                 # We can use a blocking approach instead of changing references between multiple
                 # models as writing the new parameters typically only requires ~1e-3s
                 with lock:
                     agent.load_state_dict(buffer_agent.state_dict())
                     eps.value = float(model_params["eps"].decode("utf-8"))
-                    if config.dqn.normalize:
-                        normalizer.load_params(*norm_params)
+                    if normalizer:
+                        normalizer.load_params(norm_params)
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 socket_options = {socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60}
@@ -253,13 +274,10 @@ class DQNConnector:
             except queue.Empty:
                 continue  # Check again if stop event has been set
             try:
-                if msg[0] == "sample":
-                    sample = json.dumps({"model_id": msg[1][0], "sample": msg[1][1:]})
-                    red.publish("samples", sample)
-                elif msg[0] == "telemetry":
-                    red.publish("telemetry", json.dumps(msg[1]))
-                else:
-                    logger.warning(f"Unknown message type {msg[0]}")
+                # msg[0] is the message type, msg[1] the message encoded by capnproto
+                assert msg[0] in ["samples", "episode_info"], f"Unknown message type {msg[0]}"
+                assert isinstance(msg[1], bytes), f"Message is not of type bytes but {type(msg[1])}"
+                red.publish(msg[0], msg[1])
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 red = Redis(host=address, password=secret, port=6379, db=0)
@@ -357,7 +375,7 @@ class DQNConnector:
 class PPOConnector:
     """The PPO client connector abstracts the communication with the training server.
 
-    The connector sends samples and telemetry messages into a pipe. A separate message consumer
+    The connector sends samples and episode end messages into a pipe. A separate message consumer
     process is responsible to consume the messages and upload them to Redis. This allows the main
     script to avoid blocking uploads between environment steps.
 
@@ -376,7 +394,7 @@ class PPOConnector:
         """
         self.config = config
         self.agent = PPOClientAgent(config.ppo.actor_net_type,
-                                    namespace2dict(config.ppo.actor_net_kwargs))
+                                    namespace2dict(config.ppo.actor_net_kwargs), config.device)
         self._stop_event = mp.Event()
         self._update_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
@@ -406,11 +424,11 @@ class PPOConnector:
         if msg is None:
             logger.error("Server discovery failed. Check if server is already full")
             raise ClientRegistrationError("Server failed to respond")
-        self.con_id = json.loads(msg["data"])
-        logger.info(f"Client registration successful. New client ID: {self.con_id}")
+        self.client_id = json.loads(msg["data"])
+        logger.info(f"Client registration successful. New client ID: {self.client_id}")
 
         self.heartbeat = mp.Process(target=self._heartbeat,
-                                    args=(address, secret, self.con_id, self._stop_event),
+                                    args=(address, secret, self.client_id, self._stop_event),
                                     daemon=True)
         self.heartbeat.start()
 
@@ -419,23 +437,21 @@ class PPOConnector:
         self.msg_consumer = mp.Process(target=self._consume_msgs, args=args)
         self.msg_consumer.start()
 
-    def push_sample(self, model_id: str, step_id: int, sample: Tuple):
+    def push_sample(self, sample: bytes):
         """Send a sample message over the message pipe.
 
         Args:
-            model_id: Model ID used to verify the sample was created by the correct model iteration.
-            step_id: Step ID used to reconstruct the trajectory on the server.
-            sample: Experience sample.
+            sample: Experience sample. Also contains the model ID and step ID.
         """
-        self._msg_pipe.send(("sample", self.con_id, model_id, step_id, sample))
+        self._msg_pipe.send(("samples", sample))
 
-    def push_telemetry(self, telemetry: dict):
-        """Send a telemetry message over the message pipe.
+    def push_episode_info(self, episode_info: bytes):
+        """Send an episode info message over the message pipe.
 
         Args:
-            telemetry: Telemetry dictionary.
+            episode_info: Episode info dictionary.
         """
-        self._msg_pipe.send(("telemetry", telemetry))
+        self._msg_pipe.send(("episode_info", episode_info))
 
     def close(self):
         """Close the connector by stopping the message consumer and heartbeat process."""
@@ -497,19 +513,8 @@ class PPOConnector:
             if not msg_pipe.poll(1):
                 continue  # Check again if stop event has been set
             msg = msg_pipe.recv()
-            if msg[0] == "sample":
-                red.publish(
-                    "samples",
-                    json.dumps({
-                        "client_id": msg[1],
-                        "model_id": msg[2],
-                        "step_id": msg[3],
-                        "sample": msg[4]
-                    }))
-            elif msg[0] == "telemetry":
-                red.publish("telemetry", json.dumps(msg[1]))
-            else:
-                logger.warning(f"Unknown message type {msg[0]}")
+            assert msg[0] in ["samples", "episode_info"], f"Unknown message type {msg[0]}"
+            red.publish(msg[0], msg[1])
 
     def _client_shutdown(self, _):
         logger.info("Received shutdown signal from training node. Exiting training")

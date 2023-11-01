@@ -8,21 +8,26 @@ network errors etc.
 In our PPO implementation, we use General Advantage Estimation with the design decisions recommended
 in https://arxiv.org/pdf/2006.05990.pdf.
 """
+from __future__ import annotations
+
 import logging
 from uuid import uuid4
 from pathlib import Path
 import time
-from typing import List, Callable
-from types import SimpleNamespace
+from typing import List, TYPE_CHECKING
 
 import numpy as np
 import torch
 
 from soulsai.core.agent import PPOAgent
 from soulsai.core.replay_buffer import TrajectoryBuffer
+from soulsai.distributed.common.serialization import PPOSerializer
 from soulsai.distributed.server.training_node.training_node import TrainingNode
 from soulsai.utils import namespace2dict
 from soulsai.exception import ServerDiscoveryTimeout
+
+if TYPE_CHECKING:
+    from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -30,30 +35,34 @@ logger = logging.getLogger(__name__)
 class PPOTrainingNode(TrainingNode):
     """PPO training node for distributed, synchronized proximal policy optimization."""
 
-    def __init__(self, config: SimpleNamespace, decode_sample: Callable):
+    def __init__(self, config: SimpleNamespace):
         """Set up the Redis connection, initialize the agent and publish the training config.
 
         Args:
             config: Training configuration.
-            decode_sample: Training sample decoding function.
         """
         logger.info("PPO training node startup")
-        super().__init__(config, decode_sample)
+        super().__init__(config)
+        self._serializer = PPOSerializer(self.config.env.name)
         self.agent = PPOAgent(self.config.ppo.actor_net_type,
                               namespace2dict(self.config.ppo.actor_net_kwargs),
                               self.config.ppo.critic_net_type,
                               namespace2dict(self.config.ppo.critic_net_kwargs),
-                              self.config.ppo.actor_lr, self.config.ppo.critic_lr)
+                              self.config.ppo.actor_lr, self.config.ppo.critic_lr, config.device)
         self.agent.model_id = str(uuid4())
-        if self.config.load_checkpoint:
+        if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
             logger.info("Checkpoint loading complete")
 
         logger.info(f"Initial model ID: {self.agent.model_id}")
         self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,
-                                       self.config.n_states)
+                                       self.config.env.obs_shape)
         self._model_iterations = 0
         logger.info("PPO training node startup complete")
+
+    @property
+    def serializer(self) -> PPOSerializer:
+        return self._serializer
 
     def _startup_hook(self):
         logger.info("Starting discovery phase")
@@ -61,9 +70,9 @@ class PPOTrainingNode(TrainingNode):
         logger.info("Discovery complete, starting training")
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
-        valid = sample["model_id"] == self.agent.model_id
+        valid = sample["modelId"] == self.agent.model_id
         if valid:
-            logger.debug(f"Received sample {sample['client_id']}:{sample['step_id']}")
+            logger.debug(f"Received sample {sample['clientId']}:{sample['stepId']}")
         else:
             logger.warning("Unexpected sample with outdated model ID")
         if monitoring:
@@ -95,42 +104,49 @@ class PPOTrainingNode(TrainingNode):
         self._model_iterations += 1
 
     def _check_checkpoint_cond(self) -> bool:
-        return self._model_iterations % self.config.checkpoint_epochs == 0
+        if not self.config.checkpoint.epochs:
+            return False
+        return self._model_iterations % self.config.checkpoint.epochs == 0
 
     def _ppo_step(self):
         # Training algorithm based on Cx recommendations from https://arxiv.org/pdf/2006.05990.pdf
         b_idx = np.arange(self.buffer.n_batch_samples)
+        dev = self.config.device
         for _ in range(self.config.ppo.train_epochs):
             # Compute GAE advantage (C6) in each epoch (C5)
             self.buffer.compute_advantages_and_values(self.agent, self.config.gamma,
                                                       self.config.ppo.gae_lambda)
-            returns = self.buffer.advantages + self.buffer.values
+            advantages = self.buffer.advantages.to(dev)
+            returns = (self.buffer.advantages + self.buffer.values).to(dev)
+            obs = self.buffer.obs.to(dev)
+            probs = self.buffer.probs.to(dev)
+            actions = self.buffer.actions.to(dev)
             self.np_random.shuffle(b_idx)
             for j in range(0, self.buffer.n_batch_samples, self.config.ppo.minibatch_size):
                 mb_idx = b_idx[j:j + self.config.ppo.minibatch_size]
-                new_prob = self.agent.get_probs(self.buffer.states[mb_idx])
-                new_prob = torch.gather(new_prob, 1, self.buffer.actions[mb_idx])
-                ratio = new_prob / self.buffer.probs[mb_idx]
+                new_probs = self.agent.get_probs(obs[mb_idx])
+                new_probs = torch.gather(new_probs, 1, actions[mb_idx])
+                ratio = new_probs / probs[mb_idx]
                 # Compute policy (actor) loss
-                mb_advantages = self.buffer.advantages[mb_idx]
+                mb_advantages = advantages[mb_idx]
                 policy_loss_1 = -mb_advantages * ratio
                 policy_loss_2 = -mb_advantages * torch.clamp(ratio, 1 - self.config.ppo.clip_range,
                                                              1 + self.config.ppo.clip_range)
                 policy_loss = torch.max(policy_loss_1, policy_loss_2).mean()
                 # Compute value (critic) loss
-                v_estimate = self.agent.get_values(self.buffer.states[mb_idx])
+                v_estimate = self.agent.get_values(obs[mb_idx])
                 value_loss = ((v_estimate - returns[mb_idx])**2).mean()
                 value_loss *= 0.5 * self.config.ppo.vf_coef
                 # Update agent
                 self.agent.critic_opt.zero_grad()
                 value_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.agent.critic.parameters(),
+                torch.nn.utils.clip_grad_norm_(self.agent.networks["critic"].parameters(),
                                                self.config.ppo.max_grad_norm)
                 with self._lock:
                     self.agent.critic_opt.step()
                 self.agent.actor_opt.zero_grad()
                 policy_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.agent.actor.parameters(),
+                torch.nn.utils.clip_grad_norm_(self.agent.networks["actor"].parameters(),
                                                self.config.ppo.max_grad_norm)
                 with self._lock:
                     self.agent.actor_opt.step()
@@ -146,7 +162,7 @@ class PPOTrainingNode(TrainingNode):
                 continue
             self.red.publish(msg["data"], n_registered)
             n_registered += 1
-            if self.config.monitoring.enable:
+            if self.config.monitoring.prometheus:
                 self.prom_num_workers.inc()
             logger.info(f"Discovered client {n_registered}/{self.config.ppo.n_clients}")
             if n_registered == self.config.ppo.n_clients:
@@ -161,7 +177,7 @@ class PPOTrainingNode(TrainingNode):
         """
         path.mkdir(exist_ok=True)
         with self._lock:
-            self.agent.save(path)
+            self.agent.save(path / "agent.pt")
         logger.info("Model checkpoint saved")
 
     def load_checkpoint(self, path: Path):
@@ -175,3 +191,8 @@ class PPOTrainingNode(TrainingNode):
 
     def _required_client_ids(self) -> List[int]:
         return list(range(self.config.ppo.n_clients))
+
+    def _episode_info_callback(self, episode_info: bytes):
+        data = self.serializer.deserialize_episode_info(episode_info)
+        data["totalSteps"] = self._total_env_steps
+        self.red.publish("telemetry", self.serializer.serialize_telemetry(data))

@@ -1,29 +1,29 @@
 """The main telemetry node module."""
+from __future__ import annotations
+
 import logging
 import json
 from pathlib import Path
 import time
-import tempfile
-import os
-from threading import Lock
-from typing import List
-from types import SimpleNamespace
+from typing import List, TYPE_CHECKING
 
 from redis import Redis
-from prometheus_client import start_http_server
 
 from soulsai.utils import load_redis_secret, load_remote_config
-from soulsai.utils.visualization import save_plots
-from soulsai.distributed.server.telemetry_node.grafana_connector import GrafanaConnector
+from soulsai.distributed.common.serialization import get_serializer_cls
+from soulsai.distributed.server.telemetry_node.connectors import (TelemetryConnector,
+                                                                  GrafanaConnector,
+                                                                  FileStorageConnector,
+                                                                  WandBConnector)
 
-temp_dir = tempfile.TemporaryDirectory()
-os.environ['MPLCONFIGDIR'] = temp_dir.name  # Set matplotlib config dir
+if TYPE_CHECKING:
+    from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
 
 class TelemetryNode:
-    """The telemetry node receives telemetry from the clients to track the training progress.
+    """The telemetry node receives telemetry from the training node to track the training progress.
 
     Samples are received from Redis and added to the telemetry history. Every ``update_interval``
     message, the results are plotted and saved both to a figure and to a json file.
@@ -42,51 +42,50 @@ class TelemetryNode:
 
         Args:
             config: Training configuration.
+            connectors: List of telemetry connectors that expose the stats to external services or
+                files.
         """
         logger.info("Telemetry node startup")
-        # Read redis server secret
-        secret = load_redis_secret(Path(__file__).parents[4] / "config" / "redis.secret")
-        self.red = Redis(host='redis', port=6379, password=secret, db=0, decode_responses=True)
+
+        # Read redis server secret and connect to Redis
+        secret = load_redis_secret(Path("/run/secrets/redis_secret"))
+        self.red = Redis(host='redis', port=6379, password=secret, db=0)
         self.config = load_remote_config(config.redis_address, secret, self.red)
+        self.serializer = get_serializer_cls(self.config.algorithm)(self.config.env.name)
+
+        # Initialize the subscriber for telemetry information from the training node
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
-        self.sub_telemetry.subscribe("telemetry", "samples")
-        self.lock = Lock()
+        self.sub_telemetry.subscribe("telemetry")
+
+        # Listen for shutdown signal from Redis in a separate thread
         self._shutdown = False
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.cmd_sub.subscribe(shutdown=self.shutdown)
         self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
 
-        self.rewards = []
-        self.rewards_av = []
-        self.steps = []
-        self.steps_av = []
-        self.boss_hp = []
-        self.boss_hp_av = []
-        self.wins = []
-        self.wins_av = []
-        self.eps = []
-        self.samples = []
-        self._n_env_steps = 0
+        self.stats = {
+            "rewards": [],
+            "rewards_av": [],
+            "steps": [],
+            "steps_av": [],
+            "boss_hp": [],
+            "boss_hp_av": [],
+            "wins": [],
+            "wins_av": [],
+            "eps": [],
+            "n_env_steps": []
+        }
+        self.connectors = self._create_connectors()
+        for connector in self.connectors:
+            connector.start()
 
+        # Helper variable for saving the best model
         self._best_reward = float("-inf")
 
-        if self.config.monitoring.enable:
-            logger.info("Starting Grafana connector server for live monitoring")
-            self.grafana_con = GrafanaConnector(data_lock=self.lock)
-            for stat in self.stats:
-                self.grafana_con.data[stat] = getattr(self, stat)
-            self.grafana_con.run()
-            start_http_server(port=8080)
-        else:
-            logger.info("Skipping live monitoring")
-
-        save_dir = Path(__file__).parents[4] / "saves" / self.config.save_dir
-        self.figure_path = save_dir / "SoulsAIDashboard.png"
-        self.stats_path = save_dir / "SoulsAIStats.json"
-
-        if self.config.load_checkpoint:
+        if self.config.checkpoint.load:
             self._load_stats()
-            self.update_stats_and_dashboard()
+            for connector in self.connectors:
+                connector.update(self.stats)
         logger.info("Telemetry node startup complete")
 
     def run(self):
@@ -106,51 +105,58 @@ class TelemetryNode:
             if not (msg := self.sub_telemetry.get_message()):
                 time.sleep(0.1)
                 continue
-            if msg["channel"] == "samples":
-                self._n_env_steps += 1
-                continue
-            sample = json.loads(msg["data"])
-            # Appending automatically changes data in GrafanaConnector
-            with self.lock:
-                self.rewards.append(sample["reward"])
-                self.rewards_av.append(self._latest_moving_av(self.rewards))
-                self.steps.append(sample["steps"])
-                self.steps_av.append(self._latest_moving_av(self.steps))
-                self.boss_hp.append(sample["boss_hp"])
-                self.boss_hp_av.append(self._latest_moving_av(self.boss_hp))
-                self.wins.append(int(sample["win"]))
-                self.wins_av.append(self._latest_moving_av(self.wins))
-                self.eps.append(sample["eps"])
-                self.samples.append(self._n_env_steps)
-            n_rewards = len(self.rewards)
-            if n_rewards % self.config.telemetry.update_interval == 0:
-                self.update_stats_and_dashboard()
-                logger.info((f"Dashboard updated, last av. reward: {self.rewards_av[-1]:.1f}"
-                             f", last av. steps: {self.steps_av[-1]:.0f}"))
-            if n_rewards % self.config.telemetry.save_best_interval == 0:
-                if self.rewards_av[-1] > self._best_reward:
+            self._update_stats(self.serializer.deserialize_telemetry(msg["data"]))
+            n_episodes = len(self.stats["steps"])
+            if n_episodes % self.config.telemetry.update_interval == 0:
+                for connector in self.connectors:
+                    connector.update(self.stats)
+                av_reward, av_steps = self.stats["rewards_av"][-1], self.stats["steps_av"][-1]
+                logger.info((f"Telemetry updated, last av. reward: {av_reward:.1f}"
+                             f", last av. steps: {av_steps:.0f}"))
+                if self.stats["rewards_av"][-1] > self._best_reward:
                     self.red.publish("save_best", "")
-                    self._best_reward = self.rewards_av[-1]
+                    self._best_reward = self.stats["rewards_av"][-1]
 
-    def update_stats_and_dashboard(self):
-        """Update the statistics and save the new plot to the save folder."""
-        self.figure_path.parent.mkdir(parents=True, exist_ok=True)
-        save_plots(self.samples, self.rewards, self.steps, self.boss_hp, self.wins,
-                   self.figure_path, self.eps, self.config.telemetry.moving_average)
-        self._save_stats(self.stats_path)
+    def _create_connectors(self) -> list[TelemetryConnector]:
+        """Create the telemetry connectors."""
+        connectors = []
+        if getattr(self.config.monitoring, "file_storage", None):
+            connectors.append(FileStorageConnector(self.config))
+            logger.info("Initializing file storage telemetry connector")
+        else:
+            assert False
+        if getattr(self.config.monitoring, "grafana", None):
+            self.grafana_con = GrafanaConnector(self.config)
+            logger.info("Initializing Grafana telemetry connector")
+        if getattr(self.config.monitoring, "wandb", None):
+            connectors.append(WandBConnector(self.config))
+            logger.info("Initializing Weights and Biases telemetry connector")
+        else:
+            assert False, "WandB is not supported yet"
+        return connectors
 
-    def _save_stats(self, path: Path):
-        with open(path, "w") as f:
-            json.dump({stat: getattr(self, stat) for stat in self.stats}, f)
+    def _update_stats(self, sample: dict):
+        """Update the telemetry statistics.
+
+        Args:
+            sample: Sample dictionary.
+        """
+        self.stats["rewards"].append(sample["epReward"])
+        self.stats["rewards_av"].append(self._latest_moving_av(self.stats["rewards"]))
+        self.stats["steps"].append(sample["epSteps"])
+        self.stats["steps_av"].append(self._latest_moving_av(self.stats["steps"]))
+        self.stats["boss_hp"].append(sample["bossHp"])
+        self.stats["boss_hp_av"].append(self._latest_moving_av(self.stats["boss_hp"]))
+        self.stats["wins"].append(int(sample["win"]))
+        self.stats["wins_av"].append(self._latest_moving_av(self.stats["wins"]))
+        self.stats["eps"].append(sample["eps"])
+        self.stats["n_env_steps"].append(sample["totalSteps"])
 
     def _load_stats(self):
-        path = Path(__file__).parents[4] / "saves" / "checkpoint" / "SoulsAIStats.json"
+        path = Path(self.config.monitoring.file_storage.path)
         if path.exists() and path.is_file():
             with open(path, "r") as f:
-                stats = json.load(f)
-            for stat in stats:
-                getattr(self, stat).extend(stats.get(stat))
-            self._n_env_steps = self.samples[-1]
+                self.stats = json.load(f)
         else:
             logger.warning("Loading from checkpoint, but no previous telemetry found.")
 
