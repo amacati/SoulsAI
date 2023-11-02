@@ -69,7 +69,7 @@ class DQNConnector:
             config: Client config.
         """
         cxt = mp.get_context("spawn")
-        mp.set_start_method("spawn")
+        mp.set_start_method("spawn", force=True)
         self.config = config
         if self.config.dqn.variant == "distributional":
             self.agent = DistributionalDQNClientAgent(config.dqn.network_type,
