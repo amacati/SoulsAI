@@ -391,7 +391,7 @@ class PrioritizedReplayBuffer(AbstractBuffer):
         """
         if batch_size > self._maxidx + 1:
             raise RuntimeError("Asked to sample more elements than available in buffer")
-        priorities = self._priorities[:self._maxidx + 1]
+        priorities = self.buffers["priority"][:self._maxidx + 1]
         probabilities = np.sqrt(priorities) / self._sum_priorities_alpha
         # If the buffer contains more samples than requested in total, indices are chosen such that
         # no sample is sampled twice across all batches. If more total samples are requested than

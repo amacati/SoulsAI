@@ -29,9 +29,9 @@ from soulsai.utils import load_remote_config, load_redis_secret
 if __name__ == "__main__":
     logging.basicConfig()
     node_dir = Path(__file__).parents[3] / "config"
-    config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
+    local_config = load_config(node_dir / "config_d.yaml", node_dir / "config.yaml")
     secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
-    config = load_remote_config(config.redis_address, secret)
+    config = load_remote_config(local_config.redis_address, secret, local_config=local_config.local)
     if config.algorithm.lower() == "dqn":
         dqn_client(config)
     elif config.algorithm.lower() == "ppo":

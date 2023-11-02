@@ -169,7 +169,10 @@ def namespace2dict(ns: SimpleNamespace | None) -> dict:
     return ns_dict
 
 
-def load_remote_config(address: str, secret: str, red: RedisType | None = None) -> SimpleNamespace:
+def load_remote_config(address: str,
+                       secret: str,
+                       red: RedisType | None = None,
+                       local_config: SimpleNamespace | None = None) -> SimpleNamespace:
     """Load the training configuration from the training server.
 
     This function allows us to only specify the address of a training server and its credentials.
@@ -179,6 +182,7 @@ def load_remote_config(address: str, secret: str, red: RedisType | None = None) 
         address: Address of the training server.
         secret: Redis secret.
         red: Optional redis instance that is used to load the remote config.
+        local_config: Optional local config that should not be overwritten by the remote config.
 
     Returns:
         The remote training configuration.
@@ -190,7 +194,8 @@ def load_remote_config(address: str, secret: str, red: RedisType | None = None) 
         config = red.get("config")
         time.sleep(0.2)
         logger.debug("Waiting for remote config")
-    config = dict2namespace(json.loads(config))
+    remote_config = json.loads(config)
+    config = dict2namespace(_overwrite_dicts(remote_config, namespace2dict(local_config)))
     config.redis_address = address
     return config
 
