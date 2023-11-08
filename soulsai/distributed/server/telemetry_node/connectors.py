@@ -165,8 +165,7 @@ class GrafanaConnector(TelemetryConnector):
         """
         req = json.loads(request.data.decode("utf-8"))
         key, n_samples = req["targets"][0]["target"], req["maxDataPoints"]
-        with self.lock:
-            rsp = json.dumps(self._load_data(key, n_samples))
+        rsp = json.dumps(self._load_data(key, n_samples))
         return rsp
 
     def annotations(self) -> str:
