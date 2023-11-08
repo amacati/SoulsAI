@@ -123,16 +123,12 @@ class TelemetryNode:
         if getattr(self.config.monitoring, "file_storage", None):
             connectors.append(FileStorageConnector(self.config))
             logger.info("Initializing file storage telemetry connector")
-        else:
-            assert False
         if getattr(self.config.monitoring, "grafana", None):
-            self.grafana_con = GrafanaConnector(self.config)
+            connectors.append(GrafanaConnector(self.config))
             logger.info("Initializing Grafana telemetry connector")
         if getattr(self.config.monitoring, "wandb", None):
             connectors.append(WandBConnector(self.config))
             logger.info("Initializing Weights and Biases telemetry connector")
-        else:
-            assert False, "WandB is not supported yet"
         return connectors
 
     def _update_stats(self, sample: dict):

@@ -13,7 +13,6 @@ from pathlib import Path
 
 import numpy as np
 from flask import Flask, request
-from prometheus_client import start_http_server
 import wandb
 
 from soulsai.utils import namespace2dict
@@ -122,10 +121,9 @@ class GrafanaConnector(TelemetryConnector):
             host: Server address.
             port: Server port.
         """
-        kwargs = {"host": host, "port": port, "debug": False}
+        kwargs = {"host": host, "port": port, "debug": False, "use_reloader": False}
         self.app_thread = Thread(target=self.app.run, kwargs=kwargs, daemon=True)
         self.app_thread.start()
-        start_http_server(port=8080)
 
     def update(self, data: dict):
         """Update the data dictionary.

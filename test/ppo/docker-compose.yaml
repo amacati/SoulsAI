@@ -3,7 +3,7 @@ version: "3.8"
 services:
   redis:
     image: redis
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf  --save ''
     volumes:
       - ../../config/redis.conf:/usr/local/etc/redis/redis.conf
     secrets:
@@ -97,7 +97,7 @@ services:
       - server_net
 
   grafana:
-    image: grafana/grafana:8.2.6
+    image: grafana/grafana:10.2.0
     ports:
       - 3000:3000
     restart: unless-stopped

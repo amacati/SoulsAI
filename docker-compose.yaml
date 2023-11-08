@@ -3,7 +3,7 @@ version: "3.8"
 services:
   redis:
     image: redis
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf  --save ''
     volumes:
       - ./config/redis.conf:/usr/local/etc/redis/redis.conf
     secrets:
