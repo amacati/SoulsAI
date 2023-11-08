@@ -2,10 +2,12 @@
 
 # General settings
 loglevel: info
-device: "cpu"
+device: "cuda"
 
 # Redis settings
 redis_address: "localhost"
+
+local:
 
 # Environment information
 env:
