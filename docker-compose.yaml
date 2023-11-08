@@ -63,3 +63,9 @@ networks:
     external: True
     name: server
   train_server_net:
+
+secrets:
+  redis_secret:
+    file: ./config/secrets/redis.secret
+  wandb_api_key:
+    file: ./config/secrets/wandb_api_key.secret

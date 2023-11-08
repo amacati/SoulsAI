@@ -17,6 +17,8 @@ env:
   obs_shape: [74]
   n_actions: 20
   wrappers:
+    IudexObservationWrapper:
+      kwargs:
 
 max_env_steps: null
 gamma: 0.99
