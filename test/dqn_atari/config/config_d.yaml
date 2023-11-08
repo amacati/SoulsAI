@@ -7,6 +7,8 @@ device: "cuda:0"
 # Redis settings
 redis_address: "redis"
 
+local:
+
 # Environment information
 env:
   name: ALE/Pong-v5

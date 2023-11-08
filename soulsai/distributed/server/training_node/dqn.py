@@ -101,6 +101,7 @@ class DQNTrainingNode(TrainingNode):
 
     @property
     def serializer(self) -> DQNSerializer:
+        """Return the serializer for DQN messages for the current environment."""
         return self._serializer
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:

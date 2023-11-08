@@ -4,6 +4,8 @@
 loglevel: info
 device: "cuda"
 
+local:
+
 # Redis settings
 redis_address: "redis"
 
