@@ -95,7 +95,7 @@ def _dqn_client(config: SimpleNamespace,
             episode_id += 1
             obs, info = env.reset()
             action_mask = np.zeros(config.env.n_actions) if config.dqn.action_masking else None
-            if action_mask:
+            if action_mask is not None:
                 action_mask[info["allowed_actions"]] = 1
             terminated, truncated = False, False
             steps, episode_reward = 1, 0.
