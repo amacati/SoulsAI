@@ -3,7 +3,7 @@ version: "3.8"
 services:
   redis:
     image: redis
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf  --save ''
     volumes:
       - ./config/redis.conf:/usr/local/etc/redis/redis.conf
     secrets:
@@ -63,3 +63,9 @@ networks:
     external: True
     name: server
   train_server_net:
+
+secrets:
+  redis_secret:
+    file: ./config/secrets/redis.secret
+  wandb_api_key:
+    file: ./config/secrets/wandb_api_key.secret

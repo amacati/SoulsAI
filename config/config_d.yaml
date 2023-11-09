@@ -17,6 +17,8 @@ env:
   obs_shape: [74]
   n_actions: 20
   wrappers:
+    IudexObservationWrapper:
+      kwargs:
 
 max_env_steps: null
 gamma: 0.99
@@ -102,9 +104,9 @@ monitoring:
   grafana: True
   prometheus: True
   wandb:
-    project: "soulsai_dqn"
+    project: "soulsai_iudex"
     entity: "amacati"
-    group: "testing"
+    group: "state_obs"
     save_dir: "/home/SoulsAI/saves"
 
 # Client settings

@@ -4,7 +4,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.39.1
     volumes:
-      - ../common/prometheus:/etc/prometheus
+      - ../monitoring/prometheus:/etc/prometheus
       - prometheus-data:/prometheus
     ports:
       - 9090:9090
@@ -15,13 +15,13 @@ services:
       - monitoring_net
 
   grafana:
-    image: grafana/grafana:8.2.6
+    image: grafana/grafana:10.2.0
     ports:
       - 3000:3000
     restart: unless-stopped
     volumes:
-      - ../common/grafana/datasources:/etc/grafana/provisioning/datasources
-      - ../common/grafana/grafana_data:/var/lib/grafana
+      - ../monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ../monitoring/grafana/grafana_data:/var/lib/grafana
     user: "1000"
     networks:
       - monitoring_net

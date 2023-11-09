@@ -94,12 +94,12 @@ class WatchdogGauge:
 
     def inc(self, amount: int = 1):
         if self._cnt == -1:
-            self._cnt = 1
+            self._cnt = amount
             self._t_start = time.time()
             return
         self._cnt += amount
         t_now = time.time()
-        if t_now - self._t_last > self._update_time:
+        if t_now - self._t_start > self._update_time:
             self.sync_value.value = int(self._cnt * 60 / (t_now - self._t_start))
             self._cnt = 0
             self._t_start = t_now

@@ -13,7 +13,7 @@ services:
       - monitoring_net
 
   grafana:
-    image: grafana/grafana:8.2.6
+    image: grafana/grafana:10.2.0
     restart: unless-stopped
     volumes:
       - ./grafana/datasources:/etc/grafana/provisioning/datasources

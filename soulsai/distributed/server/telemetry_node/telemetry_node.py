@@ -8,6 +8,7 @@ import time
 from typing import List, TYPE_CHECKING
 
 from redis import Redis
+from prometheus_client import start_http_server
 
 from soulsai.utils import load_redis_secret, load_remote_config
 from soulsai.distributed.common.serialization import get_serializer_cls
@@ -62,6 +63,9 @@ class TelemetryNode:
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.cmd_sub.subscribe(shutdown=self.shutdown)
         self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
+
+        # Start a Prometheus server to make the telemetry node status visible in Grafana
+        start_http_server(8080)
 
         self.stats = {
             "rewards": [],
@@ -123,16 +127,12 @@ class TelemetryNode:
         if getattr(self.config.monitoring, "file_storage", None):
             connectors.append(FileStorageConnector(self.config))
             logger.info("Initializing file storage telemetry connector")
-        else:
-            assert False
         if getattr(self.config.monitoring, "grafana", None):
-            self.grafana_con = GrafanaConnector(self.config)
+            connectors.append(GrafanaConnector(self.config))
             logger.info("Initializing Grafana telemetry connector")
         if getattr(self.config.monitoring, "wandb", None):
             connectors.append(WandBConnector(self.config))
             logger.info("Initializing Weights and Biases telemetry connector")
-        else:
-            assert False, "WandB is not supported yet"
         return connectors
 
     def _update_stats(self, sample: dict):
