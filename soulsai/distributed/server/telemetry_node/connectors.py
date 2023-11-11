@@ -108,7 +108,6 @@ class GrafanaConnector(TelemetryConnector):
         self.app.add_url_rule("/", "index", self.index, methods=["GET"])
         self.app.add_url_rule("/search", "search", self.search, methods=["POST"])
         self.app.add_url_rule("/query", "query", self.query, methods=["POST"])
-        self.app.add_url_rule("/annotations", "annotations", self.annotations, methods=["POST"])
         self.app_thread = None
         self.data = {}
         self.config = config
@@ -163,50 +162,33 @@ class GrafanaConnector(TelemetryConnector):
         Returns:
             The data points for the requested target.
         """
-        req = json.loads(request.data.decode("utf-8"))
-        key, n_samples = req["targets"][0]["target"], req["maxDataPoints"]
-        rsp = json.dumps(self._load_data(key, n_samples))
-        return rsp
+        if (req := request.data.decode("utf-8")) == "":
+            return self.data
+        req = json.loads(req)
+        if "maxDataPoints" not in req.keys():
+            return self.data
+        return self._resample_data(req["maxDataPoints"])
 
-    def annotations(self) -> str:
-        """Annotation query response.
-
-        Returns:
-            An empty string. We don't support annotations at the moment.
-        """
-        return ""
-
-    def _load_data(self, key: str, n_samples: int) -> List[dict] | str:
-        """Load the data for the key and return it in a suitable format for Grafana.
+    def _resample_data(self, max_samples: int) -> dict[str, List[float]]:
+        """Resample the data from `self.data` to contain a maximum of `max_samples` elements.
 
         If more data points than requested are available, we evenly space the data points of the
         response across the whole range of available data.
 
         Args:
-            key: Data key.
-            n_samples: Maximum number of data points.
+            max_samples: Maximum number of data points.
 
         Returns:
-            The data dictionary or an empty string if the key is not contained in the data.
+            The resampled data dictionary.
         """
-        if key not in self.data.keys():
-            return ""
-        keys = [k for k in self.data.keys() if key.lower() in k]
-        columns, rows = [], []
-        for key in keys:
-            if len(self.data[key]) <= n_samples:
-                idx = np.arange(0, len(self.data[key]))
-            else:
-                idx = np.linspace(0, len(self.data[key]) - 1, n_samples, dtype=np.int64)
-            columns.append({"text": key, "type": "number"})
-            columns.append({"text": key + "_idx", "type": "number"})
-            rows.append([self.data[key][i] for i in idx])
-            rows.append(idx.tolist())
-        columns.append({"text": "samples", "type": "number"})  # Always send samples as X-Axis
-        rows.append([self.data["samples"][i] for i in idx])
-        rows = list(zip(*rows))
-        return [{"columns": columns, "rows": rows, "type": "table"}]
-
+        data = {}
+        for key in self.data.keys():
+            if len(self.data[key]) <= max_samples:
+                data[key] = self.data[key]
+                continue
+            idx = np.linspace(0, len(self.data[key]) - 1, max_samples, dtype=np.int64)
+            data[key] = [self.data[key][i] for i in idx]
+        return data
 
 class WandBConnector(TelemetryConnector):
 
