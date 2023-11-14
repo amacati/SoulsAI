@@ -187,7 +187,7 @@ class PPOTrainingNode(TrainingNode):
             path: Path to the save folder.
         """
         with self._lock:
-            self.agent.load(path)
+            self.agent.load(path / "agent.pt")
 
     def _required_client_ids(self) -> List[int]:
         return list(range(self.config.ppo.n_clients))

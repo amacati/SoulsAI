@@ -16,6 +16,7 @@ from pathlib import Path
 from collections import deque
 import time
 from typing import TYPE_CHECKING
+import json
 
 import torch
 
@@ -91,7 +92,7 @@ class DQNTrainingNode(TrainingNode):
                                               zero_ending=True)
 
         if self.config.checkpoint.load:
-            self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
+            self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")
             logger.info("Checkpoint loading complete")
 
         self.agent.model_id = str(uuid4())
@@ -203,6 +204,12 @@ class DQNTrainingNode(TrainingNode):
             self.eps_scheduler.save(path / "eps_scheduler.json")
             if self.config.dqn.normalizer:
                 torch.save(self.normalizer.state_dict(), path / "normalizer.pt")
+            training_stats = {
+                "_total_env_steps": self._total_env_steps,
+                "_model_iterations": self._model_iterations
+            }
+            with open(path / "training_stats.json", "w") as f:
+                json.dump(training_stats, f)
         logger.info("Model checkpoint saved")
 
     def load_checkpoint(self, path: Path):
@@ -211,9 +218,14 @@ class DQNTrainingNode(TrainingNode):
         Args:
             path: Path to the save folder.
         """
-        self.agent.load(path)
+        self.agent.load(path / "agent.pt")
         if self.config.checkpoint.load_buffer:
             self.buffer.load(path / "buffer.pkl")
         self.eps_scheduler.load(path / "eps_scheduler.json")
         if self.config.dqn.normalizer:
             self.normalizer.load_state_dict(torch.load(path / "normalizer.pt"))
+        with open(path / "training_stats.json", "r") as f:
+            stats = json.load(f)
+        self._total_env_steps = stats["_total_env_steps"]
+        self.prom_num_samples.inc(self._total_env_steps)
+        self._model_iterations = stats["_model_iterations"]

@@ -153,7 +153,7 @@ class TelemetryNode:
         self.stats["n_env_steps"].append(sample["totalSteps"])
 
     def _load_stats(self):
-        path = Path(self.config.monitoring.file_storage.path)
+        path = Path(self.config.monitoring.file_storage.path) / "checkpoint/SoulsAIStats.json"
         if path.exists() and path.is_file():
             with open(path, "r") as f:
                 self.stats = json.load(f)
