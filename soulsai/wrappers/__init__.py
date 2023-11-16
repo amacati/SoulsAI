@@ -11,8 +11,8 @@ except ModuleNotFoundError:
     soulsgym_installed = False
 
 __all__ = [
-    ReorderChannels, MaterializeFrames, ResizeObservation, FrameStack, AtariPreprocessing,
-    AtariExpandImage
+    "ReorderChannels", "MaterializeFrames", "ResizeObservation", "FrameStack", "AtariPreprocessing",
+    "AtariExpandImage"
 ]
 if soulsgym_installed:
-    __all__.append(IudexObservationWrapper)
+    __all__.append("IudexObservationWrapper")
