@@ -109,7 +109,6 @@ def _dqn_client(config: SimpleNamespace,
                     action = _choose_action(con, obs, action_mask, noise)
                     eps, model_id = con.eps, con.model_id
                 next_obs, reward, terminated, truncated, info = env.step(action)
-                terminated = terminated or truncated  # Envs that run into a timeout also terminate
                 observations.append(next_obs)
                 actions.append(action)
                 rewards.append(reward)
