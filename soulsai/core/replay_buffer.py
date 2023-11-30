@@ -33,8 +33,10 @@ def get_buffer_class(buffer_type: str) -> Type[AbstractBuffer]:
 
 
 class AbstractBuffer(ABC):
+    """Abstract replay buffer class."""
 
     def __init__(self):
+        """Initialize the buffer."""
         super().__init__()
 
     @abstractmethod
@@ -421,6 +423,12 @@ class PrioritizedReplayBuffer(AbstractBuffer):
         return batches
 
     def update_priorities(self, indices: np.ndarray, priorities: np.ndarray):
+        """Update the priorities of the samples at the specified indices.
+
+        Args:
+            indices: The indices of the samples to update.
+            priorities: The new priorities of the samples.
+        """
         # First, check if the maximum has changed. If so, update the maximum index. Then, update the
         # sum of priorities by subtracting the old priorities and adding the new ones to the sum.
         # Finally, update the priorities in the buffer.

@@ -135,7 +135,7 @@ class IudexObservationWrapper(ObservationWrapper):
             # of the new animation. We have to calculate the final duration of the previous
             # animation by adding the time from the step at t-1 until the animation first changed to
             # the accumulated time.
-            remaining_duration = self.env.step_size - obs["boss_animation_duration"]
+            remaining_duration = self.env.unwrapped.step_size - obs["boss_animation_duration"]
             self._acuumulated_time = self._current_time + remaining_duration
         boss_animation_time = obs["boss_animation_duration"] + self._acuumulated_time
         self._current_time = boss_animation_time

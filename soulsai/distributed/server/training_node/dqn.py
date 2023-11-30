@@ -63,7 +63,7 @@ class DQNTrainingNode(TrainingNode):
                                                 self.config.dqn.lr, self.config.gamma,
                                                 self.config.dqn.multistep,
                                                 self.config.dqn.grad_clip, self.config.dqn.q_clip,
-                                                self.config.dqn.tau, self.config.device)
+                                                self.config.device)
         elif self.config.dqn.variant == "vanilla":
             self.agent = DQNAgent(self.config.dqn.network_type,
                                   namespace2dict(self.config.dqn.network_kwargs),

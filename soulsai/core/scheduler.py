@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class EpsilonScheduler:
-    """Scheduler class to exponentially decay the epsilon value during training.
+    """Scheduler class to linearly decay the epsilon value during training.
 
     Multiple decay sections with their own start, end and step values of epsilon are supported.
     """
@@ -31,10 +31,6 @@ class EpsilonScheduler:
         Example:
             A decay from [0.5, 0.2] to [0.1, 0.01] with [10, 100] steps will first decay from 0.5 to
             0.1 over 10 steps, and then decays from 0.2 to 0.01 over 100 steps.
-
-        Warning:
-            The min decay values cannot be 0, since the exponential decay can't reach 0 in finite
-            time. You can however enable the ``zero_ending`` option.
 
         Args:
             epsilon_max: Maximal epsilon values at the start of the decay.
@@ -58,23 +54,31 @@ class EpsilonScheduler:
         if self._zero_ending and self._section == self._max_sections:
             return 0
         assert self._section < self._max_sections
-        return self._exponential_decay(self._epsilon_max, self._epsilon_min, self._decay_steps,
-                                       self._step)[self._section]
+        return self._linear_decay(self._epsilon_max, self._epsilon_min, self._decay_steps,
+                                  self._step)[self._section].copy()
 
-    def step(self):
-        """Advance the decay by one step."""
+    def step(self, n: int = 1):
+        """Advance the scheduler.
+
+        Args:
+            n: Number of steps to advance the scheduler. Defaults to 1.
+        """
         if self._zero_ending and self._section == self._max_sections:
             return
-        if self._step == self._decay_steps[self._section]:
+        if self._section == self._max_sections:
+            raise ValueError("Scheduler has already finished!")
+        if self._step + n > self._decay_steps[self._section]:
+            n_steps = self._decay_steps[self._section] - self._step
             self._step = 0
             self._section += 1
+            self.step(n - n_steps - 1)
         else:
-            self._step += 1
+            self._step += n
 
     @staticmethod
-    def _exponential_decay(epsilon_max: np.ndarray, epsilon_min: np.ndarray,
-                           decay_steps: np.ndarray, current_step: float) -> np.ndarray:
-        """Calculate the exponentially decaying epsilon value at the current step.
+    def _linear_decay(epsilon_max: np.ndarray, epsilon_min: np.ndarray, decay_steps: np.ndarray,
+                      current_step: float) -> np.ndarray:
+        """Calculate the linearly decaying epsilon value at the current step.
 
         Args:
             epsilon_max: Maximal epsilon values at the start of the decay.
@@ -85,8 +89,8 @@ class EpsilonScheduler:
         Returns:
             The current epsilon value.
         """
-        eps = epsilon_max * (epsilon_min / (epsilon_max + 1e-8))**(current_step / decay_steps)
-        return np.maximum(epsilon_min, eps)
+        eps = epsilon_max - (epsilon_max - epsilon_min) * (current_step / decay_steps)
+        return np.maximum(np.minimum(eps, epsilon_max), epsilon_min)
 
     def save(self, path: Path):
         """Save the scheduler to a json file.

@@ -201,7 +201,7 @@ class DistributionalDQNAgent(Agent):
     """QR DQN agent."""
 
     def __init__(self, network_type: str, network_kwargs: dict, lr: float, gamma: float,
-                 multistep: int, grad_clip: float, q_clip: float, tau: float, dev: torch.device):
+                 multistep: int, grad_clip: float, q_clip: float, dev: torch.device):
         super().__init__(dev)
         self.network_type = network_type
         Net = get_net_class(network_type)
@@ -213,7 +213,98 @@ class DistributionalDQNAgent(Agent):
         self.multistep = multistep
         self.grad_clip = grad_clip
         self.q_clip = q_clip
-        self.tau = tau  # For Polyak update
+        N = self.networks["qr_dqn1"].n_quantiles
+        self.quantile_tau = torch.tensor([i / N for i in range(1, N + 1)]).float().to(self.dev)
+
+    def train(self,
+              obs: np.ndarray,
+              actions: np.ndarray,
+              rewards: np.ndarray,
+              next_obs: np.ndarray,
+              terminated: np.ndarray,
+              action_masks: np.ndarray | None = None,
+              weights: np.ndarray | None = None) -> np.ndarray:
+        """Train the agent with quantile regression DQN and a target network.
+
+        Args:
+            obs: Batch of observations.
+            actions: A batch of actions.
+            rewards: A batch of rewards.
+            next_obs: A batch of next observations.
+            terminated: A batch of episode termination flags.
+            action_masks: Optional batch of mask for actions.
+            weights: Optional batch of weights for prioritized experience replay.
+
+        Returns:
+            The TD error for each sample in the batch.
+        """
+        batch_size, N = obs.shape[0], self.networks["qr_dqn1"].n_quantiles
+        coin = random.choice([True, False])
+        train_net, estimate_net = ("qr_dqn1", "qr_dqn2") if coin else ("qr_dqn2", "qr_dqn1")
+        train_net, estimate_net = self.networks[train_net], self.networks[estimate_net]
+        self.opt1.zero_grad()
+        self.opt2.zero_grad()
+        train_opt = self.opt1 if coin else self.opt2
+        # Move data to tensors. Unsqueeze rewards and terminated in preparation for broadcasting
+        obs = torch.as_tensor(obs, dtype=torch.float32).to(self.dev)
+        rewards = torch.as_tensor(rewards, dtype=torch.float32).unsqueeze(-1).to(self.dev)
+        next_obs = torch.as_tensor(next_obs, dtype=torch.float32).to(self.dev)
+        terminated = torch.as_tensor(terminated, dtype=torch.float32).unsqueeze(-1).to(self.dev)
+        if action_masks is not None:
+            action_masks = torch.as_tensor(action_masks, dtype=torch.bool).to(self.dev)
+        q_a = train_net(obs)[range(batch_size), :, actions]
+        with torch.no_grad():
+            q_next = train_net(next_obs)  # Let train net choose actions
+            if action_masks is not None:
+                assert action_masks.shape == (batch_size, self.networks["qr_dqn1"].output_dims)
+                action_masks = action_masks.unsqueeze(1).expand(q_next.shape)
+                q_next = torch.where(action_masks, q_next, -torch.inf)
+            a_next = torch.argmax(q_next.mean(dim=1), dim=1)
+            # Estimate quantiles of actions chosen by train net with estimate net to avoid
+            # overestimation
+            q_a_next = estimate_net(next_obs)[range(batch_size), :, a_next]
+            assert q_a_next.shape == (batch_size, N)
+            q_a_next = torch.clamp(q_a_next, -self.q_clip, self.q_clip)
+            q_targets = rewards + self.gamma**self.multistep * q_a_next * (1 - terminated)
+        td_error = q_targets[:, None, :] - q_a[..., None]  # Broadcast to shape [B N N]
+        assert td_error.shape == (batch_size, N, N)
+        huber_loss = F.huber_loss(td_error, torch.zeros_like(td_error), reduction="none", delta=1.)
+        quantile_loss = abs(self.quantile_tau - (td_error.detach() < 0).float()) * huber_loss
+        assert quantile_loss.shape == (batch_size, N, N), quantile_loss.shape
+        summed_quantile_loss = quantile_loss.mean(dim=2).sum(1)
+        if weights is not None:
+            assert weights.shape == (batch_size,)
+            weights = torch.tensor(weights).to(self.dev)
+            summed_quantile_loss = summed_quantile_loss * weights
+        loss = summed_quantile_loss.mean()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
+        train_opt.step()
+        return summed_quantile_loss.detach().cpu().numpy()
+
+
+class DistributionalR2D2Agent(Agent):
+    """QR R2D2 agent.
+
+    The agent uses a dueling Q network algorithm, where two Q networks are trained at the same time.
+    The networks predict a distribution of quantiles for each action instead of single values. The
+    networks also contain a recurrent layer to allow for a latent network state that compansates
+    potential non-markovian elements in the environment.
+    """
+
+    def __init__(self, network_type: str, network_kwargs: dict, lr: float, gamma: float,
+                 multistep: int, grad_clip: float, q_clip: float, dev: torch.device):
+        super().__init__(dev)
+        self.network_type = network_type
+        Net = get_net_class(network_type)
+        self.networks.add_module("qr_dqn1", Net(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn2", Net(**network_kwargs).to(self.dev))
+        self.opt1 = torch.optim.Adam(self.networks["qr_dqn1"].parameters(), lr)
+        self.opt2 = torch.optim.Adam(self.networks["qr_dqn2"].parameters(), lr)
+        self.gamma = gamma
+        self.multistep = multistep
+        self.grad_clip = grad_clip
+        self.q_clip = q_clip
         N = self.networks["qr_dqn1"].n_quantiles
         self.quantile_tau = torch.tensor([i / N for i in range(1, N + 1)]).float().to(self.dev)
 
