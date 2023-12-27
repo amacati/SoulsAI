@@ -53,10 +53,9 @@ ppo:
 dqn:
   variant: "vanilla"  # [vanilla, distributional]
   lr: 0.001
-  eps_max: [0.1, 0.1, 0.05]
-  eps_min: [0.1, 0.05, 0.01]
-  eps_steps: [500, 500, 500]
-  eps_samples: 500
+  eps_max: [0.5, 0.1]
+  eps_min: [0.1, 0.01]
+  eps_steps: [1_000_000, 1_000_000]
   grad_clip: 5.
   q_clip: 200
   buffer_size: 100_000

@@ -29,8 +29,7 @@ dqn:
   lr: 0.001
   eps_max: [0.1]
   eps_min: [0.1]
-  eps_steps: [100]
-  eps_samples: 1000
+  eps_steps: [100_000]
   grad_clip: 5.
   q_clip: 200
   buffer_size: 100_000

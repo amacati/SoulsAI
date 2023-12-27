@@ -115,9 +115,7 @@ class DQNTrainingNode(TrainingNode):
         return valid
 
     def _sample_received_hook(self, _: dict):
-        if self._total_env_steps % self.config.dqn.eps_samples == 0:
-            with self._lock:  # Avoid races when checkpointing
-                self.eps_scheduler.step()
+        self.eps_scheduler.step()
 
     def _check_update_cond(self) -> bool:
         sufficient_samples = len(self.buffer) >= self._required_samples
