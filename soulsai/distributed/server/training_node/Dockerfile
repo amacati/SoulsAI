@@ -9,9 +9,6 @@ COPY . /home/SoulsAI
 RUN find /home/SoulsAI -type f -name '*.secret' -delete
 RUN apt update
 RUN apt install git -y
-RUN git clone https://github.com/amacati/SoulsGym.git
-WORKDIR /home/SoulsGym
-RUN pip install -e .
 WORKDIR /home/SoulsAI
 RUN python setup.py develop
 ENTRYPOINT ["python", "soulsai/distributed/server/training_node/launch.py"]

@@ -2,15 +2,12 @@
 import logging
 from pathlib import Path
 
-from soulsgym.core.static import actions as soulsgym_actions
-
 from soulsai.distributed.server.training_node.dqn import DQNTrainingNode
 from soulsai.distributed.server.training_node.ppo import PPOTrainingNode
 from soulsai.utils import load_config
 from soulsai.exception import InvalidConfigError
 
 logger = logging.getLogger(__name__)
-n_actions = len(soulsgym_actions)
 
 if __name__ == "__main__":
     config_dir = Path(__file__).parents[4] / "config"

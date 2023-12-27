@@ -68,7 +68,8 @@ class EpsilonScheduler:
         if self._section == self._max_sections:
             raise ValueError("Scheduler has already finished!")
         if self._step + n > self._decay_steps[self._section]:
-            n_steps = self._decay_steps[self._section] - self._step
+            # Cast n_steps to int to prevent self._steps conversion to np.int64
+            n_steps = int(self._decay_steps[self._section] - self._step)
             self._step = 0
             self._section += 1
             self.step(n - n_steps - 1)
