@@ -114,17 +114,26 @@ class DQNSerializer(Serializer):
             return sample.to_dict()
 
     def _serialize_SoulsGymIudexImg_v0_sample(self, sample: dict) -> bytes:
-        sample["obs"] = sample["obs"].tolist()
-        sample["nextObs"] = sample["nextObs"].tolist()
-        sample["reward"] = float(sample["reward"])
-        sample["info"] = {"allowedActions": sample["info"]["allowed_actions"]}
-        return self.capnp_msgs.DQNSample.new_message(**sample).to_bytes()
+        msg = {
+            "obs": sample["obs"].tobytes(),
+            "obsShape": sample["obs"].shape,
+            "action": sample["action"],
+            "reward": float(sample["reward"]),
+            "nextObs": sample["nextObs"].tobytes(),
+            "terminated": sample["terminated"],
+            "truncated": sample["truncated"],
+            "info": {  # Rename to match capnp schema
+                "allowedActions": sample["info"]["allowed_actions"]
+            },
+            "modelId": sample["modelId"]
+        }
+        return self.capnp_msgs.DQNSample.new_message(**msg).to_bytes()
 
     def _deserialize_SoulsGymIudexImg_v0_sample(self, data: bytes) -> dict:
         with self.capnp_msgs.DQNSample.from_bytes(data) as sample:
             x = sample.to_dict()
-        x["obs"] = np.array(x["obs"])
-        x["nextObs"] = np.array(x["nextObs"])
+        x["obs"] = np.frombuffer(x["obs"], dtype=np.uint8).reshape(x["obsShape"])
+        x["nextObs"] = np.frombuffer(x["nextObs"], dtype=np.uint8).reshape(x["obsShape"])
         x["info"] = {"allowed_actions": x["info"]["allowedActions"]}
         return x
 
@@ -278,10 +287,11 @@ class PPOSerializer(Serializer):
         return x
 
     def _serialize_LunarLander_v2_episode_info(self, episode_info: dict) -> bytes:
-        msg = {"bossHp": 0,
-               "win": bool(episode_info["epReward"] > 200),
-               "epReward": float(episode_info["epReward"])
-              }
+        msg = {
+            "bossHp": 0,
+            "win": bool(episode_info["epReward"] > 200),
+            "epReward": float(episode_info["epReward"])
+        }
         return self.capnp_msgs.EpisodeInfo.new_message(**msg).to_bytes()
 
     def _deserialize_LunarLander_v2_episode_info(self, data: bytes) -> dict:

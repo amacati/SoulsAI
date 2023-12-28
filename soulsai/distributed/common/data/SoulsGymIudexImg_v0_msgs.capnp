@@ -1,14 +1,14 @@
 @0x80c4137c32fd5b9a;
 
 struct DQNSample {
-  obs @0 :List(List(List(UInt8)));
-  action @1 :Int32;
-  reward @2 :Float32;
-  nextObs @3 :List(List(List(UInt8)));
-  terminated @4 :Bool;
-  truncated @5 :Bool;
-  info @6 :Info;
-  epSteps @7 :Int32;
+  obs @0 :Data;
+  obsShape @1 :List(Int64);
+  action @2 :Int32;
+  reward @3 :Float32;
+  nextObs @4 :Data;
+  terminated @5 :Bool;
+  truncated @6 :Bool;
+  info @7 :Info;
   modelId @8 :Text;
 }
 
