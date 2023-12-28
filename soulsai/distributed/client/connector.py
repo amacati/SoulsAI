@@ -275,9 +275,13 @@ class DQNConnector:
                 continue  # Check again if stop event has been set
             try:
                 # msg[0] is the message type, msg[1] the message encoded by capnproto
-                assert msg[0] in ["samples", "episode_info"], f"Unknown message type {msg[0]}"
-                assert isinstance(msg[1], bytes), f"Message is not of type bytes but {type(msg[1])}"
-                red.publish(msg[0], msg[1])
+                match msg[0]:
+                    case "samples":
+                        red.lpush("samples", msg[1])
+                    case "episode_info":
+                        red.publish(msg[0], msg[1])
+                    case _:
+                        raise TypeError(f"Unknown message type {msg[0]}")
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 red = Redis(host=address, password=secret, port=6379, db=0)

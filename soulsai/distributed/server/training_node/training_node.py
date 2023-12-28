@@ -72,8 +72,8 @@ class TrainingNode(ABC):
         # Load redis secret, create redis connection and subscribers
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
         self.red = Redis(host='redis', port=6379, password=secret, db=0)
-        self.sample_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.sample_sub.subscribe("samples", "episode_info")
+        self.episode_info_sub = self.red.pubsub(ignore_subscribe_messages=True)
+        self.episode_info_sub.subscribe(episode_info=lambda msg: self._episode_info_callback(msg["data"]))
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.cmd_sub.subscribe(manual_save=lambda _: self.checkpoint(self.save_dir / "manual_save"),
                                save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),
@@ -101,6 +101,8 @@ class TrainingNode(ABC):
                                                    "Time required for deserialization")
             self.prom_buffer_time = Gauge("soulsai_buffer_time",
                                           "Time required to append samples to the buffer")
+            self.prom_message_time = Gauge("soulsai_sample_message_time",
+                                           "Time required to read messages from Redis.")
             self.prom_config_info = Info("soulsai_config", "SoulsAI configuration")
             self.prom_config_info.info({
                 str(key): str(val) for key, val in namespace2dict(self.config).items()
@@ -133,14 +135,17 @@ class TrainingNode(ABC):
         last_training_time = 0
         deserialization_time = 0
         buffer_append_time = 0
+        message_time = 0
+        self.red.delete("samples")  # Delete stale samples from previous runs if persistent
         while not self._shutdown.is_set():
-            if not (msg := self.sample_sub.get_message(timeout=0.5)):
-                continue
-            if msg["channel"] == b"episode_info":
-                self._episode_info_callback(msg["data"])
+            t = time.time()
+            msg = self.red.rpop("samples")
+            message_time += time.time() - t
+            if not msg:
+                time.sleep(0.0001)
                 continue
             t = time.time()
-            sample = self.serializer.deserialize_sample(msg["data"])
+            sample = self.serializer.deserialize_sample(msg)
             deserialization_time += time.time() - t
             if not self._validate_sample(sample, monitoring=self.config.monitoring.prometheus):
                 continue
@@ -155,7 +160,8 @@ class TrainingNode(ABC):
                         self.prom_sample_time.set(time.time() - last_training_time)
                         self.prom_deserialization_time.set(deserialization_time)
                         self.prom_buffer_time.set(buffer_append_time)
-                    deserialization_time, buffer_append_time = 0, 0
+                        self.prom_message_time.set(message_time)
+                    deserialization_time, buffer_append_time, message_time = 0, 0, 0
                     last_training_time = time.time()
                 with self.monitor_timing(self.prom_update_time):
                     self._update_model()
