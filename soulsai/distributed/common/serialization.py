@@ -137,7 +137,7 @@ class DQNSerializer(Serializer):
 
     def _serialize_SoulsGymIudexImg_v0_telemetry(self, tel: dict) -> bytes:
         msg = {
-            "bossHp": float(tel["info"]["boss_hp"]) / 1034,  # 1034 is max boss hp
+            "bossHp": float(tel["info"]["boss_hp"]) / 1037,  # 1037 is max boss hp
             "win": bool(tel["info"]["boss_hp"] == 0),
             "reward": float(tel["reward"]),
             "steps": int(tel["steps"]),
