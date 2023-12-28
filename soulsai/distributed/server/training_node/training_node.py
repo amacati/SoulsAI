@@ -74,6 +74,8 @@ class TrainingNode(ABC):
         self.red = Redis(host='redis', port=6379, password=secret, db=0)
         self.episode_info_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.episode_info_sub.subscribe(episode_info=lambda msg: self._episode_info_callback(msg["data"]))
+        self._episode_info_sub_worker = self.episode_info_sub.run_in_thread(sleep_time=.1,
+                                                                            daemon=True)
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.cmd_sub.subscribe(manual_save=lambda _: self.checkpoint(self.save_dir / "manual_save"),
                                save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),

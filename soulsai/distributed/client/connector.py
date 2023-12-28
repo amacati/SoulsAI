@@ -517,8 +517,14 @@ class PPOConnector:
             if not msg_pipe.poll(1):
                 continue  # Check again if stop event has been set
             msg = msg_pipe.recv()
-            assert msg[0] in ["samples", "episode_info"], f"Unknown message type {msg[0]}"
-            red.publish(msg[0], msg[1])
+            match msg[0]:
+                case "samples":
+                    red.lpush("samples", msg[1])
+                case "episode_info":
+                    red.publish(msg[0], msg[1])
+                case _:
+                    raise TypeError(f"Unknown message type {msg[0]}")
+
 
     def _client_shutdown(self, _):
         logger.info("Received shutdown signal from training node. Exiting training")
