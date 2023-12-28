@@ -121,13 +121,9 @@ class DQNTrainingNode(TrainingNode):
         sufficient_samples = len(self.buffer) >= self._required_samples
         return self._total_env_steps % self.config.dqn.update_samples == 0 and sufficient_samples
 
-    def _update_model(self, monitoring: bool):
+    def _update_model(self):
         t1 = time.time()
-        if monitoring:
-            with self.prom_update_time.time():
-                self._dqn_step()
-        else:
-            self._dqn_step()
+        self._dqn_step()
         t2 = time.time()
         self.agent.model_id = str(uuid4())
         self.model_ids.append(self.agent.model_id)

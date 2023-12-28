@@ -82,13 +82,9 @@ class PPOTrainingNode(TrainingNode):
     def _check_update_cond(self) -> bool:
         return self.buffer.buffer_complete
 
-    def _update_model(self, monitoring: bool):
+    def _update_model(self):
         tstart = time.time()
-        if monitoring:
-            with self.prom_update_time.time():
-                self._ppo_step()
-        else:
-            self._ppo_step()
+        self._ppo_step()
         self.agent.model_id = str(uuid4())
         logger.info((f"{time.strftime('%X')}: Model update complete ({time.time() - tstart:.2f}s)"
                      f"\nTotal env steps: {self._total_env_steps}"))

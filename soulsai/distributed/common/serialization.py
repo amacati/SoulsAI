@@ -130,7 +130,7 @@ class DQNSerializer(Serializer):
 
     def _serialize_SoulsGymIudexImg_v0_episode_info(self, data: dict) -> bytes:
         msg = {
-            "bossHp": float(data["info"]["boss_hp"]),
+            "bossHp": float(data["info"]["boss_hp"] / 1037.),  # Iudex max HP is 1037
             "win": bool(data["info"]["boss_hp"] == 0),
             "epReward": float(data["epReward"]),
             "epSteps": data["epSteps"],
@@ -144,14 +144,7 @@ class DQNSerializer(Serializer):
             return episode_info.to_dict()
 
     def _serialize_SoulsGymIudexImg_v0_telemetry(self, tel: dict) -> bytes:
-        msg = {
-            "bossHp": float(tel["info"]["boss_hp"]) / 1037,  # 1037 is max boss hp
-            "win": bool(tel["info"]["boss_hp"] == 0),
-            "reward": float(tel["reward"]),
-            "steps": int(tel["steps"]),
-            "eps": float(tel["eps"])
-        }
-        return self.capnp_msgs.Telemetry.new_message(**msg).to_bytes()
+        return self.capnp_msgs.Telemetry.new_message(**tel).to_bytes()
 
     def _deserialize_SoulsGymIudexImg_v0_telemetry(self, data: bytes) -> dict:
         with self.capnp_msgs.Telemetry.from_bytes(data) as sample:

@@ -18,6 +18,7 @@ import time
 from abc import ABC, abstractmethod
 from threading import Thread, Event
 from typing import List, Any, TYPE_CHECKING
+from contextlib import contextmanager
 
 import numpy as np
 from redis import Redis
@@ -92,6 +93,14 @@ class TrainingNode(ABC):
                                                    "Total number of rejected samples")
             self.prom_update_time = Gauge("soulsai_update_duration",
                                           "Processing time for a model update")
+            self.prom_sample_time = Gauge("soulsai_sample_processing_time",
+                                          "Processing time for deserializing and storing samples")
+            self.prom_publish_time = Gauge("soulsai_publish_time",
+                                           "Time required to publish the network parameters")
+            self.prom_deserialization_time = Gauge("soulsai_deserialization_time",
+                                                   "Time required for deserialization")
+            self.prom_buffer_time = Gauge("soulsai_buffer_time",
+                                          "Time required to append samples to the buffer")
             self.prom_config_info = Info("soulsai_config", "SoulsAI configuration")
             self.prom_config_info.info({
                 str(key): str(val) for key, val in namespace2dict(self.config).items()
@@ -121,23 +130,37 @@ class TrainingNode(ABC):
         self._startup_hook()
         self.client_heartbeat.start()
         self._publish_model()
+        last_training_time = 0
+        deserialization_time = 0
+        buffer_append_time = 0
         while not self._shutdown.is_set():
-            if not (msg := self.sample_sub.get_message()):
-                time.sleep(0.005)
+            if not (msg := self.sample_sub.get_message(timeout=0.5)):
                 continue
             if msg["channel"] == b"episode_info":
                 self._episode_info_callback(msg["data"])
                 continue
+            t = time.time()
             sample = self.serializer.deserialize_sample(msg["data"])
+            deserialization_time += time.time() - t
             if not self._validate_sample(sample, monitoring=self.config.monitoring.prometheus):
                 continue
             self._total_env_steps += 1
-            with self._lock:
-                self.buffer.append(sample)
+            t = time.time()
+            self.buffer.append(sample)
+            buffer_append_time += time.time() - t
             self._sample_received_hook(sample)
             if self._check_update_cond():
-                self._update_model(monitoring=self.config.monitoring.prometheus)
-                self._publish_model()
+                if self.config.monitoring.prometheus:
+                    if last_training_time != 0:
+                        self.prom_sample_time.set(time.time() - last_training_time)
+                        self.prom_deserialization_time.set(deserialization_time)
+                        self.prom_buffer_time.set(buffer_append_time)
+                    deserialization_time, buffer_append_time = 0, 0
+                    last_training_time = time.time()
+                with self.monitor_timing(self.prom_update_time):
+                    self._update_model()
+                with self.monitor_timing(self.prom_publish_time):
+                    self._publish_model()
                 self._post_update_hook()
                 if self._check_checkpoint_cond():
                     self.checkpoint(self.save_dir)
@@ -169,6 +192,23 @@ class TrainingNode(ABC):
         assert saved_config.env.name == self.config.env.name, "Config environments do not match"
         assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
         self.config = saved_config
+
+    @contextmanager
+    def monitor_timing(self, prom_timer: Gauge):
+        """Monitor the execution time of a code block and store it in the Prometheus Gauge.
+
+        Note:
+            Only activates if Prometheus is enabled in the training config.
+
+        Args:
+            prom_timer: A Prometheus Gauge object that is updated with the execution time
+        """
+        tstart = time.time()
+        try:
+            yield
+        finally:
+            if self.config.monitoring.prometheus:
+                prom_timer.set(time.time() - tstart)
 
     @staticmethod
     def _client_heartbeat(redis_secret: str,
