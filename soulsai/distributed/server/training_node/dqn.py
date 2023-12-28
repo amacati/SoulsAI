@@ -56,7 +56,8 @@ class DQNTrainingNode(TrainingNode):
         self._log_reject = True  # Only log sample rejects once per model iteration
         self._last_model_log = 0  # Reduce number of log messages for model updates
         self._model_iterations = 0  # Track number of model iterations for checkpoint trigger
-        self.model_ids = deque(maxlen=3)  # Also accept samples from recent model iterations
+        # Also accept samples from recent model iterations
+        self.model_ids = deque(maxlen=self.config.dqn.max_model_delay)
         if self.config.dqn.variant == "distributional":
             self.agent = DistributionalDQNAgent(self.config.dqn.network_type,
                                                 namespace2dict(self.config.dqn.network_kwargs),

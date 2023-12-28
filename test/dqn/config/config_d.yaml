@@ -53,6 +53,7 @@ dqn:
   normalizer_kwargs:
   min_samples: null
   tau: 0.05  # For soft target update
+  max_model_delay: 10
 
 # Training node settings
 checkpoint:
