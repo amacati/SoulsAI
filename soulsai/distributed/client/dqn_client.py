@@ -169,7 +169,8 @@ def _dqn_client(config: SimpleNamespace,
                     "epSteps": steps,
                     "eps": eps,
                     "modelId": model_id,
-                    "obs": observations[-1]
+                    "obs": observations[-1],
+                    "info": info
                 })
                 con.push_episode_info(ep_info)
                 noise.reset()

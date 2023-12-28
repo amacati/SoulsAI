@@ -129,7 +129,15 @@ class DQNSerializer(Serializer):
         return x
 
     def _serialize_SoulsGymIudexImg_v0_episode_info(self, data: dict) -> bytes:
-        return self.capnp_msgs.EpisodeInfo.new_message(**data).to_bytes()
+        msg = {
+            "bossHp": float(data["info"]["boss_hp"]),
+            "win": bool(data["info"]["boss_hp"] == 0),
+            "epReward": float(data["epReward"]),
+            "epSteps": data["epSteps"],
+            "eps": float(data["eps"]),
+            "modelId": data["modelId"]
+        }
+        return self.capnp_msgs.EpisodeInfo.new_message(**msg).to_bytes()
 
     def _deserialize_SoulsGymIudexImg_v0_episode_info(self, data: bytes) -> dict:
         with self.capnp_msgs.EpisodeInfo.from_bytes(data) as episode_info:
@@ -277,11 +285,11 @@ class PPOSerializer(Serializer):
         return x
 
     def _serialize_LunarLander_v2_episode_info(self, episode_info: dict) -> bytes:
-        episode_info["bossHp"] = 0
-        del episode_info["obs"]
-        episode_info["win"] = bool(episode_info["epReward"] > 200)
-        episode_info["epReward"] = float(episode_info["epReward"])
-        return self.capnp_msgs.EpisodeInfo.new_message(**episode_info).to_bytes()
+        msg = {"bossHp": 0,
+               "win": bool(episode_info["epReward"] > 200),
+               "epReward": float(episode_info["epReward"])
+              }
+        return self.capnp_msgs.EpisodeInfo.new_message(**msg).to_bytes()
 
     def _deserialize_LunarLander_v2_episode_info(self, data: bytes) -> dict:
         with self.capnp_msgs.EpisodeInfo.from_bytes(data) as sample:
