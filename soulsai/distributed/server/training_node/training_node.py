@@ -143,8 +143,8 @@ class TrainingNode(ABC):
             t = time.time()
             msg = self.red.rpop("samples")
             message_time += time.time() - t
-            if not msg:
-                time.sleep(0.0001)
+            if msg is None:
+                time.sleep(0.001)
                 continue
             t = time.time()
             sample = self.serializer.deserialize_sample(msg)
