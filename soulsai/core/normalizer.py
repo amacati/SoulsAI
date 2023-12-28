@@ -208,7 +208,7 @@ class ImageNormalizer(AbstractNormalizer):
             The normalized data.
         """
         x = self._sanitize_input(x).clone()
-        return (x / 255.0) * 2.0 - 1.0
+        return (x / 127.5) - 1.0  # [0, 255] -> [0, 2] -> [-1, 1]
 
     def update(self, _: Any):
         """No-op for compatibility with the normalizer API.
