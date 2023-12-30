@@ -12,11 +12,12 @@ if TYPE_CHECKING:
 
 class ReorderChannels(ObservationWrapper):
 
-    def __init__(self, env: Env):
+    def __init__(self, env: Env, reorder_pattern: str = "s w h c -> (s c) w h"):
         super().__init__(env)
+        self.reorder_pattern = reorder_pattern
 
     def observation(self, observation: np.ndarray) -> np.ndarray:
-        return einops.rearrange(observation, "s w h c -> (s c) w h")
+        return einops.rearrange(observation, self.reorder_pattern)
 
 
 class MaterializeFrames(ObservationWrapper):
@@ -26,3 +27,18 @@ class MaterializeFrames(ObservationWrapper):
 
     def observation(self, observation: LazyFrames) -> np.ndarray:
         return np.array(observation)
+
+
+class CenterCropFrames(ObservationWrapper):
+
+    def __init__(self, env: Env, input_shape: tuple[int, ...], output_shape: tuple[int, ...]):
+        super().__init__(env)
+        assert len(input_shape) == len(output_shape)
+        assert all(i >= o for i, o in zip(input_shape, output_shape))
+        self.input_shape = input_shape
+        left_crop = [(i - o) // 2 for i, o in zip(input_shape, output_shape)]
+        self.slices = tuple(slice(l, l + o) for l, o in zip(left_crop, output_shape))
+
+    def observation(self, observation: np.ndarray) -> np.ndarray:
+        assert observation.shape == self.input_shape
+        return observation[self.slices]
