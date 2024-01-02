@@ -73,7 +73,8 @@ class TrainingNode(ABC):
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
         self.red = Redis(host='redis', port=6379, password=secret, db=0)
         self.episode_info_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.episode_info_sub.subscribe(episode_info=lambda msg: self._episode_info_callback(msg["data"]))
+        self.episode_info_sub.subscribe(
+            episode_info=lambda msg: self._episode_info_callback(msg["data"]))
         self._episode_info_sub_worker = self.episode_info_sub.run_in_thread(sleep_time=.1,
                                                                             daemon=True)
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
@@ -95,8 +96,6 @@ class TrainingNode(ABC):
                                                    "Total number of rejected samples")
             self.prom_update_time = Gauge("soulsai_update_duration",
                                           "Processing time for a model update")
-            self.prom_sample_time = Gauge("soulsai_sample_processing_time",
-                                          "Processing time for deserializing and storing samples")
             self.prom_publish_time = Gauge("soulsai_publish_time",
                                            "Time required to publish the network parameters")
             self.prom_deserialization_time = Gauge("soulsai_deserialization_time",
@@ -134,37 +133,33 @@ class TrainingNode(ABC):
         self._startup_hook()
         self.client_heartbeat.start()
         self._publish_model()
-        last_training_time = 0
         deserialization_time = 0
         buffer_append_time = 0
         message_time = 0
         self.red.delete("samples")  # Delete stale samples from previous runs if persistent
         while not self._shutdown.is_set():
-            t = time.time()
+            t = time.perf_counter()
             msg = self.red.rpop("samples")
-            message_time += time.time() - t
+            message_time += time.perf_counter() - t
             if msg is None:
-                time.sleep(0.001)
+                time.sleep(1e-6)
                 continue
-            t = time.time()
+            t = time.perf_counter()
             sample = self.serializer.deserialize_sample(msg)
-            deserialization_time += time.time() - t
+            deserialization_time += time.perf_counter() - t
             if not self._validate_sample(sample, monitoring=self.config.monitoring.prometheus):
                 continue
             self._total_env_steps += 1
-            t = time.time()
+            t = time.perf_counter()
             self.buffer.append(sample)
-            buffer_append_time += time.time() - t
+            buffer_append_time += time.perf_counter() - t
             self._sample_received_hook(sample)
             if self._check_update_cond():
                 if self.config.monitoring.prometheus:
-                    if last_training_time != 0:
-                        self.prom_sample_time.set(time.time() - last_training_time)
-                        self.prom_deserialization_time.set(deserialization_time)
-                        self.prom_buffer_time.set(buffer_append_time)
-                        self.prom_message_time.set(message_time)
+                    self.prom_deserialization_time.set(deserialization_time)
+                    self.prom_buffer_time.set(buffer_append_time)
+                    self.prom_message_time.set(message_time)
                     deserialization_time, buffer_append_time, message_time = 0, 0, 0
-                    last_training_time = time.time()
                 with self.monitor_timing(self.prom_update_time):
                     self._update_model()
                 with self.monitor_timing(self.prom_publish_time):
@@ -211,12 +206,10 @@ class TrainingNode(ABC):
         Args:
             prom_timer: A Prometheus Gauge object that is updated with the execution time
         """
-        tstart = time.time()
-        try:
-            yield
-        finally:
-            if self.config.monitoring.prometheus:
-                prom_timer.set(time.time() - tstart)
+        tstart = time.perf_counter()
+        yield
+        if self.config.monitoring.prometheus:
+            prom_timer.set(time.perf_counter() - tstart)
 
     @staticmethod
     def _client_heartbeat(redis_secret: str,

@@ -203,17 +203,24 @@ class DQNSerializer(Serializer):
             return sample.to_dict()
 
     def _serialize_ALE_Pong_v5_sample(self, sample: dict) -> bytes:
-        sample["obs"] = sample["obs"].tolist()
-        sample["nextObs"] = sample["nextObs"].tolist()
-        sample["reward"] = float(sample["reward"])
-        sample["info"] = {}
-        return self.capnp_msgs.DQNSample.new_message(**sample).to_bytes()
+        msg = {
+            "obs": sample["obs"].tobytes(),
+            "obsShape": sample["obs"].shape,
+            "action": sample["action"],
+            "reward": float(sample["reward"]),
+            "nextObs": sample["nextObs"].tobytes(),
+            "terminated": sample["terminated"],
+            "truncated": sample["truncated"],
+            "info": {},
+            "modelId": sample["modelId"]
+        }
+        return self.capnp_msgs.DQNSample.new_message(**msg).to_bytes()
 
     def _deserialize_ALE_Pong_v5_sample(self, data: bytes) -> dict:
         with self.capnp_msgs.DQNSample.from_bytes(data) as sample:
             x = sample.to_dict()
-        x["obs"] = np.array(x["obs"], np.uint8)
-        x["nextObs"] = np.array(x["nextObs"], np.uint8)
+        x["obs"] = np.frombuffer(x["obs"], dtype=np.uint8).reshape(x["obsShape"])
+        x["nextObs"] = np.frombuffer(x["nextObs"], dtype=np.uint8).reshape(x["obsShape"])
         return x
 
     def _serialize_ALE_Pong_v5_episode_info(self, data: dict) -> bytes:
