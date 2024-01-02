@@ -78,8 +78,9 @@ class TrainingNode(ABC):
         self._episode_info_sub_worker = self.episode_info_sub.run_in_thread(sleep_time=.1,
                                                                             daemon=True)
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.cmd_sub.subscribe(manual_save=lambda _: self.checkpoint(self.save_dir / "manual_save"),
-                               save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),
+        self.cmd_sub.subscribe(manual_save=lambda msg: self.checkpoint(
+            self.save_dir / "manual_save", json.loads(msg["data"])))
+        self.cmd_sub.subscribe(save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),
                                shutdown=self.shutdown)
         self._cmd_sub_worker = self.cmd_sub.run_in_thread(sleep_time=.1, daemon=True)
         # Initialize monitoring server and metrics
@@ -256,11 +257,12 @@ class TrainingNode(ABC):
         self._shutdown.set()
 
     @abstractmethod
-    def checkpoint(self, path: Path):
+    def checkpoint(self, path: Path, options: dict = {}):
         """Create a training checkpoint.
 
         Args:
             path: Path to the save folder.
+            options: Additional options dictionary to customize checkpointing.
         """
         ...
 

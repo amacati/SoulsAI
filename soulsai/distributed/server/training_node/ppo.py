@@ -165,11 +165,12 @@ class PPOTrainingNode(TrainingNode):
                 return
         raise ServerDiscoveryTimeout("Discovery phase failed to register the required clients")
 
-    def checkpoint(self, path: Path):
+    def checkpoint(self, path: Path, options: dict = {}):
         """Create a training checkpoint.
 
         Args:
             path: Path to the save folder.
+            options: Additional options dictionary to customize checkpointing.
         """
         path.mkdir(exist_ok=True)
         with self._lock:

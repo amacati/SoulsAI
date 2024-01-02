@@ -182,19 +182,20 @@ class DQNTrainingNode(TrainingNode):
                 self.buffer.update_priorities(batch[-1], td_errors)
         self.agent.update_callback()
 
-    def checkpoint(self, path: Path):
+    def checkpoint(self, path: Path, options: dict = {}):
         """Create a training checkpoint.
 
         Args:
             path: Path to the save folder.
+            options: Additional options dictionary to customize checkpointing.
         """
-        if not self.config.checkpoint.save:
+        if not options.get("manual", False) and not self.config.checkpoint.save:
             logger.info("Checkpoint saving disabled")
             return
         path.mkdir(exist_ok=True)
         with self._lock:
             self.agent.save(path / "agent.pt")
-            if self.config.checkpoint.save_buffer:
+            if self.config.checkpoint.save_buffer or options.get("save_buffer", False):
                 self.buffer.save(path / "buffer.pkl")
             self.eps_scheduler.save(path / "eps_scheduler.json")
             if self.config.dqn.normalizer:
