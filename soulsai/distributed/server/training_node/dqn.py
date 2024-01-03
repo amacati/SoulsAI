@@ -96,6 +96,10 @@ class DQNTrainingNode(TrainingNode):
                                               self.config.dqn.eps_steps,
                                               zero_ending=True)
 
+        if self.config.checkpoint.load:
+            self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")
+            logger.info("Checkpoint loading complete")
+
         # We upload the network weights to Redis in a separate process to avoid blocking the main
         # training loop. The performance impact for small networks is negligible, but for larger
         # networks it can become significant.
@@ -115,10 +119,6 @@ class DQNTrainingNode(TrainingNode):
                                                  kwargs=async_upload_kwargs,
                                                  daemon=True)
         self.model_publish_process.start()
-
-        if self.config.checkpoint.load:
-            self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")
-            logger.info("Checkpoint loading complete")
 
         self.agent.model_id = str(uuid4())
         self.model_ids.append(self.agent.model_id)
