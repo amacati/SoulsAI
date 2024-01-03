@@ -97,9 +97,13 @@ class DQNTrainingNode(TrainingNode):
                                               self.config.dqn.eps_steps,
                                               zero_ending=True)
 
+        if self.config.checkpoint.load:
+            self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")
+            logger.info("Checkpoint loading complete")
+
         # We upload the network weights to Redis in a separate process to avoid blocking the main
         # training loop. The performance impact for small networks is negligible, but for larger
-        # networks it can become significant.
+        # networks it can become significant
         self.agent.share_memory()
         self.eps_scheduler.share_memory()
         cxt = torch.multiprocessing.get_context("spawn")
@@ -121,10 +125,6 @@ class DQNTrainingNode(TrainingNode):
         # sample receiving
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
         self._sample_connector = DQNServerConnector("redis", secret)
-
-        if self.config.checkpoint.load:
-            self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")
-            logger.info("Checkpoint loading complete")
 
         self.agent.model_id = str(uuid4())
         self.model_ids.append(self.agent.model_id)
