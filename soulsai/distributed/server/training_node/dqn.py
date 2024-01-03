@@ -17,8 +17,10 @@ from collections import deque
 import time
 from typing import TYPE_CHECKING
 import json
+from multiprocessing.synchronize import Event
 
 import torch
+from redis import Redis
 
 from soulsai.core.replay_buffer import get_buffer_class
 from soulsai.core.agent import DistributionalDQNAgent, DQNAgent
@@ -26,10 +28,12 @@ from soulsai.core.normalizer import get_normalizer_class
 from soulsai.core.scheduler import EpsilonScheduler
 from soulsai.distributed.common.serialization import DQNSerializer
 from soulsai.distributed.server.training_node.training_node import TrainingNode
-from soulsai.utils import namespace2dict
+from soulsai.utils import namespace2dict, load_redis_secret
 
 if TYPE_CHECKING:
     from types import SimpleNamespace
+
+    from soulsai.core.normalizer import AbstractNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +57,7 @@ class DQNTrainingNode(TrainingNode):
         else:
             self._required_samples = self.config.dqn.batch_size * self.config.dqn.train_epochs
 
-        self._log_reject = True  # Only log sample rejects once per model iteration
+        self._log_reject_time = time.time()  # Only log sample rejects once per second
         self._last_model_log = 0  # Reduce number of log messages for model updates
         self._model_iterations = 0  # Track number of model iterations for checkpoint trigger
         # Also accept samples from recent model iterations
@@ -92,6 +96,26 @@ class DQNTrainingNode(TrainingNode):
                                               self.config.dqn.eps_steps,
                                               zero_ending=True)
 
+        # We upload the network weights to Redis in a separate process to avoid blocking the main
+        # training loop. The performance impact for small networks is negligible, but for larger
+        # networks it can become significant.
+        self.agent.share_memory()
+        self.eps_scheduler.share_memory()
+        cxt = torch.multiprocessing.get_context("spawn")
+        self._publish_model_event = cxt.Event()
+        async_upload_kwargs = {
+            "event": self._publish_model_event,
+            "model": self.agent,
+            "epsilon_scheduler": self.eps_scheduler
+        }
+        if self.config.dqn.normalizer:
+            self.normalizer.share_memory()
+            async_upload_kwargs["normalizer"] = self.normalizer
+        self.model_publish_process = cxt.Process(target=self._async_publish_model,
+                                                 kwargs=async_upload_kwargs,
+                                                 daemon=True)
+        self.model_publish_process.start()
+
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")
             logger.info("Checkpoint loading complete")
@@ -108,9 +132,9 @@ class DQNTrainingNode(TrainingNode):
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
         valid = sample["modelId"] in self.model_ids
-        if not valid and self._log_reject:
+        if not valid and time.time() - self._log_reject_time > 1:  # Only log once per second
             logger.warning("Sample ID rejected")
-            self._log_reject = False
+            self._log_reject_time = time.time()
         if monitoring:
             self.prom_num_samples.inc() if valid else self.prom_num_samples_reject.inc()
         return valid
@@ -136,16 +160,44 @@ class DQNTrainingNode(TrainingNode):
 
     def _publish_model(self):
         logger.debug(f"Publishing new model with ID {self.agent.model_id}")
-        model_params = self.agent.serialize()
-        model_params["eps"] = self.eps_scheduler.epsilon
-        if self.config.dqn.normalizer:
-            model_params |= self.normalizer.serialize()
-        self.red.hset("model_params", mapping=model_params)
-        self.red.publish("model_update", self.agent.model_id)
-        logger.debug("Model upload successful")
+        self._publish_model_event.set()
+
+    @staticmethod
+    def _async_publish_model(event: Event,
+                             model: DQNAgent,
+                             epsilon_scheduler: EpsilonScheduler,
+                             normalizer: AbstractNormalizer | None = None):
+        """Upload the model to Redis in a separate process.
+
+        Args:
+            event: Event to signal when a new model is available.
+            model: The neural network.
+            epsilon_scheduler: The epsilon scheduler for epsilon-greedy policies.
+            normalizer: The optional normalizer.
+        """
+        secret = load_redis_secret(Path("/run/secrets/redis_secret"))
+        red = Redis(host='redis', port=6379, password=secret, db=0)
+        last_log = time.time()  # Reduce number of log messages for model updates
+        while True:
+            t = time.perf_counter()
+            event.wait()
+            # If the model update is faster than the upload, this flag will be set to True when the
+            # loop starts again. This will cause model generations to be skipped, which might be
+            # problematic. Therefore we log a warning
+            if time.perf_counter() - t < 1e-5:
+                if time.time() - last_log > 1:  # Only log once per second
+                    logger.warning("Model upload can't keep up with model updates!")
+                    last_log = time.time()
+            event.clear()
+            model_params = model.serialize()
+            model_params["eps"] = epsilon_scheduler.epsilon
+            if normalizer is not None:
+                model_params |= normalizer.serialize()
+            red.hset("model_params", mapping=model_params)
+            red.publish("model_update", model.model_id)
+            logger.debug("Model upload successful")
 
     def _post_update_hook(self):
-        self._log_reject = True
         self._model_iterations += 1
 
     def _check_checkpoint_cond(self) -> bool:

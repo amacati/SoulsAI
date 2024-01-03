@@ -29,7 +29,36 @@ class Agent:
     def __init__(self, dev: torch.device = torch.device("cpu")):
         self.dev = dev
         self.networks = torch.nn.ModuleDict()
+        self.shared = False  # Shared before super init since model_id property needs shared flag
         self.model_id = None
+
+    def share_memory(self):
+        """Share the networks and model ID memory."""
+        self.networks.share_memory()
+        self.shared = True
+        self._model_id = mp.Array("B", 36)  # uuid4 string holds 36 chars
+        self._model_id[:] = bytes(36 * " ", encoding="utf-8")
+
+    @property
+    def model_id(self) -> str:
+        """The current model ID identifies each unique iteration of the agent.
+
+        The model ID is a 36 character long string, exactly the length of a uuid4 string.
+
+        Returns:
+            The model ID.
+        """
+        if self.shared:
+            return bytes(self._model_id[:]).decode("utf-8")
+        return self._model_id
+
+    @model_id.setter
+    def model_id(self, value: str):
+        if self.shared:
+            assert len(value) == 36, f"Model ID must be 36 characters long, got {len(value)}"
+            self._model_id[:] = bytes(value, encoding="utf-8")
+        else:
+            self._model_id = value
 
     def save(self, path: Path):
         """Save all modules.
@@ -375,42 +404,7 @@ class DistributionalR2D2Agent(Agent):
         return summed_quantile_loss.detach().cpu().numpy()
 
 
-class ClientAgent(Agent):
-
-    def __init__(self, dev: torch.device):
-        self.shared = False  # Shared before super init since model_id property gets called
-        super().__init__(dev)
-
-    def share_memory(self):
-        """Share the client network and model ID memory."""
-        self.networks.share_memory()
-        self.shared = True
-        self._model_id = mp.Array("B", 36)  # uuid4 string holds 36 chars
-        self._model_id[:] = bytes(36 * " ", encoding="utf-8")
-
-    @property
-    def model_id(self) -> str:
-        """The current model ID identifies each unique iteration of the agent.
-
-        The model ID is a 36 character long string, exactly the length of a uuid4 string.
-
-        Returns:
-            The model ID.
-        """
-        if self.shared:
-            return bytes(self._model_id[:]).decode("utf-8")
-        return self._model_id
-
-    @model_id.setter
-    def model_id(self, value: str):
-        if self.shared:
-            assert len(value) == 36, f"Model ID must be 36 characters long, got {len(value)}"
-            self._model_id[:] = bytes(value, encoding="utf-8")
-        else:
-            self._model_id = value
-
-
-class DQNClientAgent(ClientAgent):
+class DQNClientAgent(Agent):
     """DQN agent implementation for clients.
 
     The client agent should only be called for inference on training nodes. In order to update the
@@ -445,7 +439,7 @@ class DQNClientAgent(ClientAgent):
             return torch.argmax(qvalues).item()
 
 
-class DistributionalDQNClientAgent(ClientAgent):
+class DistributionalDQNClientAgent(Agent):
 
     def __init__(self, network_type: str, network_kwargs: dict, dev: torch.device):
         super().__init__(dev)
@@ -594,7 +588,7 @@ class PPOClientAgent(PPOAgent, Agent):
             network_kwargs: Keyword arguments for the policy network.
             dev: Torch device for the networks.
         """
-        # Skip PPOAgent __init__, we don't want target network on clients
+        # Skip PPOAgent __init__, we don't want the critic on clients
         super(PPOAgent, self).__init__(dev)
         self.actor_net_type = network_type
         self.networks.add_module("actor", get_net_class(network_type)(**network_kwargs).to(dev))

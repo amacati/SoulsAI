@@ -5,6 +5,7 @@ The scheduler can be saved and loaded to allow for checkpointing of the complete
 from __future__ import annotations
 import json
 from typing import List, TYPE_CHECKING
+from multiprocessing import Value
 
 import numpy as np
 
@@ -43,19 +44,19 @@ class EpsilonScheduler:
         self._epsilon_max = np.array(epsilon_max)
         self._epsilon_min = np.array(epsilon_min)
         self._decay_steps = np.array(decay_steps)
-        self._step = 0
-        self._section = 0
+        self._step = Value("i", 0)  # Shared memory value to enable easy sharing between processes
+        self._section = Value("i", 0)  # Same as above
         self._max_sections = len(epsilon_max)
         self._zero_ending = zero_ending
 
     @property
     def epsilon(self) -> float:
         """Epsilon value at the current decay step."""
-        if self._zero_ending and self._section == self._max_sections:
+        if self._zero_ending and self._section.value == self._max_sections:
             return 0
-        assert self._section < self._max_sections
+        assert self._section.value < self._max_sections
         return self._linear_decay(self._epsilon_max, self._epsilon_min, self._decay_steps,
-                                  self._step)[self._section].copy()
+                                  self._step.value)[self._section.value].copy()
 
     def step(self, n: int = 1):
         """Advance the scheduler.
@@ -63,18 +64,22 @@ class EpsilonScheduler:
         Args:
             n: Number of steps to advance the scheduler. Defaults to 1.
         """
-        if self._zero_ending and self._section == self._max_sections:
+        if self._zero_ending and self._section.value == self._max_sections:
             return
-        if self._section == self._max_sections:
+        if self._section.value == self._max_sections:
             raise ValueError("Scheduler has already finished!")
-        if self._step + n > self._decay_steps[self._section]:
+        if self._step.value + n > self._decay_steps[self._section.value]:
             # Cast n_steps to int to prevent self._steps conversion to np.int64
-            n_steps = int(self._decay_steps[self._section] - self._step)
-            self._step = 0
-            self._section += 1
+            n_steps = int(self._decay_steps[self._section.value] - self._step.value)
+            self._step.value = 0
+            self._section.value += 1
             self.step(n - n_steps - 1)
         else:
-            self._step += n
+            self._step.value += n
+
+    def share_memory(self):
+        """Share the scheduler memory between processes."""
+        ...  # _steps and _section are already shared, no need to do anything
 
     @staticmethod
     def _linear_decay(epsilon_max: np.ndarray, epsilon_min: np.ndarray, decay_steps: np.ndarray,
@@ -103,6 +108,8 @@ class EpsilonScheduler:
         for key, val in save.items():  # Convert numpy arrays to lists for json
             if isinstance(val, np.ndarray):
                 save[key] = val.tolist()
+            if key in ["_step", "_section"]:
+                save[key] = val.value
         with open(path, "w") as f:
             json.dump(save, f)
 
@@ -117,4 +124,6 @@ class EpsilonScheduler:
         for key, val in save.items():  # Convert numpy arrays to lists for json
             if isinstance(val, List):
                 val = np.array(val)
+            if key in ["_step", "_section"]:
+                val = Value("i", val)
             setattr(self, key, val)

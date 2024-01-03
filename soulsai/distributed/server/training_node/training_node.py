@@ -95,7 +95,7 @@ class TrainingNode(ABC):
                                             "Total number of received samples")
             self.prom_num_samples_reject = Counter("soulsai_num_samples_reject",
                                                    "Total number of rejected samples")
-            self.prom_update_time = Gauge("soulsai_update_duration",
+            self.prom_update_time = Gauge("soulsai_update_time",
                                           "Processing time for a model update")
             self.prom_publish_time = Gauge("soulsai_publish_time",
                                            "Time required to publish the network parameters")
@@ -103,7 +103,7 @@ class TrainingNode(ABC):
                                                    "Time required for deserialization")
             self.prom_buffer_time = Gauge("soulsai_buffer_time",
                                           "Time required to append samples to the buffer")
-            self.prom_message_time = Gauge("soulsai_sample_message_time",
+            self.prom_message_time = Gauge("soulsai_message_time",
                                            "Time required to read messages from Redis.")
             self.prom_config_info = Info("soulsai_config", "SoulsAI configuration")
             self.prom_config_info.info({
@@ -140,38 +140,39 @@ class TrainingNode(ABC):
         self.red.delete("samples")  # Delete stale samples from previous runs if persistent
         while not self._shutdown.is_set():
             t = time.perf_counter()
-            msg = self.red.rpop("samples")
+            msgs = self.red.rpop("samples", 10)  # Batch receive samples
             message_time += time.perf_counter() - t
-            if msg is None:
+            if msgs is None:
                 time.sleep(1e-6)
                 continue
-            t = time.perf_counter()
-            sample = self.serializer.deserialize_sample(msg)
-            deserialization_time += time.perf_counter() - t
-            if not self._validate_sample(sample, monitoring=self.config.monitoring.prometheus):
-                continue
-            self._total_env_steps += 1
-            t = time.perf_counter()
-            self.buffer.append(sample)
-            buffer_append_time += time.perf_counter() - t
-            self._sample_received_hook(sample)
-            if self._check_update_cond():
-                if self.config.monitoring.prometheus:
-                    self.prom_deserialization_time.set(deserialization_time)
-                    self.prom_buffer_time.set(buffer_append_time)
-                    self.prom_message_time.set(message_time)
-                    deserialization_time, buffer_append_time, message_time = 0, 0, 0
-                with self.monitor_timing(self.prom_update_time):
-                    self._update_model()
-                with self.monitor_timing(self.prom_publish_time):
-                    self._publish_model()
-                self._post_update_hook()
-                if self._check_checkpoint_cond():
-                    self.checkpoint(self.save_dir)
-            if self._max_env_steps < self._total_env_steps:
-                logger.info("Maximum samples reached. Shutting down training node.")
-                self.red.publish("client_shutdown", "")
-                self._shutdown.set()
+            for msg in msgs:
+                t = time.perf_counter()
+                sample = self.serializer.deserialize_sample(msg)
+                deserialization_time += time.perf_counter() - t
+                if not self._validate_sample(sample, monitoring=self.config.monitoring.prometheus):
+                    continue
+                self._total_env_steps += 1
+                t = time.perf_counter()
+                self.buffer.append(sample)
+                buffer_append_time += time.perf_counter() - t
+                self._sample_received_hook(sample)
+                if self._check_update_cond():
+                    if self.config.monitoring.prometheus:
+                        self.prom_deserialization_time.set(deserialization_time)
+                        self.prom_buffer_time.set(buffer_append_time)
+                        self.prom_message_time.set(message_time)
+                        deserialization_time, buffer_append_time, message_time = 0, 0, 0
+                    with self.monitor_timing(self.prom_update_time):
+                        self._update_model()
+                    with self.monitor_timing(self.prom_publish_time):
+                        self._publish_model()
+                    self._post_update_hook()
+                    if self._check_checkpoint_cond():
+                        self.checkpoint(self.save_dir)
+                if self._max_env_steps < self._total_env_steps:
+                    logger.info("Maximum samples reached. Shutting down training node.")
+                    self.red.publish("client_shutdown", "")
+                    self._shutdown.set()
         self.checkpoint(self.save_dir)
         logger.info("Training node has shut down")
 
