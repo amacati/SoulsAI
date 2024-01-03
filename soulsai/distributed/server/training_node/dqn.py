@@ -28,6 +28,7 @@ from soulsai.core.normalizer import get_normalizer_class
 from soulsai.core.scheduler import EpsilonScheduler
 from soulsai.distributed.common.serialization import DQNSerializer
 from soulsai.distributed.server.training_node.training_node import TrainingNode
+from soulsai.distributed.server.training_node.connector import DQNServerConnector
 from soulsai.utils import namespace2dict, load_redis_secret
 
 if TYPE_CHECKING:
@@ -116,6 +117,11 @@ class DQNTrainingNode(TrainingNode):
                                                  daemon=True)
         self.model_publish_process.start()
 
+        # We also asynchronously receive samples from the clients to interleave the training and
+        # sample receiving
+        secret = load_redis_secret(Path("/run/secrets/redis_secret"))
+        self._sample_connector = DQNServerConnector("redis", secret)
+
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")
             logger.info("Checkpoint loading complete")
@@ -129,6 +135,9 @@ class DQNTrainingNode(TrainingNode):
     def serializer(self) -> DQNSerializer:
         """Return the serializer for DQN messages for the current environment."""
         return self._serializer
+
+    def _get_samples(self) -> list[bytes]:
+        return self._sample_connector.msgs()
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
         valid = sample["modelId"] in self.model_ids

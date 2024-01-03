@@ -14,7 +14,7 @@ import logging
 from uuid import uuid4
 from pathlib import Path
 import time
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -68,6 +68,9 @@ class PPOTrainingNode(TrainingNode):
         logger.info("Starting discovery phase")
         self._discover_clients()
         logger.info("Discovery complete, starting training")
+
+    def _get_samples(self) -> list[bytes]:
+        return self.red.rpop("samples", 10)  # Batch receive samples
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
         valid = sample["modelId"] == self.agent.model_id
@@ -186,7 +189,7 @@ class PPOTrainingNode(TrainingNode):
         with self._lock:
             self.agent.load(path / "agent.pt")
 
-    def _required_client_ids(self) -> List[int]:
+    def _required_client_ids(self) -> list[int]:
         return list(range(self.config.ppo.n_clients))
 
     def _episode_info_callback(self, episode_info: bytes):

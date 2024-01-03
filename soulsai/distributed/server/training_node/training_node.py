@@ -17,7 +17,7 @@ import json
 import time
 from abc import ABC, abstractmethod
 from threading import Thread, Event
-from typing import List, Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from contextlib import contextmanager
 
 import numpy as np
@@ -140,7 +140,7 @@ class TrainingNode(ABC):
         self.red.delete("samples")  # Delete stale samples from previous runs if persistent
         while not self._shutdown.is_set():
             t = time.perf_counter()
-            msgs = self.red.rpop("samples", 10)  # Batch receive samples
+            msgs = self._get_samples()
             message_time += time.perf_counter() - t
             if msgs is None:
                 time.sleep(1e-6)
@@ -217,7 +217,7 @@ class TrainingNode(ABC):
     def _client_heartbeat(redis_secret: str,
                           shutdown_event: Event,
                           client_counter: Synchronized,
-                          required_client_ids: List = []):
+                          required_client_ids: list = []):
         red = Redis(host='redis', port=6379, password=redis_secret, db=0, decode_responses=True)
         sub = red.pubsub(ignore_subscribe_messages=True)
         sub.subscribe("heartbeat")
@@ -283,6 +283,10 @@ class TrainingNode(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def _get_samples(self) -> list[bytes]:
+        ...
+
+    @abstractmethod
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
         ...
 
@@ -315,5 +319,5 @@ class TrainingNode(ABC):
     def _post_update_hook(self):
         ...
 
-    def _required_client_ids(self) -> List:
+    def _required_client_ids(self) -> list:
         return []
