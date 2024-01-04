@@ -252,6 +252,8 @@ class DQNConnector:
                     eps.value = float(model_params["eps"].decode("utf-8"))
                     if normalizer:
                         normalizer.load_params(norm_params)
+            except KeyError:
+                logger.warning("Background model update failed")
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 socket_options = {socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60}
@@ -261,7 +263,7 @@ class DQNConnector:
                             db=0,
                             socket_keepalive=True,
                             socket_keepalive_options=socket_options)
-                update_event.set()  # Make sure to get latest model after connection is interrupted
+                update_event.set()  # Make sure to get latest model after connection is restored
 
     @staticmethod
     def _consume_msgs(msg_queue: Queue, address: str, secret: str, stop_event: Event):
