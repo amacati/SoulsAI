@@ -119,7 +119,7 @@ class DQNConnector:
 
         # Block while first model is not here
         logger.info("Waiting for model download...")
-        self.agent.model_id = "x" * 36
+        self.agent.model_id = " " * 36
         while self.model_id[0] == " ":
             time.sleep(0.01)
         logger.info("Download complete, connector initialized")

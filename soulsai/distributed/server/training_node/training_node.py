@@ -173,6 +173,7 @@ class TrainingNode(ABC):
                     logger.info("Maximum samples reached. Shutting down training node.")
                     self.red.publish("client_shutdown", "")
                     self._shutdown.set()
+                    break
         self.checkpoint(self.save_dir)
         logger.info("Training node has shut down")
 
