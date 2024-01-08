@@ -31,8 +31,9 @@ class MaterializeFrames(ObservationWrapper):
 
 class CenterCropFrames(ObservationWrapper):
 
-    def __init__(self, env: Env, input_shape: tuple[int, ...], output_shape: tuple[int, ...]):
+    def __init__(self, env: Env, output_shape: tuple[int, ...]):
         super().__init__(env)
+        input_shape = env.observation_space.sample().shape
         assert len(input_shape) == len(output_shape)
         assert all(i >= o for i, o in zip(input_shape, output_shape))
         self.input_shape = input_shape
