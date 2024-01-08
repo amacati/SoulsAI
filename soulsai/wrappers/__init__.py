@@ -1,4 +1,5 @@
 from gymnasium.wrappers import ResizeObservation, FrameStack, AtariPreprocessing
+from gymnasium.wrappers.gray_scale_observation import GrayScaleObservation
 
 from soulsai.wrappers.common import ReorderChannels, MaterializeFrames
 from soulsai.wrappers.atari import AtariExpandImage
