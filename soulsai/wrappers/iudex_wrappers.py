@@ -16,13 +16,6 @@ class IudexObservationWrapper(ObservationWrapper):
 
     def __init__(self, env: Env):
         super().__init__(env)
-        self.game_id = "DarkSoulsIII"
-        self.boss_id = "iudex"
-        low = np.zeros(74, dtype=np.float32)
-        high = np.ones(74, dtype=np.float32)
-        # Boss distance, player animation duration, boss animation duration are possibly unbounded
-        high[[3, 16, 17]] = np.inf
-        self.observation_space = Box(low, high, dtype=np.float32)
         self.game_data = StaticGameData("DarkSoulsIII")
         # Initialize player one-hot encoder
         self.player_animation_encoder = OneHotEncoder(allow_unknown=True)
@@ -31,15 +24,22 @@ class IudexObservationWrapper(ObservationWrapper):
         self.player_animation_encoder.fit(filtered_player_animations)
         # Initialize boss one-hot encoder
         self.boss_animation_encoder = OneHotEncoder(allow_unknown=True)
-        iudex_animations = self.game_data.boss_animations[self.boss_id]["all"]
+        iudex_animations = self.game_data.boss_animations["iudex"]["all"]
         boss_animations = [a["ID"] for a in iudex_animations.values()]
         filtered_boss_animations = unique(
             map(lambda x: self.filter_boss_animation(x)[0], boss_animations))
         self.boss_animation_encoder.fit(filtered_boss_animations)
-        # Initialize stateful attributes
+        # Initialize internal counters
         self._current_time = 0.
         self._acuumulated_time = 0.
         self._last_animation = None
+        # Set the new observation space
+        obs = self.observation(self.observation_space.sample())
+        self._reset_internal_counters()  # Reset stateful counters modified by ``self.observation``
+        low, high = np.zeros_like(obs), np.ones_like(obs)
+        # Boss distance, player animation duration, boss animation duration are possibly unbounded
+        high[[3, 16, 17]] = np.inf
+        self.observation_space = Box(low, high, dtype=np.float32)
 
     def observation(self, obs: Dict) -> np.ndarray:
         """Transform a game observation with a stateful conversion.
@@ -101,9 +101,7 @@ class IudexObservationWrapper(ObservationWrapper):
         Modifies the :attr:`env` after calling :meth:`reset`, returning a modified observation using
         :meth:`self.observation`.
         """
-        self._current_time = 0.
-        self._acuumulated_time = 0.
-        self._last_animation = None
+        self._reset_internal_counters()
         obs, info = self.env.reset(seed=seed, options=options)
         return self.observation(obs), info
 
@@ -211,6 +209,11 @@ class IudexObservationWrapper(ObservationWrapper):
                 assert isinstance(obs[key], list)
                 obs[key] = np.array(obs[key])
         return obs
+
+    def _reset_internal_counters(self):
+        self._current_time = 0.
+        self._acuumulated_time = 0.
+        self._last_animation = None
 
 
 def unique(seq: Iterable) -> List:
