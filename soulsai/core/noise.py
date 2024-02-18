@@ -3,10 +3,18 @@
 By providing a common interface for all noise samplers, algorithms can sample exploration actions
 independently of the noise type chosen.
 """
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 import sys
+from typing import Callable
 
 import numpy as np
+import torch
+
+from soulsai.utils import module_type_from_string
+
+noise_cls: Callable[[str], type[Noise]] = module_type_from_string(__name__)
 
 
 class Noise(ABC):
@@ -38,13 +46,13 @@ class UniformDiscreteNoise(Noise):
         assert size_n > 0
         self.size_n = size_n
 
-    def sample(self) -> int:
+    def sample(self) -> torch.Tensor:
         """Sample a random action in the range of [0, ``size_n``).
 
         Returns:
             The random action.
         """
-        return self.np_random.integers(0, self.size_n).item()
+        return torch.randint(0, self.size_n, (1,))
 
     def reset(self):
         """Reset the noise process in case of stateful noise."""
@@ -66,31 +74,16 @@ class MaskedDiscreteNoise(Noise):
         assert size_n > 0
         self.size_n = size_n
 
-    def sample(self, mask: np.ndarray) -> int:
+    def sample(self, mask: torch.BoolTensor) -> torch.Tensor:
         """Sample a random action in the range of [0, ``size_n``) while omitting masked actions.
 
         Args:
-            mask: A numpy array of 0s and 1s of size ``size_n``, with 1s denoting valid actions.
+            mask: A torch bool tensor of size ``size_n``.
 
         Returns:
             The random action.
         """
-        return np.argmax(self.np_random.random(self.size_n) * mask).item()
+        return torch.argmax(torch.rand(self.size_n) * mask)
 
     def reset(self):
         """Reset the noise process in case of stateful noise."""
-
-
-def get_noise_class(noise_type: str) -> type[Noise]:
-    """Get the noise class from the noise name.
-
-    Note:
-        This function returns a type rather than an instance!
-
-    Args:
-        noise_type: The noise type name.
-
-    Returns:
-        The noise type.
-    """
-    return getattr(sys.modules[__name__], noise_type)

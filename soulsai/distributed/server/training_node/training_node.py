@@ -25,12 +25,11 @@ from redis import Redis
 from prometheus_client import start_http_server, Info, Counter, Gauge
 
 from soulsai.utils import mkdir_date, load_redis_secret, namespace2dict, dict2namespace
+from soulsai.distributed.common.serialization import deserialize
 
 if TYPE_CHECKING:
     from types import SimpleNamespace
     from multiprocessing.sharedctypes import Synchronized
-
-    from soulsai.distributed.common.serialization import Serializer
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +146,7 @@ class TrainingNode(ABC):
                 continue
             for msg in msgs:
                 t = time.perf_counter()
-                sample = self.serializer.deserialize_sample(msg)
+                sample = deserialize(msg)
                 deserialization_time += time.perf_counter() - t
                 if not self._validate_sample(sample, monitoring=self.config.monitoring.prometheus):
                     continue
@@ -276,12 +275,6 @@ class TrainingNode(ABC):
             path: Path to the save folder.
         """
         ...
-
-    @property
-    @abstractmethod
-    def serializer(self) -> Serializer:
-        """Serializer to decode Redis messages."""
-        raise NotImplementedError
 
     @abstractmethod
     def _get_samples(self) -> list[bytes]:

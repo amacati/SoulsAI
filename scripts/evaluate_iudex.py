@@ -11,7 +11,7 @@ import soulsgym
 import soulsai.wrappers
 from soulsai.utils import namespace2dict, dict2namespace
 from soulsai.core.agent import DistributionalDQNClientAgent, DQNClientAgent, ClientAgent
-from soulsai.core.normalizer import AbstractNormalizer, get_normalizer_class
+from soulsai.core.normalizer import AbstractNormalizer, normalizer_cls
 
 
 def load_config(path: Path) -> SimpleNamespace:
@@ -33,9 +33,8 @@ def load_agent(path: Path, config: SimpleNamespace) -> ClientAgent:
 
 def load_normalizer(path: Path, config: SimpleNamespace) -> AbstractNormalizer:
     if config.dqn.normalizer:
-        normalizer_cls = get_normalizer_class(config.dqn.normalizer)
         norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
-        normalizer = normalizer_cls(config.env.obs_shape, **norm_kwargs)
+        normalizer = normalizer_cls(config.dqn.normalizer)(config.env.obs_shape, **norm_kwargs)
         normalizer.load_state_dict(torch.load(path))
         return normalizer
 

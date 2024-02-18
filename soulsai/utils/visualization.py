@@ -1,7 +1,7 @@
 """Visualization module for creating training plots from the training statistics."""
 from __future__ import annotations
 
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,13 +12,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def save_plots(samples: List,
-               episodes_rewards: List,
-               episodes_steps: List,
-               boss_hp: List,
-               wins: List,
+def save_plots(x: np.ndarray,
+               ys: list[np.ndarray],
+               xlabel: str,
+               ylabels: list[str],
                path: Path,
-               eps: float | None = None,
                N_av: int = 50):
     """Plot and save the training progress dashboard.
 
@@ -26,77 +24,37 @@ def save_plots(samples: List,
     by computing the standard deviation over a running window.
 
     Args:
-        samples: List of the total sample count during training.
-        episodes_rewards: List of achieved rewards.
-        episodes_steps: List of episode lengths.
-        boss_hp: List of boss HP at the end of each episode.
-        wins: List of wins.
+        x: Data for the x-axis.
+        ys: Data for the y-axis. For each y, a running mean and standard deviation is computed.
+        xlabel: Label for the x-axis.
+        ylabels: Labels for the y-axis.
         path: Save location for the figure.
         eps: Optional list of epsilon values during training.
         N_av: Moving average window for smoothing the plot.
     """
-    # t = np.arange(len(episodes_rewards))
-    fig, ax = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle("SoulsAI Dashboard")
-    reward_mean = running_mean(episodes_rewards, N_av)
-    reward_std = running_std(episodes_rewards, N_av)
-    ax[0, 0].plot(samples, reward_mean)
-    ax[0, 0].fill_between(samples, reward_mean - reward_std, reward_mean + reward_std, alpha=0.4)
-    ax[0, 0].legend(["Mean episode reward", "Std dev episode reward"])
-    ax[0, 0].set_title("Total Reward vs Samples")
-    ax[0, 0].set_xlabel("Samples")
-    ax[0, 0].set_ylabel("Total Reward")
-    ax[0, 0].grid(alpha=0.3)
-    if len(samples) > N_av:
-        lim_low = min(reward_mean[N_av:] - reward_std[N_av:])
-        lim_up = max(reward_mean[N_av:] + reward_std[N_av:])
-        ax[0, 0].set_ylim([lim_low - 0.1 * abs(lim_low), lim_up + 0.1 * abs(lim_up)])
-
-    steps_mean = running_mean(episodes_steps, N_av)
-    steps_std = running_std(episodes_steps, N_av)
-    ax[0, 1].plot(samples, steps_mean, label="Mean episode steps")
-    lower, upper = steps_mean - steps_std, steps_mean + steps_std
-    ax[0, 1].fill_between(samples, lower, upper, alpha=0.4, label="Std dev episode steps")
-    if eps is None:
-        ax[0, 1].legend()
-    ax[0, 1].set_title("Number of Steps vs Samples")
-    ax[0, 1].set_xlabel("Samples")
-    ax[0, 1].set_ylabel("Number of Steps")
-    ax[0, 1].grid(alpha=0.3)
-    if len(samples) > N_av:
-        lim_low = min(steps_mean[N_av:] - steps_std[N_av:])
-        lim_up = max(steps_mean[N_av:] + steps_std[N_av:])
-        ax[0, 1].set_ylim([lim_low - abs(lim_low) * 0.1, lim_up + abs(lim_up) * 0.1])
-
-    if eps is not None:
-        secax_y = ax[0, 1].twinx()
-        secax_y.plot(samples, eps, "orange", label="ε")
-        secax_y.set_ylim([-0.05, 1.05])
-        secax_y.set_ylabel("Fraction of random actions")
-        lines, labels = ax[0, 1].get_legend_handles_labels()
-        lines2, labels2 = secax_y.get_legend_handles_labels()
-        secax_y.legend(lines + lines2, labels + labels2)
-
-    hp_mean = running_mean(boss_hp, N_av)
-    hp_std = running_std(boss_hp, N_av)
-    ax[1, 0].plot(samples, hp_mean)
-    ax[1, 0].fill_between(samples, hp_mean - hp_std, hp_mean + hp_std, alpha=0.4)
-    ax[1, 0].legend(["Mean boss HP", "Std dev boss HP"])
-    ax[1, 0].set_title("Boss HP vs Samples")
-    ax[1, 0].set_xlabel("Samples")
-    ax[1, 0].set_ylabel("Boss HP")
-    ax[1, 0].set_ylim([-0.05, 1.05])
-    ax[1, 0].grid(alpha=0.3)
-
-    wins = np.array(wins, dtype=np.float64)
-    wins_mean = running_mean(wins, N_av)
-    ax[1, 1].plot(samples, wins_mean)
-    ax[1, 1].legend(["Mean wins"])
-    ax[1, 1].set_title("Success Rate vs Samples")
-    ax[1, 1].set_xlabel("Samples")
-    ax[1, 1].set_ylabel("Success Rate")
-    ax[1, 1].set_ylim([0, 1])
-    ax[1, 1].grid(alpha=0.3)
+    assert len(ys) == len(ylabels), "Number of y labels must match number of y data arrays"
+    assert all(len(x) == len(y) for y in ys), "All y data arrays must have the same length"
+    num_plots = len(ys)
+    num_rows = num_plots // 2 + num_plots % 2
+    fig, ax = plt.subplots(num_rows, 2, figsize=(15, 5 * num_rows))
+    fig.suptitle("Training Statistics")
+    for i, (y, ylabel) in enumerate(zip(ys, ylabels)):
+        ax_i, ax_j = i // 2, i % 2
+        y_mean = running_mean(y, N_av)
+        y_std = running_std(y, N_av)
+        ax[ax_i, ax_j].plot(x, y_mean)
+        ax[ax_i, ax_j].fill_between(x, y_mean - y_std, y_mean + y_std, alpha=0.4)
+        ax[ax_i, ax_j].set_title(ylabel)
+        ax[ax_i, ax_j].set_xlabel(xlabel)
+        ax[ax_i, ax_j].set_ylabel(ylabel)
+        ax[ax_i, ax_j].grid(alpha=0.3)
+        ax[ax_i, ax_j].set_xlabel(xlabel)
+        ax[ax_i, ax_j].set_ylabel(ylabel)
+        ax[ax_i, ax_j].set_title(ylabel)
+        if len(x) > N_av:
+            lim_low = min(y_mean[N_av:] - y_std[N_av:])
+            lim_up = max(y_mean[N_av:] + y_std[N_av:])
+            ax[ax_i, ax_j].set_ylim([lim_low - 0.1 * abs(lim_low), lim_up + 0.1 * abs(lim_up)])
 
     fig.savefig(path)
     plt.close(fig)

@@ -11,7 +11,6 @@ in https://arxiv.org/pdf/2006.05990.pdf.
 from __future__ import annotations
 
 import logging
-from uuid import uuid4
 from pathlib import Path
 import time
 from typing import TYPE_CHECKING
@@ -21,8 +20,8 @@ import torch
 
 from soulsai.core.agent import PPOAgent
 from soulsai.core.replay_buffer import TrajectoryBuffer
-from soulsai.distributed.common.serialization import PPOSerializer
 from soulsai.distributed.server.training_node.training_node import TrainingNode
+from soulsai.distributed.common.serialization import serialize, deserialize
 from soulsai.utils import namespace2dict
 from soulsai.exception import ServerDiscoveryTimeout
 
@@ -43,13 +42,12 @@ class PPOTrainingNode(TrainingNode):
         """
         logger.info("PPO training node startup")
         super().__init__(config)
-        self._serializer = PPOSerializer(self.config.env.name)
         self.agent = PPOAgent(self.config.ppo.actor_net_type,
                               namespace2dict(self.config.ppo.actor_net_kwargs),
                               self.config.ppo.critic_net_type,
                               namespace2dict(self.config.ppo.critic_net_kwargs),
                               self.config.ppo.actor_lr, self.config.ppo.critic_lr, config.device)
-        self.agent.model_id = str(uuid4())
+        self.agent.model_id = 0
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
             logger.info("Checkpoint loading complete")
@@ -59,10 +57,6 @@ class PPOTrainingNode(TrainingNode):
                                        self.config.env.obs_shape)
         self._model_iterations = 0
         logger.info("PPO training node startup complete")
-
-    @property
-    def serializer(self) -> PPOSerializer:
-        return self._serializer
 
     def _startup_hook(self):
         logger.info("Starting discovery phase")
@@ -88,12 +82,12 @@ class PPOTrainingNode(TrainingNode):
     def _update_model(self):
         tstart = time.time()
         self._ppo_step()
-        self.agent.model_id = str(uuid4())
+        self.agent.model_id += 1
         logger.info((f"{time.strftime('%X')}: Model update complete ({time.time() - tstart:.2f}s)"
                      f"\nTotal env steps: {self._total_env_steps}"))
 
     def _publish_model(self):
-        logger.debug(f"Publishing new model with ID {self.agent.model_id}")
+        logger.debug(f"Publishing new model iteration {self.agent.model_id}")
         self.red.hset("model_params", mapping=self.agent.serialize(serialize_critic=False))
         self.red.publish("model_update", self.agent.model_id)
         logger.debug("Model upload successful")
@@ -193,6 +187,6 @@ class PPOTrainingNode(TrainingNode):
         return list(range(self.config.ppo.n_clients))
 
     def _episode_info_callback(self, episode_info: bytes):
-        data = self.serializer.deserialize_episode_info(episode_info)
-        data["totalSteps"] = self._total_env_steps
-        self.red.publish("telemetry", self.serializer.serialize_telemetry(data))
+        data = deserialize(episode_info)
+        data["total_steps"] = self._total_env_steps
+        self.red.publish("telemetry", serialize(data))

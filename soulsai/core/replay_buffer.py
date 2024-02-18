@@ -3,35 +3,21 @@ from __future__ import annotations
 
 import sys
 from abc import ABC, abstractmethod, abstractproperty
-from typing import List, Dict, Type, TYPE_CHECKING
+from typing import List, Dict, Type, TYPE_CHECKING, Callable
 import random
 
 import numpy as np
 import torch
 from tensordict import TensorDict
 
+from soulsai.utils import module_type_from_string
+
 if TYPE_CHECKING:
     from pathlib import Path
 
     from soulsai.core.agent import PPOAgent
 
-
-def get_buffer_class(buffer_type: str) -> Type[AbstractBuffer]:
-    """Get the buffer class from the buffer string.
-
-    Note:
-        This function returns a type rather than an instance!
-
-    Args:
-        buffer_type: The buffer type name.
-
-    Returns:
-        The buffer type.
-
-    Raises:
-        AttributeError: The specified buffer type does not exist.
-    """
-    return getattr(sys.modules[__name__], buffer_type)
+buffer_cls: Callable[[str], type[AbstractBuffer]] = module_type_from_string(__name__)
 
 
 class AbstractBuffer(ABC):
@@ -119,159 +105,18 @@ class AbstractBuffer(ABC):
 
 
 class ReplayBuffer(AbstractBuffer):
-    """Fast implementation of a replay buffer.
-
-    Buffers for observations, actions, action masks, rewards, next observations, terminated and
-    truncated flags are preallocated. An internal index keeps track of the current size of the
-    buffer and enables to only sample from the parts of the buffers already filled with experience.
-    """
-
-    def __init__(self,
-                 maxlen: int,
-                 obs_shape: tuple[int, ...],
-                 n_actions: int,
-                 action_masking: bool = False,
-                 obs_dtype: str | np.dtype = np.float32):
-        """Preallocate the buffer arrays and set the index to 0.
-
-        Args:
-            maxlen: Maximum buffer capacity.
-            obs_shape: Observation shape.
-            n_actions: Number of possible actions.
-            action_masking: Flag to disable/enable action masking.
-            obs_dtype: Observation data type. Can reduce memory footprint by using uint8 for images.
-        """
-        super().__init__()
-        self.maxlen = maxlen
-        self._idx = 0
-        self._maxidx = -1
-        obs_dtype = getattr(np, obs_dtype) if isinstance(obs_dtype, str) else obs_dtype
-        self.buffers = {
-            "obs": np.zeros((maxlen, *obs_shape), dtype=obs_dtype),
-            "action": np.zeros(maxlen, dtype=np.int64),
-            "action_mask": np.zeros((maxlen, n_actions)),
-            "reward": np.zeros(maxlen),
-            "nextObs": np.zeros((maxlen, *obs_shape), dtype=obs_dtype),
-            "terminated": np.zeros(maxlen),
-            "truncated": np.zeros(maxlen)
-        }
-        self._action_masking = action_masking
-
-    def append(self, sample: Dict):
-        """Append a sample to the buffer.
-
-        Args:
-            sample: DQN sample dict containing the observation, the action, the reward, the next
-            observation, and the terminated flag. If action masking is used, the info dict must
-            contain a key "allowed_actions" with the list of allowed actions.
-        """
-        for key in ("obs", "action", "reward", "nextObs", "terminated", "truncated"):
-            self.buffers[key][self._idx] = sample[key]
-        if self._action_masking:
-            self.buffers["action_mask"][self._idx] = 0
-            self.buffers["action_mask"][self._idx, sample["info"]["allowed_actions"]] = 1
-        self._idx = (self._idx + 1) % self.maxlen
-        self._maxidx = min(self._maxidx + 1, self.maxlen - 1)
-
-    def clear(self):
-        """Clear the buffer from all samples."""
-        self._idx = 0
-        self._maxidx = -1
-
-    def __len__(self) -> int:
-        """Get the length of the buffer.
-
-        Returns:
-            The buffer length.
-        """
-        return self._maxidx + 1
-
-    @property
-    def filled(self) -> bool:
-        """Check if the buffer is filled.
-
-        Returns:
-            True if the buffer is full, else false.
-        """
-        return self._maxidx + 1 == self.maxlen
-
-    def sample_batch(self, batch_size: int) -> List[np.ndarray]:
-        """Sample a single batch from the buffer.
-
-        Args:
-            batch_size: Number of samples in the batch.
-
-        Returns:
-            The sampled batch.
-
-        Raises:
-            RuntimeError: Asked to sample more samples than currently available.
-        """
-        if batch_size > self._maxidx + 1:
-            raise RuntimeError("Asked to sample more elements than available in buffer")
-        i = np.array(random.sample(range(self._maxidx + 1), batch_size))
-        keys = ("obs", "action", "reward", "nextObs", "terminated")  # Order of keys is important!
-        if self._action_masking:
-            keys += ("action_mask",)
-        return [self.buffers[key][i] for key in keys]
-
-    def sample_batches(self, batch_size: int, nbatches: int) -> List[np.ndarray]:
-        """Sample multiple batches from the buffer.
-
-        If sufficient samples are available, the batches will not have dublicate samples across all
-        batches.
-
-        Args:
-            batch_size: Number of samples per batch.
-            nbatches: Number of batches.
-
-        Returns:
-            The sampled batches.
-
-        Raises:
-            RuntimeError: Asked to sample more samples per batch than currently available.
-        """
-        if batch_size > self._maxidx + 1:
-            raise RuntimeError("Asked to sample more elements than available in buffer")
-        # If the buffer contains more samples than requested in total, indices are chosen such that
-        # no sample is sampled twice across all batches. If more total samples are requested than
-        # available in the buffer, resort to random independent indices in each batch
-        nsamples = batch_size * nbatches
-        if nsamples <= self._maxidx + 1:
-            indices = np.split(np.array(random.sample(range(self._maxidx + 1), batch_size)),
-                               nbatches)
-        else:
-            indices = [
-                np.array(random.sample(range(self._maxidx + 1), batch_size))
-                for _ in range(nbatches)
-            ]
-        keys = ("obs", "action", "reward", "nextObs", "terminated")  # Order of keys is important!
-        if self._action_masking:
-            keys += ("action_mask",)
-        return [[self.buffers[key][i] for key in keys] for i in indices]
-
-
-class DynamicReplayBuffer(AbstractBuffer):
-    """Implementation of a dynamic replay buffer that lazily allocates storage.
+    """Implementation of a replay buffer that lazily allocates storage.
 
     Buffers for samples are allocated on receiving the first sample. An internal index keeps track
     of the current size of the buffer and enables to only sample from the parts of the buffers
     already filled with experience.
-
-    This implementation is slower than the ReplayBuffer:
-        - append: 7x slower
-        - sample_batch: 4x slower
-        - sample_batches: 2x slower
-
-    However, it should not bottleneck most training algorithms, as the absolute time is still small.
-    In addition, its code complexity is much lower.
     """
 
     def __init__(self,
                  max_size: int,
                  device: torch.device = torch.device("cpu"),
                  seed: int | None = None):
-        """Preallocate the buffer arrays and set the index to 0.
+        """Create the buffer tensor dict and set the index to 0.
 
         Args:
             max_size: Maximum buffer capacity.
@@ -287,6 +132,7 @@ class DynamicReplayBuffer(AbstractBuffer):
         self._maxidx = -1
         # Reproducible random number generator
         self.rng = np.random.default_rng(seed=seed)
+        random.seed(seed)
 
     def append(self, sample: TensorDict[torch.Tensor]):
         """Append a sample to the buffer.
@@ -296,11 +142,7 @@ class DynamicReplayBuffer(AbstractBuffer):
         """
         num_samples = sample.batch_size[0]
         assert num_samples < self.max_size, "Sample size must be smaller than the buffer"
-        # Check if there are unknown keys in the sample and allocate buffers for them if necessary
-        # if any(key not in self._keyset for key in sample.keys()):
-        for key, value in sample.items():
-            if key not in self.buffer.keys():
-                self.buffer[key] = torch.empty((self.max_size, *value.shape[1:]), dtype=value.dtype)
+        self._allocate_buffers(sample)
         # If num_samples + self._idx > self.max_size, the index wraps around to the beginning of the
         # buffer. We take the index vector modulo ``self.max_size`` to implement this behavior.
         idx = torch.arange(self._idx, self._idx + num_samples) % self.max_size
@@ -308,6 +150,20 @@ class DynamicReplayBuffer(AbstractBuffer):
         # Update the helper indices
         self._idx = (self._idx + num_samples) % self.max_size
         self._maxidx = min(self._maxidx + num_samples, self.max_size - 1)
+
+    def _allocate_buffers(self, sample: TensorDict[torch.Tensor]):
+        # Check if there are unknown keys in the sample and allocate buffers for them if necessary
+        for key in set(sample.keys()).difference(set(self.buffer.keys())):
+            if isinstance(sample[key], torch.Tensor):
+                self.buffer[key] = torch.empty((self.max_size, *sample[key].shape[1:]),
+                                               dtype=sample[key].dtype,
+                                               device=self.device)
+            elif isinstance(sample[key], TensorDict):
+                self.buffer[key] = TensorDict(sample[key],
+                                              batch_size=self.max_size,
+                                              device=self.device)
+            else:
+                raise ValueError(f"Unknown sample type for key {key}")
 
     def clear(self):
         """Clear the buffer from all samples."""
@@ -370,9 +226,9 @@ class DynamicReplayBuffer(AbstractBuffer):
         # available in the buffer, resort to random independent indices in each batch
         nsamples = batch_size * nbatches
         if nsamples <= self._maxidx + 1:
-            i = self.rng.integers(0, self._maxidx + 1, size=nsamples)
+            i = np.array(random.sample(range(self._maxidx + 1), nsamples))
         else:
-            i = np.array(random.sample(range(self._maxidx + 1), batch_size))
+            i = self.rng.integers(0, self._maxidx + 1, size=nsamples)
         return self.buffer[i].reshape(nbatches, batch_size, -1)
 
 

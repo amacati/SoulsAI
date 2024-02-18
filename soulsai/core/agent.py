@@ -16,7 +16,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-from soulsai.core.networks import get_net_class
+from soulsai.core.networks import net_cls
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -30,35 +30,25 @@ class Agent:
         self.dev = dev
         self.networks = torch.nn.ModuleDict()
         self.shared = False  # Shared before super init since model_id property needs shared flag
-        self.model_id = None
+        self._model_id = mp.Value("i", -1)
 
     def share_memory(self):
         """Share the networks and model ID memory."""
         self.networks.share_memory()
         self.shared = True
-        self._model_id = mp.Array("B", 36)  # uuid4 string holds 36 chars
-        self._model_id[:] = bytes(36 * " ", encoding="utf-8")
 
     @property
-    def model_id(self) -> str:
+    def model_id(self) -> int:
         """The current model ID identifies each unique iteration of the agent.
-
-        The model ID is a 36 character long string, exactly the length of a uuid4 string.
 
         Returns:
             The model ID.
         """
-        if self.shared:
-            return bytes(self._model_id[:]).decode("utf-8")
-        return self._model_id
+        return self._model_id.value
 
     @model_id.setter
-    def model_id(self, value: str):
-        if self.shared:
-            assert len(value) == 36, f"Model ID must be 36 characters long, got {len(value)}"
-            self._model_id[:] = bytes(value, encoding="utf-8")
-        else:
-            self._model_id = value
+    def model_id(self, value: int):
+        self._model_id.value = value
 
     def save(self, path: Path):
         """Save all modules.
@@ -117,7 +107,7 @@ class Agent:
         networks_buff = io.BytesIO(serialization["networks"])
         networks_buff.seek(0)
         self.networks = torch.load(networks_buff)
-        self.model_id = serialization["model_id"].decode("utf-8")
+        self.model_id = int(serialization["model_id"])
 
     def update_callback(self):
         """Update callback for networks with special requirements."""
@@ -150,9 +140,8 @@ class DQNAgent(Agent):
         super().__init__(dev)
         self.q_clip = q_clip
         self.network_type = network_type
-        Net = get_net_class(network_type)
-        self.networks.add_module("dqn1", Net(**network_kwargs).to(self.dev))
-        self.networks.add_module("dqn2", Net(**network_kwargs).to(self.dev))
+        self.networks.add_module("dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
+        self.networks.add_module("dqn2", net_cls(network_type)(**network_kwargs).to(self.dev))
         self.dqn1_opt = torch.optim.Adam(self.networks["dqn1"].parameters(), lr=lr)
         self.dqn2_opt = torch.optim.Adam(self.networks["dqn2"].parameters(), lr=lr)
         self.gamma = gamma
@@ -233,9 +222,8 @@ class DistributionalDQNAgent(Agent):
                  multistep: int, grad_clip: float, q_clip: float, dev: torch.device):
         super().__init__(dev)
         self.network_type = network_type
-        Net = get_net_class(network_type)
-        self.networks.add_module("qr_dqn1", Net(**network_kwargs).to(self.dev))
-        self.networks.add_module("qr_dqn2", Net(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn2", net_cls(network_type)(**network_kwargs).to(self.dev))
         self.opt1 = torch.optim.Adam(self.networks["qr_dqn1"].parameters(), lr)
         self.opt2 = torch.optim.Adam(self.networks["qr_dqn2"].parameters(), lr)
         self.gamma = gamma
@@ -288,7 +276,7 @@ class DistributionalDQNAgent(Agent):
                 assert action_masks.shape == (batch_size, self.networks["qr_dqn1"].output_dims)
                 action_masks = action_masks.unsqueeze(1).expand(q_next.shape)
                 q_next = torch.where(action_masks, q_next, -torch.inf)
-            a_next = torch.argmax(q_next.mean(dim=1), dim=1)
+            a_next = torch.argmax(q_next.mean(dim=-1), dim=-1)
             # Estimate quantiles of actions chosen by train net with estimate net to avoid
             # overestimation
             q_a_next = estimate_net(next_obs)[range(batch_size), :, a_next]
@@ -325,9 +313,8 @@ class DistributionalR2D2Agent(Agent):
                  multistep: int, grad_clip: float, q_clip: float, dev: torch.device):
         super().__init__(dev)
         self.network_type = network_type
-        Net = get_net_class(network_type)
-        self.networks.add_module("qr_dqn1", Net(**network_kwargs).to(self.dev))
-        self.networks.add_module("qr_dqn2", Net(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn2", net_cls(network_type)(**network_kwargs).to(self.dev))
         self.opt1 = torch.optim.Adam(self.networks["qr_dqn1"].parameters(), lr)
         self.opt2 = torch.optim.Adam(self.networks["qr_dqn2"].parameters(), lr)
         self.gamma = gamma
@@ -416,11 +403,10 @@ class DQNClientAgent(Agent):
     def __init__(self, network_type: str, network_kwargs: dict, dev: torch.device):
         super().__init__(dev)
         self.network_type = network_type
-        Net = get_net_class(network_type)
-        self.networks.add_module("dqn1", Net(**network_kwargs).to(self.dev))
-        self.networks.add_module("dqn2", Net(**network_kwargs).to(self.dev))
+        self.networks.add_module("dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
+        self.networks.add_module("dqn2", net_cls(network_type)(**network_kwargs).to(self.dev))
 
-    def __call__(self, x: np.ndarray, action_mask: np.ndarray | None = None) -> int:
+    def __call__(self, x: np.ndarray, action_mask: np.ndarray | None = None) -> torch.IntTensor:
         """Calculate the current best action by averaging the values from both networks.
 
         Args:
@@ -432,11 +418,11 @@ class DQNClientAgent(Agent):
         """
         with torch.no_grad():
             x = torch.as_tensor(x).to(self.dev)
-            qvalues = self.networks["dqn1"](x) + self.networks["dqn1"](x)
+            qvalues = self.networks["dqn1"](x) + self.networks["dqn2"](x)
             if action_mask is not None:
                 c = torch.as_tensor(action_mask, dtype=torch.bool, device=self.dev)
                 qvalues = torch.where(c, qvalues, -torch.inf)
-            return torch.argmax(qvalues).item()
+            return torch.argmax(qvalues, dim=-1)
 
 
 class DistributionalDQNClientAgent(Agent):
@@ -444,11 +430,10 @@ class DistributionalDQNClientAgent(Agent):
     def __init__(self, network_type: str, network_kwargs: dict, dev: torch.device):
         super().__init__(dev)
         self.network_type = network_type
-        Net = get_net_class(network_type)
-        self.networks.add_module("qr_dqn1", Net(**network_kwargs).to(self.dev))
-        self.networks.add_module("qr_dqn2", Net(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
+        self.networks.add_module("qr_dqn2", net_cls(network_type)(**network_kwargs).to(self.dev))
 
-    def __call__(self, x: np.ndarray, action_mask: np.ndarray | None = None) -> int:
+    def __call__(self, x: np.ndarray, action_mask: np.ndarray | None = None) -> torch.IntTensor:
         """Calculate the current best action.
 
         Args:
@@ -460,12 +445,11 @@ class DistributionalDQNClientAgent(Agent):
         """
         with torch.no_grad():
             x = torch.as_tensor(x).to(self.dev)
-            qvalues = self.networks["qr_dqn1"](x) + self.networks["qr_dqn2"](x)
-            qvalues = qvalues.mean(dim=1)
+            qvalues = (self.networks["qr_dqn1"](x) + self.networks["qr_dqn2"](x)).mean(dim=-1)
             if action_mask is not None:
                 c = torch.as_tensor(action_mask, dtype=torch.bool, device=self.dev)
                 qvalues = torch.where(c, qvalues, -torch.inf)
-            return torch.argmax(qvalues).item()
+            return torch.argmax(qvalues, dim=-1)
 
 
 class PPOAgent(Agent):
@@ -489,8 +473,8 @@ class PPOAgent(Agent):
         """
         super().__init__(dev=dev)
         self.actor_net_type, self.critic_net_type = actor_net, critic_net
-        self.networks.add_module("actor", get_net_class(actor_net)(**actor_net_kwargs).to(dev))
-        self.networks.add_module("critic", get_net_class(critic_net)(**critic_net_kwargs).to(dev))
+        self.networks.add_module("actor", net_cls(actor_net)(**actor_net_kwargs).to(dev))
+        self.networks.add_module("critic", net_cls(critic_net)(**critic_net_kwargs).to(dev))
 
         self.actor_opt = torch.optim.Adam(self.networks["actor"].parameters(), lr=actor_lr)
         self.critic_opt = torch.optim.Adam(self.networks["critic"].parameters(), lr=critic_lr)
@@ -567,7 +551,7 @@ class PPOAgent(Agent):
         actor_buff = io.BytesIO(serialization["actor"])
         actor_buff.seek(0)
         self.networks["actor"] = torch.load(actor_buff)
-        self.model_id = serialization["model_id"].decode("utf-8")
+        self.model_id = serialization["model_id"]
 
     def update_callback(self):
         """Update callback after a training step to reset noisy nets if used."""
@@ -591,5 +575,5 @@ class PPOClientAgent(PPOAgent, Agent):
         # Skip PPOAgent __init__, we don't want the critic on clients
         super(PPOAgent, self).__init__(dev)
         self.actor_net_type = network_type
-        self.networks.add_module("actor", get_net_class(network_type)(**network_kwargs).to(dev))
+        self.networks.add_module("actor", net_cls(network_type)(**network_kwargs).to(dev))
         self.model_id = None

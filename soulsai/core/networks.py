@@ -5,7 +5,7 @@ reasonable hyperparameter regimes and mostly dense networks, users may want to e
 different network styles such as noisy nets for exploration.
 """
 import sys
-from typing import Type
+from typing import Callable
 import logging
 
 import torch
@@ -13,25 +13,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+from soulsai.utils import module_type_from_string
+
 logger = logging.getLogger(__name__)
 
-
-def get_net_class(network_type: str) -> Type[nn.Module]:
-    """Get the network class from the network string.
-
-    Note:
-        This function returns a type rather than an instance!
-
-    Args:
-        network_type: The network type name.
-
-    Returns:
-        The network type.
-
-    Raises:
-        AttributeError: The specified network type does not exist.
-    """
-    return getattr(sys.modules[__name__], network_type)
+net_cls: Callable[[str], type[nn.Module]] = module_type_from_string(__name__)
 
 
 def layer_init(layer: nn.Linear, std: float = np.sqrt(2), bias_const: float = 0.0) -> nn.Linear:
@@ -268,12 +254,12 @@ class DistributionalDQN(nn.Module):
         Returns:
             The network output. Note that the output is a distribution tensor of shape [B A N]
             instead of [B A], where B is the batch dimension, A is the action dimension, and N is
-            the number of bins (here 32).
+            the number of bins.
         """
         batch_size = x.shape[0] if x.ndim > 1 else 1
         x = F.relu(self.l1(x))
         x = F.relu(self.l2(x))
-        x = self.l3(x).view(batch_size, self.n_quantiles, self.output_dims)
+        x = self.l3(x).view(batch_size, self.output_dims, self.n_quantiles)
         return x
 
 

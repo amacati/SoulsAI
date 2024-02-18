@@ -5,17 +5,20 @@ import logging
 import json
 from pathlib import Path
 import time
-from typing import List, TYPE_CHECKING
+from typing import Callable, TYPE_CHECKING
 
 from redis import Redis
 from prometheus_client import start_http_server
 
 from soulsai.utils import load_redis_secret, load_remote_config
-from soulsai.distributed.common.serialization import get_serializer_cls
+from soulsai.distributed.common.serialization import deserialize
 from soulsai.distributed.server.telemetry_node.connectors import (TelemetryConnector,
                                                                   GrafanaConnector,
                                                                   FileStorageConnector,
                                                                   WandBConnector)
+from soulsai.distributed.server.telemetry_node.transforms import telemetry_transform
+from soulsai.distributed.server.telemetry_node.transforms import TelemetryTransform
+from soulsai.distributed.server.telemetry_node.callbacks import telemetry_callback
 
 if TYPE_CHECKING:
     from types import SimpleNamespace
@@ -43,8 +46,6 @@ class TelemetryNode:
 
         Args:
             config: Training configuration.
-            connectors: List of telemetry connectors that expose the stats to external services or
-                files.
         """
         logger.info("Telemetry node startup")
 
@@ -52,7 +53,6 @@ class TelemetryNode:
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
         self.red = Redis(host='redis', port=6379, password=secret, db=0)
         self.config = load_remote_config(config.redis_address, secret, self.red)
-        self.serializer = get_serializer_cls(self.config.algorithm)(self.config.env.name)
 
         # Initialize the subscriber for telemetry information from the training node
         self.sub_telemetry = self.red.pubsub(ignore_subscribe_messages=True)
@@ -67,18 +67,14 @@ class TelemetryNode:
         # Start a Prometheus server to make the telemetry node status visible in Grafana
         start_http_server(8080)
 
-        self.stats = {
-            "rewards": [],
-            "rewards_av": [],
-            "steps": [],
-            "steps_av": [],
-            "boss_hp": [],
-            "boss_hp_av": [],
-            "wins": [],
-            "wins_av": [],
-            "eps": [],
-            "n_env_steps": []
-        }
+        # Add a stats dictionary and initialize the telemetry transforms list. Each time a telemetry
+        # message is received, the transforms are applied to the message and the result is added to
+        # the stats dictionary. The stats dictionary is then shared with the telemetry connectors.
+        # Note that the keys returned by the transforms must be unique.
+        self.stats = dict()
+        self.telemetry_transforms = self._create_transforms()
+        self.telemetry_callbacks = self._create_callbacks()
+
         self.connectors = self._create_connectors()
         for connector in self.connectors:
             connector.start()
@@ -104,22 +100,37 @@ class TelemetryNode:
             Telemetry messages and therefore the stats are not guaranteed to be in order.
         """
         logger.info("Telemetry node running")
+        n_episodes = 0
         while not self._shutdown:
             # read new samples
             if not (msg := self.sub_telemetry.get_message()):
                 time.sleep(0.1)
                 continue
-            self._update_stats(self.serializer.deserialize_telemetry(msg["data"]))
-            n_episodes = len(self.stats["steps"])
+            self._process_msg(msg)
+            n_episodes += 1
             if n_episodes % self.config.telemetry.update_interval == 0:
                 for connector in self.connectors:
                     connector.update(self.stats)
-                av_reward, av_steps = self.stats["rewards_av"][-1], self.stats["steps_av"][-1]
-                logger.info((f"Telemetry updated, last av. reward: {av_reward:.1f}"
-                             f", last av. steps: {av_steps:.0f}"))
+                self._log_telemetry()
+                if self.config.telemetry.callbacks:
+                    for callback in self.config.telemetry.callbacks:
+                        callback(self)
                 if self.stats["rewards_av"][-1] > self._best_reward:
                     self.red.publish("save_best", "")
                     self._best_reward = self.stats["rewards_av"][-1]
+
+    def _process_msg(self, msg: bytes):
+        """Deserialize the message and add the information to the stats dict."""
+        sample = deserialize(msg["data"])
+        for tf in self.telemetry_transforms:
+            key, value = tf(sample)
+            self.stats[key].append(value)
+            self.stats[key + "_av"].append(self._latest_moving_av(self.stats[key]))
+
+    def _log_telemetry(self):
+        if keys := self.config.telemetry.log_keys:
+            info = " | ".join(f"{k}: {self.stats[k][-1]:.2f}" for k in keys)
+            logger.info("Telemetry update: " + info)
 
     def _create_connectors(self) -> list[TelemetryConnector]:
         """Create the telemetry connectors."""
@@ -135,22 +146,19 @@ class TelemetryNode:
             logger.info("Initializing Weights and Biases telemetry connector")
         return connectors
 
-    def _update_stats(self, sample: dict):
-        """Update the telemetry statistics.
+    def _create_transforms(self) -> list[TelemetryTransform]:
+        """Create the telemetry transforms."""
+        transforms = []
+        for transform in self.config.telemetry.transforms:
+            transforms.append(telemetry_transform(transform["type"])(**transform.get("kwargs", {})))
+        return transforms
 
-        Args:
-            sample: Sample dictionary.
-        """
-        self.stats["rewards"].append(sample["epReward"])
-        self.stats["rewards_av"].append(self._latest_moving_av(self.stats["rewards"]))
-        self.stats["steps"].append(sample["epSteps"])
-        self.stats["steps_av"].append(self._latest_moving_av(self.stats["steps"]))
-        self.stats["boss_hp"].append(sample["bossHp"])
-        self.stats["boss_hp_av"].append(self._latest_moving_av(self.stats["boss_hp"]))
-        self.stats["wins"].append(int(sample["win"]))
-        self.stats["wins_av"].append(self._latest_moving_av(self.stats["wins"]))
-        self.stats["eps"].append(sample["eps"])
-        self.stats["n_env_steps"].append(sample["totalSteps"])
+    def _create_callbacks(self) -> list[Callable[[TelemetryNode], None]]:
+        """Create the telemetry callbacks."""
+        callbacks = []
+        for callback in self.config.telemetry.callbacks:
+            callbacks.append(telemetry_callback(callback["type"])(**callback.get("kwargs", {})))
+        return callbacks
 
     def _load_stats(self):
         path = Path(self.config.monitoring.file_storage.path) / "checkpoint/SoulsAIStats.json"
@@ -165,6 +173,6 @@ class TelemetryNode:
         logger.info("Shutdown signaled")
         self._shutdown = True
 
-    def _latest_moving_av(self, x: List) -> float:
+    def _latest_moving_av(self, x: list[float]) -> float:
         view = x[-self.config.telemetry.moving_average:]
         return sum(view) / len(view)  # len(view) can be smaller than N

@@ -5,3 +5,4 @@ pyyaml==6.0
 pycapnp==1.3.0
 gymnasium[box2d]==0.29.1
 einops==0.7.0
+tensordict==0.2.1

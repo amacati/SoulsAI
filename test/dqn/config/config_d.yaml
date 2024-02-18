@@ -68,6 +68,37 @@ checkpoint:
 telemetry:
   update_interval: 5
   moving_average: 20
+  transforms:
+    - type: "MetricByKey"
+      kwargs:
+        key: "ep_reward"
+        name: "rewards"
+    - type: "MetricByKey"
+      kwargs:
+        key: "ep_steps"
+        name: "steps"
+    - type: "MetricByKey"
+      kwargs:
+        key: "eps"
+        name: "eps"
+    - type: "MetricByKey"
+      kwargs:
+        key: "total_steps"
+        name: "n_env_steps"
+    - type: "CompareValue"
+      kwargs:
+        key: "rewards"
+        name: "wins"
+        value: 200
+        op: gt  # Greater than
+  log_keys:
+    - "rewards_av"
+    - "steps_av"
+  callbacks:
+    - type: "SaveBest"
+      kwargs:
+        key: "rewards_av"
+        channel: "save_best"
 
 monitoring:
   file_storage:

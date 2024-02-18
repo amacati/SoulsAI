@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import gymnasium as gym
 
-from soulsai.distributed.common.serialization import PPOSerializer
+from soulsai.distributed.common.serialization import serialize
 from soulsai.distributed.client.connector import PPOConnector
 
 if TYPE_CHECKING:
@@ -48,7 +48,6 @@ def ppo_client(config: SimpleNamespace):
 
     env = gym.make(config.env.name)
     con = PPOConnector(config)
-    serializer = PPOSerializer(config.env.name)
     con.sync()  # Wait for the new model to download
 
     logger.info("Client node running")
@@ -66,7 +65,7 @@ def ppo_client(config: SimpleNamespace):
                 next_obs, reward, next_terminated, truncated, info = env.step(action)
                 next_terminated = next_terminated or truncated
                 episode_reward += reward
-                sample = serializer.serialize_sample({
+                sample = serialize({
                     "obs": obs,
                     "action": action,
                     "prob": prob,
@@ -86,7 +85,7 @@ def ppo_client(config: SimpleNamespace):
                 if config.step_delay:
                     time.sleep(config.step_delay)
                 if ppo_steps == config.ppo.n_steps:
-                    sample = serializer.serialize_sample({
+                    sample = serialize({
                         "obs": next_obs,
                         "action": 0,
                         "prob": 0,
@@ -99,7 +98,7 @@ def ppo_client(config: SimpleNamespace):
                     con.push_sample(sample)
                     ppo_steps = 0
                     con.sync(config.ppo.client_sync_timeout)  # Wait for the new model
-            episode_info = serializer.serialize_episode_info({
+            episode_info = serialize({
                 "epReward": episode_reward,
                 "epSteps": episode_steps,
                 "obs": obs,

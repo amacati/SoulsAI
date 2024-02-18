@@ -1,12 +1,13 @@
 """The ``utils`` module contains various utility functions for conversions and config handling."""
 import json
 from types import SimpleNamespace
-from typing import List, NewType
+from typing import List, NewType, Callable
 import logging
 from pathlib import Path
 from datetime import datetime
 import time
 import copy
+import sys
 
 import numpy as np
 import yaml
@@ -53,6 +54,29 @@ def running_std(x: List, N: int) -> np.ndarray:
     if len(x) >= N:
         std[N - 1:] = np.std(np.lib.stride_tricks.sliding_window_view(x, N), axis=-1)
     return std
+
+
+def module_type_from_string(module_name: str) -> Callable[[str], type]:
+    """Create a function that gets attributes from a module by name.
+
+    Example:
+        >>> import torch
+        >>> torch_type = module_type_from_string("torch")
+        >>> tensor_type = torch_type("Tensor")
+        >>> tensor_type
+        <class 'torch.Tensor'>
+
+    Args:
+        module_name: The module name.
+
+    Returns:
+        The module attribute.
+    """
+
+    def _module_type_from_string(name: str) -> type:
+        return getattr(sys.modules[module_name], name)
+
+    return _module_type_from_string
 
 
 def mkdir_date(path: Path) -> Path:

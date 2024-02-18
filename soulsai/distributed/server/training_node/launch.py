@@ -4,6 +4,7 @@ from pathlib import Path
 
 from soulsai.distributed.server.training_node.dqn import DQNTrainingNode
 from soulsai.distributed.server.training_node.ppo import PPOTrainingNode
+from soulsai.distributed.server.training_node.training_node import TrainingNode
 from soulsai.utils import load_config
 from soulsai.exception import InvalidConfigError
 
@@ -17,7 +18,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=config.loglevel)
 
     if config.algorithm.lower() == "dqn":
-        training_node = DQNTrainingNode(config)
+        training_node: TrainingNode = DQNTrainingNode(config)
     elif config.algorithm.lower() == "ppo":
         training_node = PPOTrainingNode(config)
     else:

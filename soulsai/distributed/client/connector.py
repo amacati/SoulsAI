@@ -17,7 +17,7 @@ from redis import Redis
 import torch.multiprocessing as mp
 
 from soulsai.core.agent import DQNClientAgent, DistributionalDQNClientAgent, PPOClientAgent
-from soulsai.core.normalizer import get_normalizer_class, AbstractNormalizer
+from soulsai.core.normalizer import normalizer_cls, AbstractNormalizer
 from soulsai.utils import load_redis_secret, namespace2dict
 from soulsai.exception import ClientRegistrationError, ServerTimeoutError
 
@@ -80,9 +80,8 @@ class DQNConnector:
                                         namespace2dict(config.dqn.network_kwargs), config.device)
         self.normalizer = None
         if config.dqn.normalizer:
-            normalizer_cls = get_normalizer_class(config.dqn.normalizer)
-            norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
-            self.normalizer = normalizer_cls(config.env.obs_shape, **norm_kwargs)
+            kwargs = namespace2dict(config.dqn.normalizer_kwargs)
+            self.normalizer = normalizer_cls(config.dqn.normalizer)(config.env.obs_shape, **kwargs)
         self._eps = cxt.Value("d", -1.)
         self._lock = cxt.Lock()
         self._update_event = cxt.Event()
@@ -119,8 +118,7 @@ class DQNConnector:
 
         # Block while first model is not here
         logger.info("Waiting for model download...")
-        self.agent.model_id = " " * 36
-        while self.model_id[0] == " ":
+        while self.model_id == -1:
             time.sleep(0.01)
         logger.info("Download complete, connector initialized")
 
@@ -146,7 +144,7 @@ class DQNConnector:
             return True
 
     @property
-    def model_id(self) -> str:
+    def model_id(self) -> int:
         """Model ID.
 
         Always use with the context manager! See :meth:`.DQNConnector.__enter__`.

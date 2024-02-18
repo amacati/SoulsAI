@@ -58,8 +58,8 @@ class FileStorageConnector(TelemetryConnector):
         self.plot = config.monitoring.file_storage.plot
         self.path = Path(config.monitoring.file_storage.path) / config.save_dir
         self.path.mkdir(parents=True, exist_ok=True)
-        self.stats_path = self.path / "SoulsAIStats.json"
-        self.figure_path = self.path / "SoulsAIDashboard.png"
+        self.stats_path = self.path / "telemetry.json"
+        self.figure_path = self.path / "telemetry.png"
 
     def start(self):
         ...
@@ -73,9 +73,14 @@ class FileStorageConnector(TelemetryConnector):
         with open(self.stats_path, "w") as f:
             json.dump(data, f)
         if self.plot:
-            save_plots(data["n_env_steps"], data["rewards"], data["steps"], data["boss_hp"],
-                       data["wins"], self.figure_path, data["eps"],
-                       self.config.telemetry.moving_average)
+            xkey = self.config.monitoring.file_storage.plot.xkey
+            ykeys = self.config.monitoring.file_storage.plot.ykeys
+            save_plots(x=np.array(data[xkey]),
+                       ys=[np.array(data[key]) for key in ykeys],
+                       xlabel=xkey,
+                       ylabels=ykeys,
+                       path=self.figure_path,
+                       N_av=self.config.telemetry.moving_average)
 
     def stop(self):
         ...
@@ -189,6 +194,7 @@ class GrafanaConnector(TelemetryConnector):
             idx = np.linspace(0, len(self.data[key]) - 1, max_samples, dtype=np.int64)
             data[key] = [self.data[key][i] for i in idx]
         return data
+
 
 class WandBConnector(TelemetryConnector):
 

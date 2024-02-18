@@ -10,7 +10,6 @@ architecture more resilient against connection failures, client errors etc.
 """
 from __future__ import annotations
 
-from uuid import uuid4
 import logging
 from pathlib import Path
 from collections import deque
@@ -22,11 +21,11 @@ from multiprocessing.synchronize import Event
 import torch
 from redis import Redis
 
-from soulsai.core.replay_buffer import get_buffer_class
+from soulsai.core.replay_buffer import buffer_cls
 from soulsai.core.agent import DistributionalDQNAgent, DQNAgent
-from soulsai.core.normalizer import get_normalizer_class
+from soulsai.core.normalizer import normalizer_cls
 from soulsai.core.scheduler import EpsilonScheduler
-from soulsai.distributed.common.serialization import DQNSerializer
+from soulsai.distributed.common.serialization import serialize, deserialize
 from soulsai.distributed.server.training_node.training_node import TrainingNode
 from soulsai.distributed.server.training_node.connector import DQNServerConnector
 from soulsai.utils import namespace2dict, load_redis_secret
@@ -50,7 +49,6 @@ class DQNTrainingNode(TrainingNode):
         """
         logger.info("DQN training node startup")
         super().__init__(config)
-        self._serializer = DQNSerializer(self.config.env.name)
         # Translate config params
         if self.config.dqn.min_samples:
             assert self.config.dqn.min_samples <= self.config.dqn.buffer_size
@@ -83,15 +81,13 @@ class DQNTrainingNode(TrainingNode):
 
         self.normalizer = None
         if self.config.dqn.normalizer:
-            normalizer_cls = get_normalizer_class(self.config.dqn.normalizer)
+            cls = normalizer_cls(self.config.dqn.normalizer)
             normalizer_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs)
-            self.normalizer = normalizer_cls(self.config.env.obs_shape, **normalizer_kwargs)
+            self.normalizer = cls(self.config.env.obs_shape, **normalizer_kwargs)
         buffer_kwargs = {}
         if self.config.dqn.replay_buffer_kwargs is not None:
             buffer_kwargs = namespace2dict(self.config.dqn.replay_buffer_kwargs)
-        self.buffer = get_buffer_class(self.config.dqn.replay_buffer)(
-            self.config.dqn.buffer_size, self.config.env.obs_shape, self.config.env.n_actions,
-            self.config.dqn.action_masking, **buffer_kwargs)
+        self.buffer = buffer_cls(self.config.dqn.replay_buffer)(**buffer_kwargs)
         self.eps_scheduler = EpsilonScheduler(self.config.dqn.eps_max,
                                               self.config.dqn.eps_min,
                                               self.config.dqn.eps_steps,
@@ -126,21 +122,16 @@ class DQNTrainingNode(TrainingNode):
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
         self._sample_connector = DQNServerConnector("redis", secret)
 
-        self.agent.model_id = str(uuid4())
+        self.agent.model_id = 0
         self.model_ids.append(self.agent.model_id)
         logger.info(f"Initial model ID: {self.agent.model_id}")
         logger.info("DQN training node startup complete")
-
-    @property
-    def serializer(self) -> DQNSerializer:
-        """Return the serializer for DQN messages for the current environment."""
-        return self._serializer
 
     def _get_samples(self) -> list[bytes]:
         return self._sample_connector.msgs()
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
-        valid = sample["modelId"] in self.model_ids
+        valid = sample["model_id"] in self.model_ids
         if not valid and time.time() - self._log_reject_time > 1:  # Only log once per second
             logger.warning("Sample ID rejected")
             self._log_reject_time = time.time()
@@ -159,7 +150,7 @@ class DQNTrainingNode(TrainingNode):
         t1 = time.time()
         self._dqn_step()
         t2 = time.time()
-        self.agent.model_id = str(uuid4())
+        self.agent.model_id += 1
         self.model_ids.append(self.agent.model_id)
         if time.time() - self._last_model_log > 10:
             logger.info((f"{time.strftime('%X')}: Model update complete."
@@ -168,7 +159,7 @@ class DQNTrainingNode(TrainingNode):
             self._last_model_log = time.time()
 
     def _publish_model(self):
-        logger.debug(f"Publishing new model with ID {self.agent.model_id}")
+        logger.debug(f"Publishing new model iteration {self.agent.model_id}")
         self._publish_model_event.set()
 
     @staticmethod
@@ -215,13 +206,12 @@ class DQNTrainingNode(TrainingNode):
         return self._model_iterations % self.config.checkpoint.epochs == 0
 
     def _episode_info_callback(self, episode_info: bytes):
-        episode_info = self.serializer.deserialize_episode_info(episode_info)
-        if not episode_info["modelId"] in self.model_ids:
+        episode_info = deserialize(episode_info)
+        if not episode_info["model_id"] in self.model_ids:
             logger.warning("Stale episode info rejected")
             return
-        episode_info["totalSteps"] = self._total_env_steps
-        del episode_info["modelId"]
-        self.red.publish("telemetry", self.serializer.serialize_telemetry(episode_info))
+        episode_info["total_steps"] = torch.tensor([self._total_env_steps])
+        self.red.publish("telemetry", serialize(episode_info))
 
     def _dqn_step(self):
         """Sample batches, normalize the values if applicable, and update the agent."""

@@ -7,32 +7,18 @@ from __future__ import annotations
 import logging
 from typing import List, Any, Type
 import io
-import sys
 from abc import ABC, abstractmethod
+from typing import Callable
 
 import numpy as np
 import torch
 import torch.nn as nn
 
+from soulsai.utils import module_type_from_string
+
 logger = logging.getLogger(__name__)
 
-
-def get_normalizer_class(normalizer_type: str) -> Type[AbstractNormalizer]:
-    """Get the normalizer class from the normalizer string.
-
-    Note:
-        This function returns a type rather than an instance!
-
-    Args:
-        normalizer_type: The normalizer type name.
-
-    Returns:
-        The normalizer type.
-
-    Raises:
-        AttributeError: The specified normalizer type does not exist.
-    """
-    return getattr(sys.modules[__name__], normalizer_type)
+normalizer_cls: Callable[[str], Type[AbstractNormalizer]] = module_type_from_string(__name__)
 
 
 class AbstractNormalizer(nn.Module, ABC):
