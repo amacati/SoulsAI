@@ -56,7 +56,8 @@ class DQNTrainingNode(TrainingNode):
         else:
             self._required_samples = self.config.dqn.batch_size * self.config.dqn.train_epochs
 
-        self._log_reject_time = time.time()  # Only log sample rejects once per second
+        # Reduce the number of log messages for logging events
+        self._log_times = {"reject_sample": 0, "model_update": 0, "checkpoint": 0}
         self._last_model_log = 0  # Reduce number of log messages for model updates
         self._model_iterations = 0  # Track number of model iterations for checkpoint trigger
         # Also accept samples from recent model iterations
@@ -131,10 +132,13 @@ class DQNTrainingNode(TrainingNode):
         return self._sample_connector.msgs()
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
-        valid = sample["model_id"] in self.model_ids
-        if not valid and time.time() - self._log_reject_time > 1:  # Only log once per second
+        # We don't need to lock the model_ids deque here, since sample validation and model id
+        # appending are happening in the same thread
+        valid = sample["model_id"].item() in self.model_ids
+        # Only log once per second
+        if not valid and time.time() - self._log_times["reject_sample"] > 1:
             logger.warning("Sample ID rejected")
-            self._log_reject_time = time.time()
+            self._log_times["reject_sample"] = time.time()
         if monitoring:
             self.prom_num_samples.inc() if valid else self.prom_num_samples_reject.inc()
         return valid
@@ -151,12 +155,13 @@ class DQNTrainingNode(TrainingNode):
         self._dqn_step()
         t2 = time.time()
         self.agent.model_id += 1
-        self.model_ids.append(self.agent.model_id)
-        if time.time() - self._last_model_log > 10:
+        with self._lock:  # Prevent deque mutated during iteration error in other threads
+            self.model_ids.append(self.agent.model_id.item())
+        if time.time() - self._log_times["model_update"] > 10:
             logger.info((f"{time.strftime('%X')}: Model update complete."
                          f"\nTotal env steps: {self._total_env_steps}"))
             logger.info(f"Model update took {t2 - t1:.2f} seconds")
-            self._last_model_log = time.time()
+            self._log_times["model_update"] = time.time()
 
     def _publish_model(self):
         logger.debug(f"Publishing new model iteration {self.agent.model_id}")
@@ -203,9 +208,10 @@ class DQNTrainingNode(TrainingNode):
 
     def _episode_info_callback(self, episode_info: bytes):
         episode_info = deserialize(episode_info)
-        if not episode_info["model_id"] in self.model_ids:
-            logger.warning("Stale episode info rejected")
-            return
+        with self._lock:  # Prevent deque mutated during iteration error
+            if not episode_info["model_id"] in self.model_ids:
+                logger.warning("Stale episode info rejected")
+                return
         episode_info["total_steps"] = torch.tensor([self._total_env_steps])
         self.red.publish("telemetry", serialize(episode_info))
 
@@ -232,7 +238,9 @@ class DQNTrainingNode(TrainingNode):
             options: Additional options dictionary to customize checkpointing.
         """
         if not options.get("manual", False) and not self.config.checkpoint.save:
-            logger.info("Checkpoint saving disabled")
+            if time.time() - self._log_times["checkpoint"] > 10:
+                logger.info("Checkpoint saving disabled")
+                self._log_times["checkpoint"] = time.time()
             return
         path.mkdir(exist_ok=True)
         with self._lock:

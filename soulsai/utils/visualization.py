@@ -53,7 +53,8 @@ def save_plots(x: np.ndarray,
         ax[ax_i, ax_j].set_title(ylabel)
         if len(x) > N_av:
             lim_low = min(y_mean[N_av:] - y_std[N_av:])
-            lim_up = max(y_mean[N_av:] + y_std[N_av:])
+            # Add small value to avoid identical limits
+            lim_up = max(y_mean[N_av:] + y_std[N_av:]) + 1e-4
             ax[ax_i, ax_j].set_ylim([lim_low - 0.1 * abs(lim_low), lim_up + 0.1 * abs(lim_up)])
 
     fig.savefig(path)
