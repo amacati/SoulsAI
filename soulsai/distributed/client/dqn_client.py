@@ -195,11 +195,3 @@ def _dqn_client(config: SimpleNamespace,
     finally:
         env.close()
         con.close()
-
-
-def _choose_action(con: DQNConnector, obs: np.ndarray, action_mask: np.ndarray,
-                   noise: Noise) -> torch.IntTensor:
-    obs = con.observation_transform(obs)
-    action = con.agent(obs)
-    action = con.action_transform(action)
-    return action

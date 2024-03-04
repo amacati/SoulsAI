@@ -222,8 +222,9 @@ class DQNTrainingNode(TrainingNode):
         for batch in batches:
             for tf in self.transforms.values():
                 tf.update(batch)  # Update transforms with the new training batches
-            batch["obs"] = self.transforms["obs"](batch["obs"])
-            batch["next_obs"] = self.transforms["obs"](batch["next_obs"])
+            batch["obs"][:] = self.transforms["obs"](batch["obs"])
+            batch["next_obs"][:] = self.transforms["obs"](batch["next_obs"])
+
         for batch in batches:
             td_errors = self.agent.train(batch)
             if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
