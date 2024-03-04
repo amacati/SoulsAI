@@ -1,9 +1,8 @@
 """The replay buffer module offers performant implementations of replay buffers for DQN and PPO."""
 from __future__ import annotations
 
-import sys
 from abc import ABC, abstractmethod, abstractproperty
-from typing import List, Dict, Type, TYPE_CHECKING, Callable
+from typing import List, Dict, TYPE_CHECKING, Callable
 import random
 
 import numpy as np
@@ -229,7 +228,7 @@ class ReplayBuffer(AbstractBuffer):
             i = np.array(random.sample(range(self._maxidx + 1), nsamples))
         else:
             i = self.rng.integers(0, self._maxidx + 1, size=nsamples)
-        return self.buffer[i].reshape(nbatches, batch_size, -1)
+        return self.buffer[i].reshape(nbatches, batch_size)
 
 
 class PrioritizedReplayBuffer(AbstractBuffer):

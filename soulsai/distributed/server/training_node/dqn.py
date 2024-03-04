@@ -16,14 +16,14 @@ from collections import deque
 import time
 from typing import TYPE_CHECKING
 import json
-from multiprocessing.synchronize import Event
 
 import torch
+import torch.nn as nn
 from redis import Redis
 
 from soulsai.core.replay_buffer import buffer_cls
 from soulsai.core.agent import DistributionalDQNAgent, DQNAgent
-from soulsai.core.normalizer import normalizer_cls
+from soulsai.core.transform import transform_cls
 from soulsai.core.scheduler import EpsilonScheduler
 from soulsai.distributed.common.serialization import serialize, deserialize
 from soulsai.distributed.server.training_node.training_node import TrainingNode
@@ -32,8 +32,8 @@ from soulsai.utils import namespace2dict, load_redis_secret
 
 if TYPE_CHECKING:
     from types import SimpleNamespace
-
-    from soulsai.core.normalizer import AbstractNormalizer
+    from multiprocessing.synchronize import Event
+    from soulsai.core.transform import Transform
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +79,17 @@ class DQNTrainingNode(TrainingNode):
         # Compile all agent networks
         torch.compile(self.agent.networks, mode="reduce-overhead")
 
-        self.normalizer = None
-        if self.config.dqn.normalizer:
-            cls = normalizer_cls(self.config.dqn.normalizer)
-            normalizer_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs)
-            self.normalizer = cls(self.config.env.obs_shape, **normalizer_kwargs)
+        self.transforms: nn.ModuleDict[str, Transform] = nn.ModuleDict()
+        kwargs = namespace2dict(getattr(config.dqn.observation_transform, "kwargs", None))
+        self.transforms["obs"] = transform_cls(config.dqn.observation_transform.type)(**kwargs)
+        kwargs = namespace2dict(getattr(config.dqn.action_transform, "kwargs", None))
+        self.transforms["action"] = transform_cls(config.dqn.action_transform.type)(**kwargs)
+
         buffer_kwargs = {}
         if self.config.dqn.replay_buffer_kwargs is not None:
             buffer_kwargs = namespace2dict(self.config.dqn.replay_buffer_kwargs)
         self.buffer = buffer_cls(self.config.dqn.replay_buffer)(**buffer_kwargs)
+
         self.eps_scheduler = EpsilonScheduler(self.config.dqn.eps_max,
                                               self.config.dqn.eps_min,
                                               self.config.dqn.eps_steps,
@@ -101,17 +103,15 @@ class DQNTrainingNode(TrainingNode):
         # training loop. The performance impact for small networks is negligible, but for larger
         # networks it can become significant
         self.agent.share_memory()
+        self.transforms.share_memory()
         self.eps_scheduler.share_memory()
         cxt = torch.multiprocessing.get_context("spawn")
         self._publish_model_event = cxt.Event()
         async_upload_kwargs = {
             "event": self._publish_model_event,
             "model": self.agent,
-            "epsilon_scheduler": self.eps_scheduler
+            "transforms": self.transforms
         }
-        if self.config.dqn.normalizer:
-            self.normalizer.share_memory()
-            async_upload_kwargs["normalizer"] = self.normalizer
         self.model_publish_process = cxt.Process(target=self._async_publish_model,
                                                  kwargs=async_upload_kwargs,
                                                  daemon=True)
@@ -122,9 +122,9 @@ class DQNTrainingNode(TrainingNode):
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
         self._sample_connector = DQNServerConnector("redis", secret)
 
-        self.agent.model_id = 0
-        self.model_ids.append(self.agent.model_id)
-        logger.info(f"Initial model ID: {self.agent.model_id}")
+        self.agent.model_id.copy_(torch.tensor([0], dtype=torch.int64))
+        self.model_ids.append(self.agent.model_id.item())
+        logger.info(f"Initial model ID: {self.agent.model_id.item()}")
         logger.info("DQN training node startup complete")
 
     def _get_samples(self) -> list[bytes]:
@@ -163,17 +163,13 @@ class DQNTrainingNode(TrainingNode):
         self._publish_model_event.set()
 
     @staticmethod
-    def _async_publish_model(event: Event,
-                             model: DQNAgent,
-                             epsilon_scheduler: EpsilonScheduler,
-                             normalizer: AbstractNormalizer | None = None):
+    def _async_publish_model(event: Event, model: DQNAgent, transforms: nn.ModuleDict):
         """Upload the model to Redis in a separate process.
 
         Args:
             event: Event to signal when a new model is available.
             model: The neural network.
-            epsilon_scheduler: The epsilon scheduler for epsilon-greedy policies.
-            normalizer: The optional normalizer.
+            transforms: ModuleDict of observation, action etc. transforms.
         """
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
         red = Redis(host='redis', port=6379, password=secret, db=0)
@@ -189,12 +185,12 @@ class DQNTrainingNode(TrainingNode):
                     logger.warning("Model upload can't keep up with model updates!")
                     last_log = time.time()
             event.clear()
-            model_params = model.serialize()
-            model_params["eps"] = epsilon_scheduler.epsilon
-            if normalizer is not None:
-                model_params |= normalizer.serialize()
-            red.hset("model_params", mapping=model_params)
-            red.publish("model_update", model.model_id)
+            red.set("model_state_dict", serialize(model.state_dict()))
+            red.hset("transforms_state_dict",
+                     mapping={
+                         k: serialize(v.state_dict()) for k, v in transforms.items()
+                     })
+            red.publish("model_update", model.model_id.item())
             logger.debug("Model upload successful")
 
     def _post_update_hook(self):
@@ -217,20 +213,15 @@ class DQNTrainingNode(TrainingNode):
         """Sample batches, normalize the values if applicable, and update the agent."""
         batches = self.buffer.sample_batches(self.config.dqn.batch_size,
                                              self.config.dqn.train_epochs)
-        if self.config.dqn.normalizer:
-            for batch in batches:
-                self.normalizer.update(batch[0])  # Use observations to update the normalizer
-            for batch in batches:
-                batch[0] = self.normalizer.normalize(batch[0])  # Normalize all observations
-                batch[3] = self.normalizer.normalize(batch[3])  # Normalize next observations too
         for batch in batches:
+            for tf in self.transforms.values():
+                tf.update(batch)  # Update transforms with the new training batches
+            batch["obs"] = self.transforms["obs"](batch["obs"])
+            batch["next_obs"] = self.transforms["obs"](batch["next_obs"])
+        for batch in batches:
+            td_errors = self.agent.train(batch)
             if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
-                # -2 because the last two elements are the weights and indices
-                td_errors = self.agent.train(*batch[:-2], weights=batch[-2])
-            else:
-                self.agent.train(*batch)
-            if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
-                self.buffer.update_priorities(batch[-1], td_errors)
+                self.buffer.update_priorities(batch, td_errors)  # TODO: Fix with TensorDict batches
         self.agent.update_callback()
 
     def checkpoint(self, path: Path, options: dict = {}):
@@ -248,9 +239,9 @@ class DQNTrainingNode(TrainingNode):
             self.agent.save(path / "agent.pt")
             if self.config.checkpoint.save_buffer or options.get("save_buffer", False):
                 self.buffer.save(path / "buffer.pkl")
+            for name, tf in self.transforms.items():
+                torch.save(tf.state_dict(), path / f"{name}_transform.pt")
             self.eps_scheduler.save(path / "eps_scheduler.json")
-            if self.config.dqn.normalizer:
-                torch.save(self.normalizer.state_dict(), path / "normalizer.pt")
             training_stats = {
                 "_total_env_steps": self._total_env_steps,
                 "_model_iterations": self._model_iterations
@@ -266,11 +257,11 @@ class DQNTrainingNode(TrainingNode):
             path: Path to the save folder.
         """
         self.agent.load(path / "agent.pt")
+        for name, tf in self.transforms.items():
+            tf.load_state_dict(torch.load(path / f"{name}_transform.pt"))
         if self.config.checkpoint.load_buffer:
             self.buffer.load(path / "buffer.pkl")
         self.eps_scheduler.load(path / "eps_scheduler.json")
-        if self.config.dqn.normalizer:
-            self.normalizer.load_state_dict(torch.load(path / "normalizer.pt"))
         with open(path / "training_stats.json", "r") as f:
             stats = json.load(f)
         self._total_env_steps = stats["_total_env_steps"]

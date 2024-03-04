@@ -6,23 +6,28 @@ independently of the noise type chosen.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-import sys
 from typing import Callable
 
 import numpy as np
 import torch
+import torch.nn as nn
 
 from soulsai.utils import module_type_from_string
 
 noise_cls: Callable[[str], type[Noise]] = module_type_from_string(__name__)
 
 
-class Noise(ABC):
+class Noise(ABC, nn.Module):
     """Abstract base class for noise sampling processes."""
 
     def __init__(self):
         """Initialize the numpy random generator."""
+        super().__init__()
         self.np_random = np.random.default_rng()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward method of the noise sampler."""
+        return self.sample(x)
 
     @abstractmethod
     def sample(self) -> int:
@@ -44,9 +49,10 @@ class UniformDiscreteNoise(Noise):
         """
         super().__init__()
         assert size_n > 0
-        self.size_n = size_n
+        self.size_n = torch.nn.Parameter(torch.tensor(size_n, dtype=torch.int32),
+                                         requires_grad=False)
 
-    def sample(self) -> torch.Tensor:
+    def sample(self, _: torch.Tensor) -> torch.Tensor:
         """Sample a random action in the range of [0, ``size_n``).
 
         Returns:
@@ -72,7 +78,8 @@ class MaskedDiscreteNoise(Noise):
         """
         super().__init__()
         assert size_n > 0
-        self.size_n = size_n
+        self.size_n = torch.nn.Parameter(torch.tensor(size_n, dtype=torch.int32),
+                                         requires_grad=False)
 
     def sample(self, mask: torch.BoolTensor) -> torch.Tensor:
         """Sample a random action in the range of [0, ``size_n``) while omitting masked actions.

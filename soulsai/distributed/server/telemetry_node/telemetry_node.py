@@ -112,8 +112,8 @@ class TelemetryNode:
                 for connector in self.connectors:
                     connector.update(self.stats)
                 self._log_telemetry()
-                if self.config.telemetry.callbacks:
-                    for callback in self.config.telemetry.callbacks:
+                if self.telemetry_callbacks:
+                    for callback in self.telemetry_callbacks:
                         callback(self)
                 if self.stats["rewards_av"][-1] > self._best_reward:
                     self.red.publish("save_best", "")
@@ -124,6 +124,9 @@ class TelemetryNode:
         sample = deserialize(msg["data"])
         for tf in self.telemetry_transforms:
             key, value = tf(sample)
+            if key not in self.stats:
+                self.stats[key] = []
+                self.stats[key + "_av"] = []
             self.stats[key].append(value)
             self.stats[key + "_av"].append(self._latest_moving_av(self.stats[key]))
 

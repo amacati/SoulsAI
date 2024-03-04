@@ -103,11 +103,13 @@ def _dqn_client(config: SimpleNamespace,
             action_mask = np.zeros(config.env.n_actions) if config.dqn.action_masking else None
             if action_mask is not None:
                 action_mask[sample["info", "allowed_actions"]] = 1
-            while not torch.all(sample["terminated"] |
-                                sample["truncated"]) and not stop_flag.is_set():
+            done = False
+            while not done and not stop_flag.is_set():
                 with con:  # Context makes action and model_id consistent
-                    action = _choose_action(con, obs, action_mask, noise)
-                    eps, model_id = con.eps, con.model_id
+                    # TODO: Integrate action masking
+                    obs_t = con.observation_transform(obs)
+                    action = con.action_transform(con.agent(obs_t))
+                    model_id = con.model_id
                 sample = env.step(action)
                 sample["obs"] = obs
                 samples.append(sample)
@@ -140,6 +142,7 @@ def _dqn_client(config: SimpleNamespace,
                 steps += 1
                 if config.step_delay:  # Enable Dockerfiles to simulate slow clients
                     time.sleep(config.step_delay)
+                done = torch.all(sample["terminated"] | sample["truncated"])
             # Sent the remaining samples for multistep > 1. We have no access to the remaining
             # required samples for a multistep reward. There are two cases:
             #
@@ -180,7 +183,6 @@ def _dqn_client(config: SimpleNamespace,
                     {
                         "ep_reward": torch.tensor([episode_reward]),
                         "ep_steps": torch.tensor([steps]),
-                        "eps": torch.tensor([eps]),
                         "model_id": torch.tensor([model_id] * env.num_envs),
                         "obs": sample["obs"]
                     },
@@ -197,11 +199,7 @@ def _dqn_client(config: SimpleNamespace,
 
 def _choose_action(con: DQNConnector, obs: np.ndarray, action_mask: np.ndarray,
                    noise: Noise) -> torch.IntTensor:
-    if np.random.rand() < con.eps:
-        action = noise.sample(action_mask) if action_mask is not None else noise.sample()
-    else:
-        obs_n = con.normalizer.normalize(obs) if con.normalizer else obs
-        # Convert numpy or torch tensor to float32
-        obs_n = obs_n.astype(np.float32) if isinstance(obs_n, np.ndarray) else obs_n.float()
-        action = con.agent(obs_n, action_mask) if action_mask is not None else con.agent(obs_n)
+    obs = con.observation_transform(obs)
+    action = con.agent(obs)
+    action = con.action_transform(action)
     return action

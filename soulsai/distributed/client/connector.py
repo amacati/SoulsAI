@@ -17,17 +17,19 @@ from redis import Redis
 import torch.multiprocessing as mp
 
 from soulsai.core.agent import DQNClientAgent, DistributionalDQNClientAgent, PPOClientAgent
-from soulsai.core.normalizer import normalizer_cls, AbstractNormalizer
+from soulsai.core.transform import transform_cls
+from soulsai.distributed.common.serialization import deserialize
 from soulsai.utils import load_redis_secret, namespace2dict
 from soulsai.exception import ClientRegistrationError, ServerTimeoutError
 
 if TYPE_CHECKING:
-    from multiprocessing import Event
+    from types import SimpleNamespace
+    from multiprocessing.synchronize import Event
     from multiprocessing.connection import Connection
-    from multiprocessing.sharedctypes import Synchronized
     from multiprocessing.synchronize import Lock
     from multiprocessing.queues import Queue
-    from types import SimpleNamespace
+    from torch import Tensor
+    from soulsai.core.transform import Transform
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ class DQNConnector:
     In addition, an update notification process checks if a new model is available, and a model
     update process downloads the new weights. The main client therefore never explicitly changes its
     network. Instead, the new network weights are loaded during training. For this reason, the
-    agent, normalizer and epsilon value have to share their memory with the update process.
+    agent and transformations have to share their memory with the update process.
 
     Warning:
         In order to avoid races during the update or a mismatch in model IDs and network weights,
@@ -71,18 +73,21 @@ class DQNConnector:
         cxt = mp.get_context("spawn")
         mp.set_start_method("spawn", force=True)
         self.config = config
-        if self.config.dqn.variant == "distributional":
-            self.agent = DistributionalDQNClientAgent(config.dqn.network_type,
-                                                      namespace2dict(config.dqn.network_kwargs),
-                                                      config.device)
-        else:
-            self.agent = DQNClientAgent(config.dqn.network_type,
-                                        namespace2dict(config.dqn.network_kwargs), config.device)
-        self.normalizer = None
-        if config.dqn.normalizer:
-            kwargs = namespace2dict(config.dqn.normalizer_kwargs)
-            self.normalizer = normalizer_cls(config.dqn.normalizer)(config.env.obs_shape, **kwargs)
-        self._eps = cxt.Value("d", -1.)
+        match config.dqn.variant:
+            case "vanilla":
+                agent_cls = DQNClientAgent
+            case "distributional":
+                agent_cls = DistributionalDQNClientAgent
+            case _:
+                raise ValueError(f"DQN variant {config.dqn.variant} is not supported")
+        self.agent = agent_cls(config.dqn.network_type, namespace2dict(config.dqn.network_kwargs),
+                               config.device)
+        self.transforms: dict[str, Transform] = {}
+        kwargs = namespace2dict(getattr(config.dqn.observation_transform, "kwargs", None))
+        self.transforms["obs"] = transform_cls(config.dqn.observation_transform.type)(**kwargs)
+        kwargs = namespace2dict(getattr(config.dqn.action_transform, "kwargs", None))
+        self.transforms["action"] = transform_cls(config.dqn.action_transform.type)(**kwargs)
+
         self._lock = cxt.Lock()
         self._update_event = cxt.Event()
         self._stop_event = cxt.Event()
@@ -108,11 +113,11 @@ class DQNConnector:
 
         # Start the model update process
         self.agent.share_memory()
-        if self.normalizer:
-            self.normalizer.share_memory()
+        for tf in self.transforms.values():
+            tf.share_memory()
 
-        args = (self._update_event, self._stop_event, self.agent, self.normalizer, self._eps,
-                self._lock, secret, config)
+        args = (self._update_event, self._stop_event, self.agent, self.transforms, self._lock,
+                secret, config)
         self.model_updater = cxt.Process(target=self._update_model, args=args, daemon=True)
         self.model_updater.start()
 
@@ -130,7 +135,7 @@ class DQNConnector:
         self._full_queue_warn_time = 0
 
     def __enter__(self):
-        """Context manager to use the managed agent, normalizer and eps value safely.
+        """Context manager to use the managed agent and transforms safely.
 
         Warning:
             Using the agent etc. without this manager will lead to race conditions!
@@ -149,7 +154,7 @@ class DQNConnector:
 
         Always use with the context manager! See :meth:`.DQNConnector.__enter__`.
         """
-        return self.agent.model_id
+        return self.agent.model_id.item()
 
     @property
     def eps(self) -> float:
@@ -158,6 +163,28 @@ class DQNConnector:
         Always use with the context manager! See :meth:`.DQNConnector.__enter__`.
         """
         return self._eps.value
+
+    def action_transform(self, action: Tensor) -> Tensor:
+        """Apply the action transformation.
+
+        Args:
+            action: Action tensor.
+
+        Returns:
+            Transformed action tensor.
+        """
+        return self.transforms["action"](action)
+
+    def observation_transform(self, obs: Tensor) -> Tensor:
+        """Apply the observation transformation.
+
+        Args:
+            obs: Observation tensor.
+
+        Returns:
+            Transformed observation tensor.
+        """
+        return self.transforms["obs"](obs)
 
     def push_sample(self, sample: bytes):
         """Send a sample message over the message queue.
@@ -194,9 +221,9 @@ class DQNConnector:
 
     @staticmethod
     def _update_model(update_event: Event, stop_event: Event, agent: DQNClientAgent,
-                      normalizer: AbstractNormalizer | None, eps: Synchronized, lock: Lock,
-                      secret: str, config: SimpleNamespace):
-        """Update the client model, epsilon values, and normalizers.
+                      transforms: dict[str, Transform], lock: Lock, secret: str,
+                      config: SimpleNamespace):
+        """Update the client model and transforms.
 
         Model updates are triggered by a separate process that waits for new model update messages.
         This ensures that we don't miss any updates while the update process downloads the new
@@ -206,9 +233,8 @@ class DQNConnector:
             update_event: Update event signalling a new model is available.
             stop_event: Connector shutdown event.
             agent: ClientAgent in shared memory.
-            normalizer: Normalizer in shared memory.
-            eps: Epsilon value in shared memory.
-            lock: Client lock ensuring mutually exclusive access to the agent, normalizer and eps.
+            transforms: Dictionary of transforms in shared memory.
+            lock: Client lock ensuring mutually exclusive access to the agent and transformations.
             secret: Redis secret.
             config: Client config.
         """
@@ -222,36 +248,25 @@ class DQNConnector:
                         socket.TCP_KEEPIDLE: 10,
                         socket.TCP_KEEPINTVL: 60
                     })
-        # Deserialize is slower than state_dict load, so we deserialize on a local buffer agent
-        # first and then overwrite the tensors of the main agent with load_state_dict
-        args = (config.dqn.network_type, namespace2dict(config.dqn.network_kwargs), config.device)
-        if config.dqn.variant == "distributional":
-            buffer_agent = DistributionalDQNClientAgent(*args)
-        elif config.dqn.variant == "vanilla":
-            buffer_agent = DQNClientAgent(*args)
-        else:
-            raise ValueError(f"DQN variant {config.dqn.variant} is not supported")
-
         update_event.set()  # Ensure load on first start up
         while not stop_event.is_set():
             if not update_event.wait(1):
                 continue  # Check if stop event has been set
             update_event.clear()
             try:
-                _params = red.hgetall("model_params")
-                model_params = {key.decode("utf-8"): value for key, value in _params.items()}
-                buffer_agent.deserialize(model_params)
-                if normalizer:
-                    norm_params = normalizer.deserialize(model_params)
+                model_state_dict = deserialize(red.get("model_state_dict"))
+                tf_dicts = red.hgetall("transforms_state_dict")
+                tf_state_dicts = {k.decode("utf-8"): deserialize(v) for k, v in tf_dicts.items()}
                 # We can use a blocking approach instead of changing references between multiple
                 # models as writing the new parameters typically only requires ~1e-3s
                 with lock:
-                    agent.load_state_dict(buffer_agent.state_dict())
-                    eps.value = float(model_params["eps"].decode("utf-8"))
-                    if normalizer:
-                        normalizer.load_params(norm_params)
-            except KeyError:
-                logger.warning("Background model update failed")
+                    agent.load_state_dict(model_state_dict)
+                    for name, tf in transforms.items():
+                        if state_dict := tf_state_dicts.get(name):
+                            tf.load_state_dict(state_dict)
+            except KeyError as e:
+                logger.error("Background model update failed")
+                raise e
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 socket_options = {socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60}
@@ -524,7 +539,6 @@ class PPOConnector:
                     red.publish(msg[0], msg[1])
                 case _:
                     raise TypeError(f"Unknown message type {msg[0]}")
-
 
     def _client_shutdown(self, _):
         logger.info("Received shutdown signal from training node. Exiting training")

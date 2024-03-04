@@ -2,7 +2,7 @@
 
 # General settings
 loglevel: info
-device: "cuda"
+device: "cpu"
 
 local:
 
@@ -48,6 +48,24 @@ dqn:
     size_n: 4
   replay_buffer: "ReplayBuffer"
   replay_buffer_kwargs:
+    max_size: 100_000
+  observation_transform:
+    type: "TensorNormalization"
+    kwargs:
+      key: "obs"
+      shape: [8]
+  action_transform:
+    type: "Choice"
+    kwargs:
+      prob: [0.9, 0.1]
+      transforms:
+        - type: "Identity"
+        - type: "ReplaceWithNoise"
+          kwargs:
+            noise:
+              type: "UniformDiscreteNoise"
+              kwargs:
+                size_n: 4
   action_masking: False
   normalizer: Normalizer
   normalizer_kwargs:
@@ -77,20 +95,18 @@ telemetry:
       kwargs:
         key: "ep_steps"
         name: "steps"
-    - type: "MetricByKey"
-      kwargs:
-        key: "eps"
-        name: "eps"
+    # TODO: Reenable eps metric tracking
     - type: "MetricByKey"
       kwargs:
         key: "total_steps"
         name: "n_env_steps"
     - type: "CompareValue"
       kwargs:
-        key: "rewards"
+        key: "ep_reward"
         name: "wins"
         value: 200
         op: gt  # Greater than
+    - type: "Timer"
   log_keys:
     - "rewards_av"
     - "steps_av"
@@ -103,7 +119,13 @@ telemetry:
 monitoring:
   file_storage:
     path: "/home/SoulsAI/saves"
-    plot: True
+    plot:
+      xkey: "n_env_steps"
+      ykeys:
+        - "rewards_av"
+        - "steps_av"
+        - "wins_av"
+        - "time"
   grafana: True
   prometheus: True
   wandb:

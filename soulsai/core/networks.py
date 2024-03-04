@@ -4,7 +4,6 @@ While the architecture is usually less important for agent performance while sta
 reasonable hyperparameter regimes and mostly dense networks, users may want to experiment with
 different network styles such as noisy nets for exploration.
 """
-import sys
 from typing import Callable
 import logging
 
