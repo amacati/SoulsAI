@@ -156,14 +156,6 @@ class DQNConnector:
         """
         return self.agent.model_id.item()
 
-    @property
-    def eps(self) -> float:
-        """Epsilon value.
-
-        Always use with the context manager! See :meth:`.DQNConnector.__enter__`.
-        """
-        return self._eps.value
-
     def action_transform(self, action: Tensor) -> Tensor:
         """Apply the action transformation.
 

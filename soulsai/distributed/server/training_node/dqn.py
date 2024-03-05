@@ -24,7 +24,7 @@ from redis import Redis
 from soulsai.core.replay_buffer import buffer_cls
 from soulsai.core.agent import DistributionalDQNAgent, DQNAgent
 from soulsai.core.transform import transform_cls
-from soulsai.core.scheduler import EpsilonScheduler
+from soulsai.core.scheduler import Scheduler
 from soulsai.distributed.common.serialization import serialize, deserialize
 from soulsai.distributed.server.training_node.training_node import TrainingNode
 from soulsai.distributed.server.training_node.connector import DQNServerConnector
@@ -91,11 +91,6 @@ class DQNTrainingNode(TrainingNode):
             buffer_kwargs = namespace2dict(self.config.dqn.replay_buffer_kwargs)
         self.buffer = buffer_cls(self.config.dqn.replay_buffer)(**buffer_kwargs)
 
-        self.eps_scheduler = EpsilonScheduler(self.config.dqn.eps_max,
-                                              self.config.dqn.eps_min,
-                                              self.config.dqn.eps_steps,
-                                              zero_ending=True)
-
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")
             logger.info("Checkpoint loading complete")
@@ -105,7 +100,6 @@ class DQNTrainingNode(TrainingNode):
         # networks it can become significant
         self.agent.share_memory()
         self.transforms.share_memory()
-        self.eps_scheduler.share_memory()
         cxt = torch.multiprocessing.get_context("spawn")
         self._publish_model_event = cxt.Event()
         async_upload_kwargs = {
@@ -142,9 +136,6 @@ class DQNTrainingNode(TrainingNode):
         if monitoring:
             self.prom_num_samples.inc() if valid else self.prom_num_samples_reject.inc()
         return valid
-
-    def _sample_received_hook(self, _: dict):
-        self.eps_scheduler.step()
 
     def _check_update_cond(self) -> bool:
         sufficient_samples = len(self.buffer) >= self._required_samples
@@ -212,7 +203,18 @@ class DQNTrainingNode(TrainingNode):
             if not episode_info["model_id"] in self.model_ids:
                 logger.warning("Stale episode info rejected")
                 return
+        assert "total_steps" not in episode_info.keys(), "total_steps is a reserved key!"
         episode_info["total_steps"] = torch.tensor([self._total_env_steps])
+        # Log the scheduler info to telemetry. Check if any transform contains a scheduler, and if
+        # so, add its current value to the episode info
+        i = 0
+        for name, tf in self.transforms.items():
+            for m in tf.modules():
+                if isinstance(m, Scheduler):
+                    key = name + f".scheduler.{i}"
+                    assert key not in episode_info.keys(), f"{key} is already in episode_info!"
+                    episode_info[key] = m().unsqueeze(0)
+                    i += 1
         self.red.publish("telemetry", serialize(episode_info))
 
     def _dqn_step(self):
@@ -250,7 +252,6 @@ class DQNTrainingNode(TrainingNode):
                 self.buffer.save(path / "buffer.pkl")
             for name, tf in self.transforms.items():
                 torch.save(tf.state_dict(), path / f"{name}_transform.pt")
-            self.eps_scheduler.save(path / "eps_scheduler.json")
             training_stats = {
                 "_total_env_steps": self._total_env_steps,
                 "_model_iterations": self._model_iterations
@@ -270,7 +271,6 @@ class DQNTrainingNode(TrainingNode):
             tf.load_state_dict(torch.load(path / f"{name}_transform.pt"))
         if self.config.checkpoint.load_buffer:
             self.buffer.load(path / "buffer.pkl")
-        self.eps_scheduler.load(path / "eps_scheduler.json")
         with open(path / "training_stats.json", "r") as f:
             stats = json.load(f)
         self._total_env_steps = stats["_total_env_steps"]

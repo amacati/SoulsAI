@@ -29,7 +29,6 @@ def save_plots(x: np.ndarray,
         xlabel: Label for the x-axis.
         ylabels: Labels for the y-axis.
         path: Save location for the figure.
-        eps: Optional list of epsilon values during training.
         N_av: Moving average window for smoothing the plot.
     """
     assert len(ys) == len(ylabels), "Number of y labels must match number of y data arrays"

@@ -43,9 +43,6 @@ dqn:
     input_dims: 8
     output_dims: 4
     layer_dims: 128
-  noise: "UniformDiscreteNoise"
-  noise_kwargs:
-    size_n: 4
   replay_buffer: "ReplayBuffer"
   replay_buffer_kwargs:
     max_size: 100_000
@@ -55,9 +52,14 @@ dqn:
       key: "obs"
       shape: [8]
   action_transform:
-    type: "Choice"
+    type: "ScheduledChoice"
     kwargs:
-      prob: [0.9, 0.1]
+      scheduler:
+        type: "LinearScheduler"
+        kwargs:
+          start: [0.5, 0.5]
+          end: [0.95, 0.05]
+          steps: 100_000
       transforms:
         - type: "Identity"
         - type: "ReplaceWithNoise"
@@ -67,8 +69,6 @@ dqn:
               kwargs:
                 size_n: 4
   action_masking: False
-  normalizer: Normalizer
-  normalizer_kwargs:
   min_samples: null
   tau: 0.05  # For soft target update
   max_model_delay: 10
@@ -95,7 +95,6 @@ telemetry:
       kwargs:
         key: "ep_steps"
         name: "steps"
-    # TODO: Reenable eps metric tracking
     - type: "MetricByKey"
       kwargs:
         key: "total_steps"

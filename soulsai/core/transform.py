@@ -11,6 +11,7 @@ import torch.nn as nn
 from tensordict import TensorDict
 
 from soulsai.core.noise import noise_cls, Noise
+from soulsai.core.scheduler import scheduler_cls, Scheduler
 from soulsai.utils import module_type_from_string
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,50 @@ class Choice(Transform):
         """
         tf_idx = torch.multinomial(self.params["prob"], x.shape[0], replacement=True)
         return torch.stack([self.params["transforms"][j](x[i])[0] for i, j in enumerate(tf_idx)])
+
+
+class ScheduledChoice(Transform):
+
+    def __init__(self, transforms: list[Transform | dict], scheduler: Scheduler | dict):
+        """Initialize the transformation.
+
+        Args:
+            transforms: List of transformations.
+            prob: List of probabilities for choosing each transformation.
+        """
+        super().__init__()
+        for i, tf in enumerate(transforms):
+            if isinstance(tf, dict):
+                transforms[i] = transform_cls(tf["type"])(**(tf.get("kwargs") or {}))
+        assert all(isinstance(x, Transform) for x in transforms), "All elements must be Transforms"
+        self.params["transforms"] = nn.ModuleList(transforms)
+
+        if isinstance(scheduler, dict):
+            scheduler = scheduler_cls(scheduler["type"])(**(scheduler.get("kwargs") or {}))
+        self.params["scheduler"] = scheduler
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Choose a transformation at random and apply it to the input tensor.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Transformed tensor.
+        """
+        probs = self.params["scheduler"]()
+        assert torch.all(probs >= 0), "p must be non-negative"
+        probs /= probs.sum()
+        tf_idx = torch.multinomial(probs, x.shape[0], replacement=True)
+        return torch.stack([self.params["transforms"][j](x[i])[0] for i, j in enumerate(tf_idx)])
+
+    def update(self, x: TensorDict):
+        """Update the transformation parameters.
+
+        Args:
+            x: Input tensor.
+        """
+        self.params["scheduler"].update(1)
 
 
 class ReplaceWithNoise(Transform):

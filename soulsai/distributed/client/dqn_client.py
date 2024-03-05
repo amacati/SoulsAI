@@ -18,7 +18,6 @@ from tensordict import TensorDict
 
 import soulsai.wrappers
 from soulsai.wrappers import TensorDictWrapper
-from soulsai.core.noise import noise_cls, Noise
 from soulsai.utils import namespace2dict
 from soulsai.distributed.common.serialization import serialize
 from soulsai.distributed.client.connector import DQNConnector
@@ -86,8 +85,6 @@ def _dqn_client(config: SimpleNamespace,
         env = getattr(soulsai.wrappers, wrapper)(env, **(wrapper_args["kwargs"] or {}))
     env = TensorDictWrapper(env)  # Convert all outputs to TensorDicts
 
-    # Create action noise
-    noise = noise_cls(config.dqn.noise)(**namespace2dict(config.dqn.noise_kwargs))
     logger.info("Client node running")
     try:
         episode_id = 0
@@ -190,7 +187,6 @@ def _dqn_client(config: SimpleNamespace,
                 if sample.get("info", None) is not None:
                     ep_info["info"] = sample["info"]
                 con.push_episode_info(serialize(ep_info))
-                noise.reset()
         logger.info("Exiting training")
     finally:
         env.close()

@@ -37,16 +37,18 @@ class TelemetryTransform(ABC):
 class MetricByKey(TelemetryTransform):
     """Create a telemetry metric from a key in the sample dictionary."""
 
-    def __init__(self, key: str, name: str | None = None):
+    def __init__(self, key: str, name: str | None = None, idx: int | None = None):
         """Initialize the transformation.
 
         Args:
             key: The metric key in the sample dictionary.
             name: The name of the metric.
+            idx: Optional index of the value. Defaults to None.
         """
         super().__init__()
         self.key = key
         self.name = name or key
+        self.idx = idx
 
     def __call__(self, sample: TensorDict) -> tuple[str, float]:
         """Extract the metric from the sample.
@@ -57,7 +59,8 @@ class MetricByKey(TelemetryTransform):
         Returns:
             The name and value of the extracted metric.
         """
-        return self.name, sample[self.key].item()
+        value = sample[self.key] if self.idx is None else sample[self.key][0, self.idx]
+        return self.name, value.item()
 
 
 class Timer(TelemetryTransform):
