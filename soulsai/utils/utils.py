@@ -143,7 +143,9 @@ def _overwrite_dicts(target_dict: dict, source_dict: dict) -> dict:
     for key, value in target_dict.items():
         if key not in source_dict.keys():
             continue
-        if isinstance(value, dict):
+        if key == "kwargs":  # Do not merge kwargs, just overwrite
+            target_dict[key] = source_dict[key]
+        elif isinstance(value, dict):
             _overwrite_dicts(target_dict[key], source_dict[key])
         else:
             target_dict[key] = source_dict[key]

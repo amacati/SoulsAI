@@ -30,15 +30,17 @@ algorithm: "DQN"
 ppo:
   n_clients: 1
   n_steps: 2048
-  actor_net_type: "PPOActor"
-  actor_net_kwargs:
-    input_dims: 74
-    output_dims: 20
-    layer_dims: 64
-  critic_net_type: "PPOCritic"
-  critic_net_kwargs:
-    input_dims: 74
-    layer_dims: 64
+  actor_net:
+    type: "PPOActor"
+    kwargs:
+      input_dims: 74
+      output_dims: 20
+      layer_dims: 64
+  critic_net:
+    type: "PPOCritic"
+    kwargs:
+      input_dims: 74
+      layer_dims: 64
   vf_coef: 0.5
   max_grad_norm: 0.5
   clip_range: 0.2
@@ -64,19 +66,20 @@ dqn:
   update_samples: 25
   fill_buffer: False
   multistep: 4
-  network_type: "DQN"
-  network_kwargs:
-    input_dims: 74
-    output_dims: 20
-    layer_dims: 128
-  noise: "UniformDiscreteNoise"
-  noise_kwargs:
-    size_n: 20
-  replay_buffer: "ReplayBuffer"
-  replay_buffer_kwargs:
+  network:
+    type: "DQN"
+    kwargs:
+      input_dims: 74
+      output_dims: 20
+      layer_dims: 128
+  noise:
+    type: "UniformDiscreteNoise"
+    kwargs:
+      size_n: 20
+  replay_buffer:
+    type: "ReplayBuffer"
+    kwargs:
   action_masking: True
-  normalizer:
-  normalizer_kwargs:
   min_samples: null
   tau: 0.05  # Optional, for target network updates
   max_model_delay: 10

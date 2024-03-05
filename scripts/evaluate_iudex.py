@@ -21,22 +21,13 @@ def load_config(path: Path) -> SimpleNamespace:
 
 def load_agent(path: Path, config: SimpleNamespace) -> ClientAgent:
     if config.dqn.variant == "distributional":
-        agent = DistributionalDQNClientAgent(config.dqn.network_type,
-                                             namespace2dict(config.dqn.network_kwargs),
-                                             config.device)
+        agent_cls = DistributionalDQNClientAgent
     else:
-        agent = DQNClientAgent(config.dqn.network_type, namespace2dict(config.dqn.network_kwargs),
-                               config.device)
+        agent_cls = DQNClientAgent
+    agent = agent_cls(config.dqn.network.type, namespace2dict(config.dqn.network.kwargs),
+                      config.device)
     agent.load(path)
     return agent
-
-
-def load_normalizer(path: Path, config: SimpleNamespace) -> AbstractNormalizer:
-    if config.dqn.normalizer:
-        norm_kwargs = namespace2dict(config.dqn.normalizer_kwargs)
-        normalizer = normalizer_cls(config.dqn.normalizer)(config.env.obs_shape, **norm_kwargs)
-        normalizer.load_state_dict(torch.load(path))
-        return normalizer
 
 
 def evaluate_iudex(n_evals: int = 10):
@@ -46,9 +37,7 @@ def evaluate_iudex(n_evals: int = 10):
     config_phase_2 = load_config(path / "phase2/config.json")
     agent_phase_1 = load_agent(path / "phase1/best_model/agent.pt", config_phase_1)
     agent_phase_2 = load_agent(path / "phase2/best_model/agent.pt", config_phase_2)
-    normalizer_phase_1 = load_normalizer(path / "phase1/best_model/normalizer.pt", config_phase_1)
-    normalizer_phase_2 = load_normalizer(path / "phase2/best_model/normalizer.pt", config_phase_2)
-
+    raise NotImplementedError("Transforms are not implemented yet.")
     config = config_phase_1
 
     # Create environment
@@ -66,9 +55,9 @@ def evaluate_iudex(n_evals: int = 10):
             action_mask[info["allowed_actions"]] = 1
         terminated, truncated = False, False
         steps, episode_reward = 1, 0.
-        agent, normalizer = agent_phase_1, normalizer_phase_1
+        agent = agent_phase_1
         while not terminated or truncated:
-            obs_n = normalizer.normalize(obs) if normalizer else obs
+            obs_n = obs
             # Convert numpy or torch tensor to float32
             obs_n = obs_n.astype(np.float32) if isinstance(obs_n, np.ndarray) else obs_n.float()
             action = agent(obs_n, action_mask) if action_mask is not None else agent(obs_n)
@@ -79,7 +68,7 @@ def evaluate_iudex(n_evals: int = 10):
             episode_reward += reward
             steps += 1
             if env.phase == 2:
-                agent, normalizer = agent_phase_2, normalizer_phase_2
+                agent = agent_phase_2
         episode_rewards.append(episode_reward)
         episode_steps.append(steps)
         wins.append(info["boss_hp"] <= 0)

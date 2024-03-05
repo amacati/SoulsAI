@@ -62,21 +62,18 @@ class DQNTrainingNode(TrainingNode):
         self._model_iterations = 0  # Track number of model iterations for checkpoint trigger
         # Also accept samples from recent model iterations
         self.model_ids = deque(maxlen=self.config.dqn.max_model_delay)
-        if self.config.dqn.variant == "distributional":
-            self.agent = DistributionalDQNAgent(self.config.dqn.network_type,
-                                                namespace2dict(self.config.dqn.network_kwargs),
-                                                self.config.dqn.lr, self.config.gamma,
-                                                self.config.dqn.multistep,
-                                                self.config.dqn.grad_clip, self.config.dqn.q_clip,
-                                                self.config.device)
-        elif self.config.dqn.variant == "vanilla":
-            self.agent = DQNAgent(self.config.dqn.network_type,
-                                  namespace2dict(self.config.dqn.network_kwargs),
-                                  self.config.dqn.lr, self.config.gamma, self.config.dqn.multistep,
-                                  self.config.dqn.grad_clip, self.config.dqn.q_clip,
-                                  self.config.device)
-        else:
-            raise ValueError(f"DQN variant {self.config.dqn.variant} is not supported")
+        match self.config.dqn.variant:
+            case "distributional":
+                agent_cls = DistributionalDQNAgent
+            case "vanilla":
+                agent_cls = DQNAgent
+            case _:
+                raise ValueError(f"DQN variant {self.config.dqn.variant} is not supported")
+        self.agent = agent_cls(self.config.dqn.network.type,
+                               namespace2dict(self.config.dqn.network.kwargs), self.config.dqn.lr,
+                               self.config.gamma, self.config.dqn.multistep,
+                               self.config.dqn.grad_clip, self.config.dqn.q_clip,
+                               self.config.device)
         # Compile all agent networks
         torch.compile(self.agent.networks, mode="reduce-overhead")
 
@@ -86,10 +83,8 @@ class DQNTrainingNode(TrainingNode):
         kwargs = namespace2dict(getattr(config.dqn.action_transform, "kwargs", None))
         self.transforms["action"] = transform_cls(config.dqn.action_transform.type)(**kwargs)
 
-        buffer_kwargs = {}
-        if self.config.dqn.replay_buffer_kwargs is not None:
-            buffer_kwargs = namespace2dict(self.config.dqn.replay_buffer_kwargs)
-        self.buffer = buffer_cls(self.config.dqn.replay_buffer)(**buffer_kwargs)
+        self.buffer = buffer_cls(self.config.dqn.replay_buffer.type)(
+            **namespace2dict(self.config.dqn.replay_buffer.kwargs))
 
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")

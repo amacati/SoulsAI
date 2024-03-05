@@ -38,28 +38,25 @@ dqn:
   update_samples: 25
   fill_buffer: False
   multistep: 4
-  network_type: "DistributionalDQN"
-  network_kwargs:
-    input_dims: 8
-    output_dims: 4
-    layer_dims: 128
-  replay_buffer: "ReplayBuffer"
-  replay_buffer_kwargs:
-    max_size: 100_000
+  network:
+    type: "DistributionalDQN"
+    kwargs:
+      input_dims: 8
+      output_dims: 4
+      layer_dims: 128
+  replay_buffer:
+    type: "ReplayBuffer"
+    kwargs:
+      max_size: 100_000
   observation_transform:
     type: "TensorNormalization"
     kwargs:
       key: "obs"
       shape: [8]
   action_transform:
-    type: "ScheduledChoice"
+    type: "Choice"
     kwargs:
-      scheduler:
-        type: "LinearScheduler"
-        kwargs:
-          start: [0.5, 0.5]
-          end: [0.95, 0.05]
-          steps: 100_000
+      prob: [0.9, 0.1]
       transforms:
         - type: "Identity"
         - type: "ReplaceWithNoise"

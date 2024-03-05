@@ -116,8 +116,7 @@ def save_plots(results: dict, path: Path):
     ax[0, 1].plot(x, steps_mean, label="Mean episode steps")
     lower, upper = steps_mean - steps_std, steps_mean + steps_std
     ax[0, 1].fill_between(x, lower, upper, alpha=0.4, label="Std deviation episode steps")
-    if results["eps"] is None:
-        ax[0, 1].legend()
+    ax[0, 1].legend()
     ax[0, 1].set_title("Number of steps vs Episodes")
     ax[0, 1].set_xlabel("Episodes")
     ax[0, 1].set_ylabel("Number of steps")
@@ -125,15 +124,6 @@ def save_plots(results: dict, path: Path):
     lower_ylim = np.min(lower) - abs(np.min(lower)) * 0.1
     upper_ylim = np.max(upper) + abs(np.max(upper)) * 0.1
     ax[0, 1].set_ylim([lower_ylim, upper_ylim])
-
-    if results["eps"] is not None:
-        secax_y = ax[0, 1].twinx()
-        secax_y.plot(x, results["eps"], "orange", label="ε")
-        secax_y.set_ylim([-0.05, 1.05])
-        secax_y.set_ylabel("Fraction of random actions")
-        lines, labels = ax[0, 1].get_legend_handles_labels()
-        lines2, labels2 = secax_y.get_legend_handles_labels()
-        secax_y.legend(lines + lines2, labels + labels2)
 
     ax[1, 0].set_title("N/A")
     ax[1, 0].set_xlabel("N/A")
@@ -178,11 +168,6 @@ def average_results(results: dict) -> dict:
         data = np.array([run[key] for run in results.values()])
         averaged_results[key + "_mean"] = np.mean(data, axis=0)
         averaged_results[key + "_std"] = np.std(data, axis=0)
-    if results["run0"]["eps"][0] is None:
-        averaged_results["eps"] = None
-    else:
-        averaged_results["eps"] = np.interp(x, results["run0"]["n_env_steps"],
-                                            results["run0"]["eps"])
     averaged_results["n_env_steps"] = x
     return averaged_results
 
@@ -219,9 +204,9 @@ def main(args: argparse.Namespace):
         shutil.copyfile(run_dirs[0] / "config.json", save_path / "config.json")
         results = {}
         for i, run_dir in enumerate(run_dirs):
-            with open(run_dir / "SoulsAIStats.json", "r") as f:
+            with open(run_dir / "telemetry.json", "r") as f:
                 results["run" + str(i)] = json.load(f)
-        with open(save_path / "SoulsAIStats.json", "w") as f:
+        with open(save_path / "telemetry.json", "w") as f:
             json.dump(results, f)
         results = average_results(results)
         with open(save_path / "AveragedStats.json", "w") as f:

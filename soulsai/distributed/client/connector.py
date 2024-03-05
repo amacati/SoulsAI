@@ -80,7 +80,7 @@ class DQNConnector:
                 agent_cls = DistributionalDQNClientAgent
             case _:
                 raise ValueError(f"DQN variant {config.dqn.variant} is not supported")
-        self.agent = agent_cls(config.dqn.network_type, namespace2dict(config.dqn.network_kwargs),
+        self.agent = agent_cls(config.dqn.network.type, namespace2dict(config.dqn.network.kwargs),
                                config.device)
         self.transforms: dict[str, Transform] = {}
         kwargs = namespace2dict(getattr(config.dqn.observation_transform, "kwargs", None))
@@ -404,8 +404,8 @@ class PPOConnector:
             ClientRegistrationError: The server failed to respond to the registration.
         """
         self.config = config
-        self.agent = PPOClientAgent(config.ppo.actor_net_type,
-                                    namespace2dict(config.ppo.actor_net_kwargs), config.device)
+        self.agent = PPOClientAgent(config.ppo.actor_net.type,
+                                    namespace2dict(config.ppo.actor_net.kwargs), config.device)
         self._stop_event = mp.Event()
         self._update_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")

@@ -43,20 +43,16 @@ dqn:
   update_samples: 50
   fill_buffer: False
   multistep: 3
-  network_type: "CNNDistributionalDQN" # "CNNDistributionalDQN"
-  network_kwargs:
-    input_shape: [1, 84, 84]
-    output_dims: 6
-    n_quantiles: 32
-  noise: "UniformDiscreteNoise"
-  noise_kwargs:
-    size_n: 6
-  replay_buffer: "ReplayBuffer"
-  replay_buffer_kwargs:
-    obs_dtype: uint8
+  network:
+    type: "CNNDistributionalDQN" # "CNNDistributionalDQN"
+    kwargs:
+      input_shape: [1, 84, 84]
+      output_dims: 6
+      n_quantiles: 32
+  replay_buffer:
+    type: "ReplayBuffer"
+    kwargs:
   action_masking: False
-  normalizer: ImageNormalizer
-  normalizer_kwargs:
   min_samples: null
   tau: 0.05  # For soft target update
   max_model_delay: 10

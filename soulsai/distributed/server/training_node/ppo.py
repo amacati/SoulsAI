@@ -42,10 +42,10 @@ class PPOTrainingNode(TrainingNode):
         """
         logger.info("PPO training node startup")
         super().__init__(config)
-        self.agent = PPOAgent(self.config.ppo.actor_net_type,
-                              namespace2dict(self.config.ppo.actor_net_kwargs),
-                              self.config.ppo.critic_net_type,
-                              namespace2dict(self.config.ppo.critic_net_kwargs),
+        self.agent = PPOAgent(self.config.ppo.actor_net.type,
+                              namespace2dict(self.config.ppo.actor_net.kwargs),
+                              self.config.ppo.critic_net.type,
+                              namespace2dict(self.config.ppo.critic_net.kwargs),
                               self.config.ppo.actor_lr, self.config.ppo.critic_lr, config.device)
         self.agent.model_id = 0
         if self.config.checkpoint.load:
