@@ -140,17 +140,12 @@ def load_config(default_config_path: Path, config_path: Path | None = None) -> S
 
 
 def _overwrite_dicts(target_dict: dict, source_dict: dict) -> dict:
-    for key, value in target_dict.items():
-        if key not in source_dict.keys():
-            continue
-        if key == "kwargs":  # Do not merge kwargs, just overwrite
+    for key, value in source_dict.items():
+        if key == "kwargs":
             target_dict[key] = source_dict[key]
         elif isinstance(value, dict):
-            _overwrite_dicts(target_dict[key], source_dict[key])
+            target_dict[key] = _overwrite_dicts(target_dict.get(key, {}), source_dict[key])
         else:
-            target_dict[key] = source_dict[key]
-    for key, value in source_dict.items():
-        if key not in target_dict.keys():
             target_dict[key] = source_dict[key]
     return target_dict
 

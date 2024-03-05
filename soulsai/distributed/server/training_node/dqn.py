@@ -49,13 +49,6 @@ class DQNTrainingNode(TrainingNode):
         """
         logger.info("DQN training node startup")
         super().__init__(config)
-        # Translate config params
-        if self.config.dqn.min_samples:
-            assert self.config.dqn.min_samples <= self.config.dqn.buffer_size
-            self._required_samples = max(self.config.dqn.min_samples, self.config.dqn.batch_size)
-        else:
-            self._required_samples = self.config.dqn.batch_size * self.config.dqn.train_epochs
-
         # Reduce the number of log messages for logging events
         self._log_times = {"reject_sample": 0, "model_update": 0, "checkpoint": 0}
         self._last_model_log = 0  # Reduce number of log messages for model updates
@@ -85,6 +78,13 @@ class DQNTrainingNode(TrainingNode):
 
         self.buffer = buffer_cls(self.config.dqn.replay_buffer.type)(
             **namespace2dict(self.config.dqn.replay_buffer.kwargs))
+
+        # Translate config params
+        if self.config.dqn.min_samples:
+            assert self.config.dqn.min_samples <= self.buffer.size
+            self._required_samples = max(self.config.dqn.min_samples, self.config.dqn.batch_size)
+        else:
+            self._required_samples = self.config.dqn.batch_size * self.config.dqn.train_epochs
 
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")

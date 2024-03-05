@@ -32,12 +32,8 @@ algorithm: "dqn"
 dqn:
   variant: distributional  # [vanilla, distributional]
   lr: 0.0001
-  eps_max: [0.1]
-  eps_min: [0.05]
-  eps_steps: [10_000_000]
   grad_clip: 5.
   q_clip: 200
-  buffer_size: 500_000
   batch_size: 128
   train_epochs: 25
   update_samples: 50

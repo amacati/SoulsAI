@@ -26,6 +26,14 @@ class AbstractBuffer(ABC):
         """Initialize the buffer."""
         super().__init__()
 
+    @abstractproperty
+    def size(self) -> int:
+        """Get the buffer size.
+
+        Returns:
+            The buffer size.
+        """
+
     @abstractmethod
     def append(self, sample: Dict):
         """Append a sample to the buffer.
@@ -132,6 +140,15 @@ class ReplayBuffer(AbstractBuffer):
         # Reproducible random number generator
         self.rng = np.random.default_rng(seed=seed)
         random.seed(seed)
+
+    @property
+    def size(self) -> int:
+        """Get the buffer size.
+
+        Returns:
+            The buffer size.
+        """
+        return self.max_size
 
     def append(self, sample: TensorDict[torch.Tensor]):
         """Append a sample to the buffer.
@@ -276,6 +293,15 @@ class PrioritizedReplayBuffer(AbstractBuffer):
         self._sum_priorities_alpha = 0
         self._max_priority_idx = 0
         self.beta = beta
+
+    @property
+    def size(self) -> int:
+        """Get the buffer size.
+
+        Returns:
+            The buffer size.
+        """
+        return self.maxlen
 
     def append(self, sample: Dict):
         """Append a sample to the buffer.
