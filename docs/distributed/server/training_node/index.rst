@@ -7,6 +7,7 @@ server.training_node
     training_node
     dqn
     ppo
+    connector
 
 .. automodule:: soulsai.distributed.server.training_node
     :members:

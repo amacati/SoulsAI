@@ -111,7 +111,7 @@ class TelemetryNode:
             if n_episodes % self.config.telemetry.update_interval == 0:
                 for connector in self.connectors:
                     connector.update(self.stats)
-                self._log_telemetry()
+                self._log_telemetry()  # TODO: move to log connector
                 if self.telemetry_callbacks:
                     for callback in self.telemetry_callbacks:
                         callback(self)

@@ -6,5 +6,5 @@ soulsai.data
 .. toctree::
     :hidden:
 
-    gamestate_transformer
+    transformation
     onehot

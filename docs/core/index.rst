@@ -11,6 +11,6 @@ classes are already designed with the possibility of using them in a distributed
     agent
     networks
     noise
-    normalizer
     replay_buffer
     scheduler
+    transform
