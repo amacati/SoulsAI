@@ -23,11 +23,16 @@ logger = logging.getLogger(__name__)
 
 
 class TelemetryConnector(ABC):
+    """Abstract class for telemetry connectors.
+
+    Connectors are used to expose the telemetry data. This allows us to save the same telemetry data
+    to the disk, sync it with a Grafana instance, and send it to a Weights and Biases project at the
+    same time using a unified API.
+    """
 
     def __init__(self):
         """Initialize the telemetry connector."""
 
-    @abstractmethod
     def start(self):
         """Start the telemetry connector."""
 
@@ -39,12 +44,15 @@ class TelemetryConnector(ABC):
             data: Data dictionary.
         """
 
-    @abstractmethod
     def stop(self):
         """Stop the telemetry connector."""
 
 
 class FileStorageConnector(TelemetryConnector):
+    """File storage connector to save the telemetry data to a json file and plot the current stats.
+
+    The connector saves the telemetry data and, if enabled, the current plots to files on the disk.
+    """
 
     def __init__(self, config: dict):
         """Initialize the file storage connector.
@@ -60,9 +68,6 @@ class FileStorageConnector(TelemetryConnector):
         self.path.mkdir(parents=True, exist_ok=True)
         self.stats_path = self.path / "telemetry.json"
         self.figure_path = self.path / "telemetry.png"
-
-    def start(self):
-        ...
 
     def update(self, data: dict):
         """Update the save files and the plot.
@@ -81,9 +86,6 @@ class FileStorageConnector(TelemetryConnector):
                        ylabels=ykeys,
                        path=self.figure_path,
                        N_av=self.config.telemetry.moving_average)
-
-    def stop(self):
-        ...
 
     def _check_config(self, config: dict):
         if not hasattr(config.monitoring, "file_storage"):
@@ -197,8 +199,20 @@ class GrafanaConnector(TelemetryConnector):
 
 
 class WandBConnector(TelemetryConnector):
+    """Custom connector to send telemetry data to Weights and Biases.
+
+    Note:
+        This connector requires the Weights and Biases API key to be stored in a file at
+        `/run/secrets/wandb_api_key`. When running docker compose, secret files under
+        `config/secrets` are mounted to `/run/secrets` in the container.
+    """
 
     def __init__(self, config: dict):
+        """Initialize the Weights and Biases telemetry connector.
+
+        Args:
+            config: Config dictionary.
+        """
         super().__init__()
         self.config = config
         self._check_config(config)
@@ -228,6 +242,7 @@ class WandBConnector(TelemetryConnector):
         self._step = len(data["n_env_steps"])
 
     def stop(self):
+        """Stop the connector and finish the WandB run."""
         self.run.finish()
 
     def _check_config(self, config: dict):

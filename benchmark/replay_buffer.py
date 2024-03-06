@@ -1,3 +1,4 @@
+"""Evaluate the performance of the replay buffer implementation."""
 import timeit
 from soulsai.core.replay_buffer import ReplayBuffer
 import torch
@@ -19,6 +20,7 @@ rb.append(sample_td)  # Allocate buffers
 
 
 def main():
+    """Benchmark the `append`, `sample_batch` and `sample_batches` methods of the replay buffer."""
     repetitions = 1_000
     setup = ("from soulsai.core.replay_buffer import ReplayBuffer\n"
              "import torch\n"

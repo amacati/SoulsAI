@@ -24,8 +24,19 @@ logger = logging.getLogger(__name__)
 
 
 class Agent(torch.nn.Module):
+    """Base class for agents.
+
+    All agents should inherit from this class. Agents are Modules to allow for easy serialization
+    and deserialization of their parameters. The model ID is used to keep track of the current
+    version of the model. The update callback can be used to reset noisy networks after an update.
+    """
 
     def __init__(self, dev: torch.device = torch.device("cpu")):
+        """Initialize the agent.
+
+        Args:
+            dev: Torch device for the networks.
+        """
         super().__init__()
         self.dev = dev
         self.networks = torch.nn.ModuleDict()
@@ -134,6 +145,18 @@ class DistributionalDQNAgent(Agent):
 
     def __init__(self, network_type: str, network_kwargs: dict, lr: float, gamma: float,
                  multistep: int, grad_clip: float, q_clip: float, dev: torch.device):
+        """Initialize the networks and optimizers.
+
+        Args:
+            network_type: The network type name.
+            network_kwargs: Keyword arguments for the network.
+            lr: Network learning rate.
+            gamma: Reward discount factor.
+            multistep: Number of multi-step returns considered in the TD update.
+            grad_clip: Gradient clipping value for the Q networks.
+            q_clip: Maximal value of the estimator network during training.
+            dev: Torch device for the networks.
+        """
         super().__init__(dev)
         self.network_type = network_type
         self.networks.add_module("qr_dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
@@ -224,6 +247,18 @@ class DistributionalR2D2Agent(Agent):
 
     def __init__(self, network_type: str, network_kwargs: dict, lr: float, gamma: float,
                  multistep: int, grad_clip: float, q_clip: float, dev: torch.device):
+        """Initialize the networks and optimizers.
+
+        Args:
+            network_type: The network type name.
+            network_kwargs: Keyword arguments for the network.
+            lr: Network learning rate.
+            gamma: Reward discount factor.
+            multistep: Number of multi-step returns considered in the TD update.
+            grad_clip: Gradient clipping value for the Q networks.
+            q_clip: Maximal value of the estimator network during training.
+            dev: Torch device for the networks.
+        """
         super().__init__(dev)
         self.network_type = network_type
         self.networks.add_module("qr_dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
@@ -314,6 +349,13 @@ class DQNClientAgent(Agent):
     """
 
     def __init__(self, network_type: str, network_kwargs: dict, dev: torch.device):
+        """Initialize the client agent.
+
+        Args:
+            network_type: The network type name.
+            network_kwargs: Keyword arguments for the network.
+            dev: Torch device for the networks.
+        """
         super().__init__(dev)
         self.network_type = network_type
         self.networks.add_module("dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
@@ -340,8 +382,20 @@ class DQNClientAgent(Agent):
 
 
 class DistributionalDQNClientAgent(Agent):
+    """QR DQN client agent for inference on worker nodes.
+
+    The client agent is missing the optimizer and training methods, but can be used for inference
+    on worker nodes.
+    """
 
     def __init__(self, network_type: str, network_kwargs: dict, dev: torch.device):
+        """Initialize the client agent.
+
+        Args:
+            network_type: The network type name.
+            network_kwargs: Keyword arguments for the network.
+            dev: Torch device for the networks.
+        """
         super().__init__(dev)
         self.network_type = network_type
         self.networks.add_module("qr_dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))

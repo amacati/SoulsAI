@@ -1,3 +1,4 @@
+"""Test the observation wrapper for the Iudex environment."""
 import json
 from pathlib import Path
 
@@ -8,7 +9,12 @@ from soulsai.wrappers.iudex_wrappers import IudexObservationWrapper
 from dummy_env import IudexDummyEnv
 
 
-def load_ground_truth_data():
+def load_ground_truth_data() -> list[np.ndarray]:
+    """Load ground truth data from the original transformation implementation.
+
+    Returns:
+        A list of reference output data.
+    """
     with open(Path(__file__).parent / "data/iudex_env_reference_output.json", "r") as f:
         data = json.load(f)
     return [np.array(x) for x in data]

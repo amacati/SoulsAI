@@ -141,6 +141,12 @@ class CNNAdvantageDQN(nn.Module):
     """CNN Advantage DQN network."""
 
     def __init__(self, input_shape: tuple[int, ...], output_dims: int):
+        """Initialize the network layers.
+
+        Args:
+            input_shape: Input layer dimensions.
+            output_dims: Output layer dimensions.
+        """
         super().__init__()
         assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
         self.output_dims = output_dims
@@ -228,6 +234,14 @@ class DistributionalDQN(nn.Module):
     """
 
     def __init__(self, input_dims: int, output_dims: int, layer_dims: int, n_quantiles: int = 32):
+        """Initialize the network layers.
+
+        Args:
+            input_dims: Input layer dimension.
+            output_dims: Output layer dimension.
+            layer_dims: Hidden layers dimension.
+            n_quantiles: Number of quantiles to estimate.
+        """
         super().__init__()
         self.output_dims = output_dims
         self.n_quantiles = n_quantiles
@@ -262,6 +276,13 @@ class CNNDistributionalDQN(nn.Module):
     """
 
     def __init__(self, input_shape: tuple[int, ...], output_dims: int, n_quantiles: int = 32):
+        """Initialize the network layers.
+
+        Args:
+            input_shape: Input layer dimensions.
+            output_dims: Output layer dimensions.
+            n_quantiles: Number of quantiles to estimate.
+        """
         super().__init__()
         assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
         self.output_dims = output_dims
@@ -303,11 +324,25 @@ class ResidualCNNBlock(nn.Module):
     """Residual CNN block from the Impala paper."""
 
     def __init__(self, n_channels: int):
+        """Initialize the network layers.
+
+        Args:
+            n_channels: Number of input and output channels. `ResidualCNNBlock` always have the same
+                number of input and output channels to allow for the residual connection.
+        """
         super().__init__()
         self.conv1 = nn.Conv2d(n_channels, n_channels, 3, padding=1)
         self.conv2 = nn.Conv2d(n_channels, n_channels, 3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the forward pass of the residual block.
+
+        Args:
+            x: Network input.
+
+        Returns:
+            The network output.
+        """
         return self.conv2(F.relu(self.conv1(F.relu(x)))) + x
 
 
@@ -318,6 +353,12 @@ class ImpalaBlock(nn.Module):
     """
 
     def __init__(self, channel_in: int, channel_out: int):
+        """Initialize the network layers.
+
+        Args:
+            channel_in: Number of input channels.
+            channel_out: Number of output channels.
+        """
         super().__init__()
         self.base_conv = nn.Conv2d(channel_in, channel_out, 3, padding=1)
         self.base_max = nn.MaxPool2d(3, 2)
@@ -325,6 +366,14 @@ class ImpalaBlock(nn.Module):
         self.res_block2 = ResidualCNNBlock(channel_out)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the forward pass of the Imapala block.
+
+        Args:
+            x: Network input.
+
+        Returns:
+            The network output.
+        """
         out = self.base_max(self.base_conv(x))
         out = self.res_block2(self.res_block1(out))
         return out
@@ -337,6 +386,13 @@ class ImpalaDistributionalDQN(nn.Module):
     """
 
     def __init__(self, input_shape: tuple[int, ...], output_dims: int, n_quantiles: int = 32):
+        """Initialize the network layers.
+
+        Args:
+            input_shape: Input layer dimensions.
+            output_dims: Output layer dimensions.
+            n_quantiles: Number of quantiles to estimate.
+        """
         super().__init__()
         assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
         self.output_dims = output_dims

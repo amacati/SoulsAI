@@ -4,3 +4,4 @@ numpy==1.22.3
 flask==2.2.3
 prometheus_client==0.16.0
 pyyaml>=6.0.0
+tensordict==0.3.1

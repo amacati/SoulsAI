@@ -1,3 +1,4 @@
+"""Evaluate the performance of the serialization implementation."""
 import timeit
 
 setup = """import torch\n
@@ -32,8 +33,9 @@ sample_td["modelId"] = torch.tensor([0])
 
 
 def main():
+    """Benchmark the `serialize` and `deserialize` methods for TensorDicts."""
     repetitions = 1_000
-    stmt = f"serialize(sample)"
+    stmt = "serialize(sample)"
     time_2 = timeit.timeit(stmt, setup=setup, number=repetitions) / repetitions
     print(f"Serialize took an average of {time_2:.2e} seconds per call.")
 

@@ -216,6 +216,11 @@ class Choice(Transform):
 
 
 class ScheduledChoice(Transform):
+    """Scheduled choice transformation class for selecting one of several transforms at random.
+
+    The chance of choosing a transformation is scheduled by a scheduler. The scheduler advances on
+    each call to `update`. This allows us to implement behaviors like annealing exploration rates.
+    """
 
     def __init__(self, transforms: list[Transform | dict], scheduler: Scheduler | dict):
         """Initialize the transformation.

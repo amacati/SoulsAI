@@ -79,6 +79,7 @@ class ClientWatchdog:
 
 
 class WatchdogGauge:
+    """A simple gauge to measure the sample rate."""
 
     def __init__(self, sync_value: Synchronized, update_time: float = 60.):
         """Create a wrapper around the synchronized shared value.
@@ -93,6 +94,15 @@ class WatchdogGauge:
         self._update_time = update_time
 
     def inc(self, amount: int = 1):
+        """Increment the gauge by a given amount.
+
+        On each increment, the gauge checks if more than `update_time` seconds have passed since the
+        last time update. If so, it updates the shared value with the current sample rate and resets
+        the counter and timer.
+
+        Args:
+            amount: The amount to increment the gauge by.
+        """
         if self._cnt == -1:
             self._cnt = amount
             self._t_start = time.time()
