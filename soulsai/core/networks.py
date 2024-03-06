@@ -227,22 +227,15 @@ class DistributionalDQN(nn.Module):
     The network estimates N Q-values, which each have a probability of 1/N.
     """
 
-    def __init__(self,
-                 input_dims: int,
-                 output_dims: int,
-                 layer_dims: int,
-                 n_quantiles: int = 32,
-                 final_layer_init: bool = False):
+    def __init__(self, input_dims: int, output_dims: int, layer_dims: int, n_quantiles: int = 32):
         super().__init__()
         self.output_dims = output_dims
         self.n_quantiles = n_quantiles
         self.l1 = nn.Linear(input_dims, layer_dims)
+        self.ln1 = nn.LayerNorm(layer_dims)
         self.l2 = nn.Linear(layer_dims, layer_dims)
+        self.ln2 = nn.LayerNorm(layer_dims)
         self.l3 = nn.Linear(layer_dims, output_dims * n_quantiles)
-        if final_layer_init:
-            bound = 1 / np.sqrt(layer_dims) * 0.001
-            torch.nn.init.uniform_(self.l3.weight, -bound, bound)
-            torch.nn.init.uniform_(self.l3.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the forward pass of the network.
@@ -256,8 +249,8 @@ class DistributionalDQN(nn.Module):
             the number of bins.
         """
         batch_size = x.shape[0] if x.ndim > 1 else 1
-        x = F.relu(self.l1(x))
-        x = F.relu(self.l2(x))
+        x = F.relu(self.ln1(self.l1(x)))
+        x = F.relu(self.ln2(self.l2(x)))
         x = self.l3(x).view(batch_size, self.output_dims, self.n_quantiles)
         return x
 

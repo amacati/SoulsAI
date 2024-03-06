@@ -86,6 +86,7 @@ class DQNAgent(Agent):
         Returns:
             The TD error for each sample in the batch.
         """
+        self.networks.train()
         batch_size = sample.batch_size[0]
         coin = random.choice([True, False])
         train_net, estimate_net = ("dqn1", "dqn2") if coin else ("dqn2", "dqn1")
@@ -118,6 +119,7 @@ class DQNAgent(Agent):
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
         train_opt.step()
+        self.networks.eval()
         return sample_loss.detach().cpu().numpy()
 
     def update_callback(self):
@@ -160,6 +162,7 @@ class DistributionalDQNAgent(Agent):
         Returns:
             The TD error for each sample in the batch.
         """
+        self.networks.train()
         batch_size, N = sample.batch_size[0], self.networks["qr_dqn1"].n_quantiles
         coin = random.choice([True, False])
         train_net, estimate_net = ("qr_dqn1", "qr_dqn2") if coin else ("qr_dqn2", "qr_dqn1")
@@ -206,6 +209,7 @@ class DistributionalDQNAgent(Agent):
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
         train_opt.step()
+        self.networks.eval()
         return summed_quantile_loss.detach().cpu().numpy()
 
 
@@ -314,6 +318,7 @@ class DQNClientAgent(Agent):
         self.network_type = network_type
         self.networks.add_module("dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
         self.networks.add_module("dqn2", net_cls(network_type)(**network_kwargs).to(self.dev))
+        self.networks.eval()
 
     def __call__(self, x: np.ndarray, action_mask: np.ndarray | None = None) -> torch.IntTensor:
         """Calculate the current best action by averaging the values from both networks.
@@ -341,6 +346,7 @@ class DistributionalDQNClientAgent(Agent):
         self.network_type = network_type
         self.networks.add_module("qr_dqn1", net_cls(network_type)(**network_kwargs).to(self.dev))
         self.networks.add_module("qr_dqn2", net_cls(network_type)(**network_kwargs).to(self.dev))
+        self.networks.eval()
 
     def __call__(self, x: np.ndarray, action_mask: np.ndarray | None = None) -> torch.IntTensor:
         """Calculate the current best action.

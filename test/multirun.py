@@ -197,6 +197,7 @@ def main(args: argparse.Namespace):
     if args.nruns:
         save_root = Path(__file__).parents[1] / "saves"
         save_dirs = [d for d in save_root.iterdir() if d.is_dir() and d.name[:4].isdigit()]
+        assert len(save_dirs) >= args.nruns, "Not enough runs to summarize"
         run_dirs = sorted(save_dirs)[-args.nruns:]
         save_path = mkdir_date(save_root)
         save_path = save_path.rename(save_path.parent / ("multirun_" + save_path.name))
