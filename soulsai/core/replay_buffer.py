@@ -255,7 +255,7 @@ class PrioritizedReplayBuffer(AbstractBuffer):
     are preallocated. An internal index keeps track of the current size of the buffer and enables to
     only sample from the parts of the buffers already filled with experience.
 
-    We fix alpha to 0.5 and use sqrt instead of **alpha. See e.g. Dopamine implementation at
+    We fix alpha to 0.5 and use sqrt instead of pow(alpha). See e.g. Dopamine implementation at
     https://github.com/google/dopamine/blob/a6f414ca01a81e933359a4922965178a40e0f38a/dopamine/jax/agents/quantile/quantile_agent.py#L262
     """
 
