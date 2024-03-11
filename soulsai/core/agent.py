@@ -6,7 +6,6 @@ to deserialize this data and load the new weights into their policy or value net
 """
 from __future__ import annotations
 
-import io
 import random
 import logging
 from typing import Tuple, TYPE_CHECKING
@@ -462,8 +461,8 @@ class PPOAgent(Agent):
         """
         with torch.no_grad():
             probs = self.networks["actor"](torch.as_tensor(x).to(self.dev))
-        action = torch.multinomial(probs, 1).item()
-        return action, probs[action].item()
+        action = torch.multinomial(probs, 1).squeeze(-1)
+        return action, probs[range(action.shape[0]), action]
 
     def get_values(self, x: torch.Tensor, requires_grad: bool = True) -> torch.Tensor:
         """Get the state value for the input x.
@@ -491,37 +490,6 @@ class PPOAgent(Agent):
         """
         return self.networks["actor"](x.to(self.dev))
 
-    def serialize(self, serialize_critic: bool = False) -> dict:
-        """Serialize the network parameters into a dictionary of byte arrays.
-
-        Args:
-            serialize_critic: Serialize the critic network as well if set to true.
-
-        Returns:
-            The serialized parameter dictionary.
-        """
-        assert self.model_id is not None
-        if serialize_critic:
-            return super().serialize()
-        actor_buff = io.BytesIO()
-        torch.save(self.networks["actor"], actor_buff)
-        actor_buff.seek(0)
-        return {"actor": actor_buff.read(), "model_id": self.model_id}
-
-    def deserialize(self, serialization: dict, deserialize_critic: bool = False):
-        """Deserialize the parameter dictionary and load the values into the networks.
-
-        Args:
-            serialization: The serialized parameter dictionary.
-            deserialize_critic: Deserialize the critic network as well if set to true.
-        """
-        if deserialize_critic:
-            super().deserialize(serialization)
-        actor_buff = io.BytesIO(serialization["actor"])
-        actor_buff.seek(0)
-        self.networks["actor"] = torch.load(actor_buff)
-        self.model_id = serialization["model_id"]
-
     def update_callback(self):
         """Update callback after a training step to reset noisy nets if used."""
         if self.actor_net_type == "NoisyNet":
@@ -545,4 +513,3 @@ class PPOClientAgent(PPOAgent, Agent):
         super(PPOAgent, self).__init__(dev)
         self.actor_net_type = network_type
         self.networks.add_module("actor", net_cls(network_type)(**network_kwargs).to(dev))
-        self.model_id = None

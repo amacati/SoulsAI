@@ -511,9 +511,17 @@ class PPOConnector:
             break
         if not msg:
             raise ServerTimeoutError(f"Timeout of {timeout}s exceeded during synchronization")
-        raw_params = self.red.hgetall("model_params")
-        model_params = {key.decode("utf-8"): value for key, value in raw_params.items()}
-        self.agent.deserialize(model_params)
+        model_state_dict = deserialize(self.red.get("model_state_dict"))
+        # Strict False because the value network is not present in the client
+        self.agent.load_state_dict(model_state_dict, strict=False)
+
+    @property
+    def model_id(self) -> int:
+        """Model ID.
+
+        Always use with the context manager! See :meth:`.DQNConnector.__enter__`.
+        """
+        return self.agent.model_id.item()
 
     @staticmethod
     def _consume_msgs(msg_pipe: Connection, address: str, secret: str, stop_event: Event):

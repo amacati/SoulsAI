@@ -60,14 +60,47 @@ checkpoint:
 # Telemetry node settings
 telemetry:
   update_interval: 5
-  save_best_interval: 5
   moving_average: 20
+  transforms:
+    - type: "MetricByKey"
+      kwargs:
+        key: "ep_reward"
+        name: "rewards"
+    - type: "MetricByKey"
+      kwargs:
+        key: "ep_steps"
+        name: "steps"
+    - type: "MetricByKey"
+      kwargs:
+        key: "total_steps"
+        name: "n_env_steps"
+    - type: "CompareValue"
+      kwargs:
+        key: "ep_reward"
+        name: "wins"
+        value: 200
+        op: gt  # Greater than
+    - type: "Timer"
+  log_keys:
+    - "rewards_av"
+    - "steps_av"
+  callbacks:
+    - type: "SaveBest"
+      kwargs:
+        key: "rewards_av"
+        channel: "save_best"
 
 # Monitoring
 monitoring:
   file_storage:
     path: "/home/SoulsAI/saves"
-    plot: True
+    plot:
+      xkey: "n_env_steps"
+      ykeys:
+        - "rewards_av"
+        - "steps_av"
+        - "wins_av"
+        - "time"
   grafana: True
   prometheus: True
   wandb:

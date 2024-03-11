@@ -178,6 +178,25 @@ class TensorDictNormalization(Transform):
             self.params[f"{key}_std"].copy_(torch.sqrt(std2))
 
 
+class ImageNormalization(Transform):
+    """Image normalization transformation class for normalizing images to the range [-1, 1]."""
+
+    def __init__(self):
+        """Initialize the transformation."""
+        super().__init__()
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Normalize the input tensor to the range [-1, 1].
+
+        Args:
+            x: Input image tensor.
+
+        Returns:
+            Normalized tensor.
+        """
+        return (x / 255.0) * 2.0 - 1.0
+
+
 class Choice(Transform):
     """Choice transformation class for selecting one of several transforms at random."""
 

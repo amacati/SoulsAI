@@ -12,6 +12,7 @@ redis_address: "redis"
 # Environment information
 env:
   name: LunarLander-v2
+  vectorize: False
   kwargs:
   obs_shape: [8]
   n_actions: 4

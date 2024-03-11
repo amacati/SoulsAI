@@ -80,7 +80,8 @@ def _dqn_client(config: SimpleNamespace,
     con = DQNConnector(config)
 
     # Create the environment and wrap it if wrappers are specified
-    env = gymnasium.make_vec(config.env.name, **namespace2dict(config.env.kwargs))
+    env_factory = gymnasium.make if not config.env.vectorize else gymnasium.make_vec
+    env = env_factory(config.env.name, **namespace2dict(config.env.kwargs))
     for wrapper, wrapper_args in namespace2dict(config.env.wrappers).items():
         env = getattr(soulsai.wrappers, wrapper)(env, **(wrapper_args["kwargs"] or {}))
     env = TensorDictWrapper(env)  # Convert all outputs to TensorDicts

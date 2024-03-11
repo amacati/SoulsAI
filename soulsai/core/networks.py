@@ -307,17 +307,15 @@ class CNNDistributionalDQN(nn.Module):
         """Compute the forward pass of the network.
 
         Args:
-            x: Network input.
+            x: Network input. Must be 4-dimensional (BxCxHxW).
 
         Returns:
             The network output. Note that the output is a distribution tensor of shape [B A N]
             instead of [B A], where B is the batch dimension, A is the action dimension, and N is
-            the number of bins (here 32).
+            the number of bins.
         """
-        assert x.ndim in (3, 4), f"Input must be 3- or 4-dimensional, is {x.ndim}"
-        if x.ndim == 3:
-            x = x.unsqueeze(0)
-        return self.linear(self.cnn(x)).view(x.shape[0], self.n_quantiles, self.output_dims)
+        assert x.ndim == 4, f"Input must be 4-dimensional, is {x.ndim}"
+        return self.linear(self.cnn(x)).view(x.shape[0], self.output_dims, self.n_quantiles)
 
 
 class ResidualCNNBlock(nn.Module):

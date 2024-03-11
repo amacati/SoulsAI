@@ -11,6 +11,7 @@ local:
 
 # Environment information
 env:
+  vectorize: False  # Atari wrappers do not support vectorized environments
   name: ALE/Pong-v5
   kwargs:
     frameskip: 1
@@ -48,6 +49,22 @@ dqn:
   replay_buffer:
     type: "ReplayBuffer"
     kwargs:
+      max_size: 500_000
+  observation_transform:
+    type: "ImageNormalization"
+    kwargs:
+  action_transform:
+    type: "Choice"
+    kwargs:
+      prob: [0.95, 0.05]
+      transforms:
+        - type: "Identity"
+        - type: "ReplaceWithNoise"
+          kwargs:
+            noise:
+              type: "UniformDiscreteNoise"
+              kwargs:
+                size_n: 6
   action_masking: False
   min_samples: null
   tau: 0.05  # For soft target update
@@ -65,26 +82,58 @@ checkpoint:
 # Telemetry node settings
 telemetry:
   update_interval: 5
-  save_best_interval: 5
   moving_average: 20
+  transforms:
+    - type: "MetricByKey"
+      kwargs:
+        key: "ep_reward"
+        name: "rewards"
+    - type: "MetricByKey"
+      kwargs:
+        key: "ep_steps"
+        name: "steps"
+    - type: "MetricByKey"
+      kwargs:
+        key: "total_steps"
+        name: "n_env_steps"
+    - type: "CompareValue"
+      kwargs:
+        key: "ep_reward"
+        name: "wins"
+        value: 200
+        op: gt  # Greater than
+    - type: "Timer"
+  log_keys:
+    - "rewards_av"
+    - "steps_av"
+  callbacks:
+    - type: "SaveBest"
+      kwargs:
+        key: "rewards_av"
+        channel: "save_best"
 
-# Client settings
-max_episodes: -1  # -1 for infinite runs
-enable_interrupt: False
-step_delay: 0.003
-
-# Monitoring
 monitoring:
   file_storage:
     path: "/home/SoulsAI/saves"
-    plot: True
+    plot:
+      xkey: "n_env_steps"
+      ykeys:
+        - "rewards_av"
+        - "steps_av"
+        - "wins_av"
+        - "time"
   grafana: True
   prometheus: True
   wandb:
     project: "soulsai_dqn_atari"
     entity: "amacati"
-    group: "test"
+    group: "testing"
     save_dir: "/home/SoulsAI/saves"
+
+# Client settings
+max_episodes: -1  # -1 for infinite runs
+enable_interrupt: False
+step_delay: 0.003
 
 watchdog:
   enable: False

@@ -47,14 +47,15 @@ class PPOTrainingNode(TrainingNode):
                               self.config.ppo.critic_net.type,
                               namespace2dict(self.config.ppo.critic_net.kwargs),
                               self.config.ppo.actor_lr, self.config.ppo.critic_lr, config.device)
-        self.agent.model_id = 0
+        self.agent.model_id.copy_(torch.tensor([0], dtype=torch.int64))
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
             logger.info("Checkpoint loading complete")
 
         logger.info(f"Initial model ID: {self.agent.model_id}")
-        self.buffer = TrajectoryBuffer(self.config.ppo.n_clients, self.config.ppo.n_steps,
-                                       self.config.env.obs_shape)
+        self.buffer = TrajectoryBuffer(self.config.ppo.n_clients,
+                                       self.config.ppo.n_steps,
+                                       device=self.config.device)
         self._model_iterations = 0
         logger.info("PPO training node startup complete")
 
@@ -67,9 +68,9 @@ class PPOTrainingNode(TrainingNode):
         return self.red.rpop("samples", 10)  # Batch receive samples
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
-        valid = sample["modelId"] == self.agent.model_id
+        valid = sample["model_id"] == self.agent.model_id.item()
         if valid:
-            logger.debug(f"Received sample {sample['clientId']}:{sample['stepId']}")
+            logger.debug(f"Received sample {sample['client_id']}:{sample['step_id']}")
         else:
             logger.warning("Unexpected sample with outdated model ID")
         if monitoring:
@@ -88,8 +89,8 @@ class PPOTrainingNode(TrainingNode):
 
     def _publish_model(self):
         logger.debug(f"Publishing new model iteration {self.agent.model_id}")
-        self.red.hset("model_params", mapping=self.agent.serialize(serialize_critic=False))
-        self.red.publish("model_update", self.agent.model_id)
+        self.red.set("model_state_dict", serialize(self.agent.state_dict()))
+        self.red.publish("model_update", self.agent.model_id.item())
         logger.debug("Model upload successful")
 
     def _post_update_hook(self):

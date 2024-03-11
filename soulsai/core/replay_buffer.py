@@ -459,7 +459,10 @@ class TrajectoryBuffer:
         This buffer is designed for categorical actions PPO only!
     """
 
-    def __init__(self, n_trajectories: int, n_samples: int, obs_shape: tuple[int, ...]):
+    def __init__(self,
+                 n_trajectories: int,
+                 n_samples: int,
+                 device: torch.device = torch.device("cpu")):
         """Preallocate the sample tensors and completion flags.
 
         Args:
@@ -467,23 +470,19 @@ class TrajectoryBuffer:
             n_samples: Number of samples for each trajectory.
             obs_shape: Observation shape.
         """
+        raise NotImplementedError("This buffer is currently not functional")
         self.n_trajectories = n_trajectories
         self.n_samples = n_samples
         self.n_batch_samples = n_trajectories * n_samples
-        self.obs = torch.zeros((n_trajectories * n_samples, *obs_shape), dtype=torch.float32)
-        self.actions = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.int64)
-        self.probs = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.float32)
-        self.rewards = torch.zeros(n_trajectories * n_samples, dtype=torch.float32)
-        self.terminated = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.float32)
-        self.values = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.float32)
-        self.advantages = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.float32)
+        self.device = device
+        self.buffer = TensorDict({}, batch_size=(n_trajectories, n_samples), device=device)
         # For the advantage calculation, we need the next observation after the final sample.
-        self._final_obs = torch.zeros((n_trajectories, *obs_shape), dtype=torch.float32)
-        self._end_terminated = torch.zeros((n_trajectories, 1), dtype=torch.float32)
-        self._end_values = torch.zeros((n_trajectories, 1), dtype=torch.float32)
-        # Create an array that tracks which samples have already been added for fast checking
-        self._complete_flags = np.empty(n_trajectories * (n_samples + 1), dtype=np.bool_)
-        self._complete_flags[:] = False
+        self.final_buffer = TensorDict({}, batch_size=n_trajectories, device=device)
+
+        self.values = torch.zeros((n_trajectories * n_samples, 1), dtype=torch.float32)
+        self.advantages = torch.zeros((n_trajectories, n_samples), dtype=torch.float32)
+        # Create a tensor that tracks which samples have already been added for fast checking
+        self._complete_flags = torch.zeros((n_trajectories, n_samples + 1), dtype=torch.bool)
 
     def append(self, sample: Dict):
         """Append a PPO sample to the buffer.
@@ -494,19 +493,28 @@ class TrajectoryBuffer:
             sample: PPO sample consisting of the observation, the chosen action, the action
             probability, the reward, the terminated flag, the trajectory ID and the step ID.
         """
-        trajectory_id, step_id = sample["clientId"], sample["stepId"]
+        trajectory_id, step_id = sample["client_id"], sample["step_id"]
         assert trajectory_id < self.n_trajectories and step_id <= self.n_samples
         if step_id != self.n_samples:  # Non-terminal sample
-            idx = trajectory_id * self.n_samples + step_id
-            self.obs[idx, :] = torch.from_numpy(sample["obs"])
-            self.actions[idx] = sample["action"]
-            self.probs[idx] = sample["prob"]
-            self.rewards[idx] = sample["reward"]
-            self.terminated[idx] = sample["terminated"]
+            self._allocate_buffers(self.buffer, sample)
+            self.buffer[trajectory_id, step_id] = sample
         else:
-            self._final_obs[trajectory_id] = torch.from_numpy(sample["obs"])
-            self._end_terminated[trajectory_id] = sample["terminated"]
-        self._complete_flags[trajectory_id * (self.n_samples + 1) + step_id] = True
+            self._allocate_buffers(self.final_buffer, sample)
+            self.final_buffer[trajectory_id] = sample
+        self._complete_flags[trajectory_id, step_id] = True
+
+    def _allocate_buffers(self, buffer: TensorDict, sample: TensorDict[torch.Tensor]):
+        # Check if there are unknown keys in the sample and allocate buffers for them if necessary
+        for key in set(sample.keys()).difference(set(buffer.keys())):
+            if isinstance(sample[key], torch.Tensor):
+                size = (self.n_trajectories, self.n_samples, *sample[key].shape[1:])
+                buffer[key] = torch.zeros(*size, dtype=sample[key].dtype, device=self.device)
+            elif isinstance(sample[key], TensorDict):
+                buffer[key] = TensorDict(sample[key],
+                                         batch_size=buffer.batch_size,
+                                         device=self.device)
+            else:
+                raise ValueError(f"Unknown sample type for key {key}")
 
     def clear(self):
         """Clear the buffer complete flags and reset the advantage values."""
@@ -516,7 +524,7 @@ class TrajectoryBuffer:
     @property
     def buffer_complete(self) -> bool:
         """Flag to check if all required samples have been added to the buffer."""
-        return np.all(self._complete_flags)
+        return torch.all(self._complete_flags)
 
     def compute_advantages_and_values(self, agent: PPOAgent, gamma: float, gae_lambda: float):
         """Compute the advantage of each observation with GAE and save the values in the buffer.
@@ -530,21 +538,26 @@ class TrajectoryBuffer:
             gae_lambda: The GAE discount factor. A lower value is only gamma-just for an accurate
                 estimate of the value function, but reduces the estimate's variance.
         """
-        self.values = agent.get_values(self.obs, requires_grad=False).cpu()
-        self._end_values = agent.get_values(self._final_obs, requires_grad=False).cpu()
+        self.values = agent.get_values(self.buffer["obs"], requires_grad=False)
+        self.final_buffer["value"] = agent.get_values(self.final_buffer["obs"], requires_grad=False)
         for trajectory_id in range(self.n_trajectories):
             last_advantage = 0
             for step_id in reversed(range(self.n_samples)):
                 # The estimation computes the advantage values in reverse order by using the
                 # value and advantage estimate of time t + 1 for the observation at time t
-                idx = trajectory_id * self.n_samples + step_id
                 if step_id == self.n_samples - 1:  # Terminal sample. Use actual end values
-                    not_terminated = (1. - self._end_terminated[trajectory_id])
-                    next_value = self._end_values[trajectory_id]
+                    not_terminated = (1. - self.final_buffer["terminated"][trajectory_id].float())
+                    next_value = self.final_buffer["value"][trajectory_id]
                 else:
-                    not_terminated = (1. - self.terminated[idx])
-                    next_value = self.values[idx + 1]
-                td_target = self.rewards[idx] + gamma * next_value * not_terminated
-                td_error = td_target - self.values[idx]
+                    terminated = self.buffer["terminated"][trajectory_id, step_id]
+                    not_terminated = (1. - terminated.float())
+                    next_value = self.values[trajectory_id, step_id + 1]
+                reward = self.buffer["reward"][trajectory_id, step_id]
+                print(next_value.shape)
+                print(not_terminated.shape)
+                td_target = reward + gamma * next_value * not_terminated
+                print(td_target.shape)
+                td_error = td_target - self.values[trajectory_id, step_id]
                 last_advantage = td_error + gamma * gae_lambda * not_terminated * last_advantage
-                self.advantages[idx] = last_advantage
+                print(last_advantage.shape)
+                self.advantages[trajectory_id, step_id] = last_advantage
