@@ -15,7 +15,6 @@ from pathlib import Path
 import time
 from typing import TYPE_CHECKING
 
-import numpy as np
 import torch
 
 from soulsai.core.agent import PPOAgent
@@ -104,32 +103,46 @@ class PPOTrainingNode(TrainingNode):
 
     def _ppo_step(self):
         # Training algorithm based on Cx recommendations from https://arxiv.org/pdf/2006.05990.pdf
-        b_idx = np.arange(self.buffer.n_batch_samples)
-        dev = self.config.device
+        n_trajectories, n_samples = self.buffer.n_trajectories, self.buffer.n_samples
+        t_idx = torch.arange(n_trajectories).repeat(n_samples, 1).T.flatten()
+        s_idx = torch.arange(n_samples).repeat(n_trajectories, 1).flatten()
         for _ in range(self.config.ppo.train_epochs):
             # Compute GAE advantage (C6) in each epoch (C5)
-            self.buffer.compute_advantages_and_values(self.agent, self.config.gamma,
-                                                      self.config.ppo.gae_lambda)
-            advantages = self.buffer.advantages.to(dev)
-            returns = (self.buffer.advantages + self.buffer.values).to(dev)
-            obs = self.buffer.obs.to(dev)
-            probs = self.buffer.probs.to(dev)
-            actions = self.buffer.actions.to(dev)
-            self.np_random.shuffle(b_idx)
+            advantage, value = self._compute_advantages()
+            assert advantage.shape == (n_trajectories, n_samples), "Advantage shape mismatch"
+            assert advantage.shape == value.shape, "advantage and value must have the same shape"
+            returns = (advantage + value)
+            obs = self.buffer.buffer["obs"]
+            probs = self.buffer.buffer["prob"]
+            actions = self.buffer.buffer["action"]
+            rand_idx = torch.randperm(n_samples * n_trajectories)
+            s_idx, t_idx = s_idx[rand_idx], t_idx[rand_idx]
+            assert s_idx.shape == (n_samples * n_trajectories,), "s_idx shape mismatch"
+            assert s_idx.shape == t_idx.shape, "s_idx and t_idx must have the same shape"
             for j in range(0, self.buffer.n_batch_samples, self.config.ppo.minibatch_size):
-                mb_idx = b_idx[j:j + self.config.ppo.minibatch_size]
-                new_probs = self.agent.get_probs(obs[mb_idx])
-                new_probs = torch.gather(new_probs, 1, actions[mb_idx])
-                ratio = new_probs / probs[mb_idx]
+                bt_idx = t_idx[j:j + self.config.ppo.minibatch_size]
+                bs_idx = s_idx[j:j + self.config.ppo.minibatch_size]
+                new_probs = self.agent.get_probs(obs[bt_idx, bs_idx])
+                new_probs = torch.gather(new_probs, 1, actions[bt_idx, bs_idx].unsqueeze(-1)).T
+                prev_probs = probs[bt_idx, bs_idx].unsqueeze(0)
+                assert new_probs.shape == prev_probs.shape, "new_probs shape mismatch"
+                ratio = new_probs / prev_probs
+                assert ratio.shape == (1, self.config.ppo.minibatch_size), "ratio shape mismatch"
                 # Compute policy (actor) loss
-                mb_advantages = advantages[mb_idx]
-                policy_loss_1 = -mb_advantages * ratio
-                policy_loss_2 = -mb_advantages * torch.clamp(ratio, 1 - self.config.ppo.clip_range,
-                                                             1 + self.config.ppo.clip_range)
+                b_advantage = advantage[bt_idx, bs_idx].unsqueeze(0)
+                assert b_advantage.shape == (
+                    1, self.config.ppo.minibatch_size), "b_advantage shape mismatch"
+                policy_loss_1 = -b_advantage * ratio
+                policy_loss_2 = -b_advantage * torch.clamp(ratio, 1 - self.config.ppo.clip_range,
+                                                           1 + self.config.ppo.clip_range)
+                assert policy_loss_1.shape == b_advantage.shape, "policy_loss shape mismatch"
+                assert policy_loss_1.shape == policy_loss_2.shape, "policy_loss shape mismatch"
                 policy_loss = torch.max(policy_loss_1, policy_loss_2).mean()
                 # Compute value (critic) loss
-                v_estimate = self.agent.get_values(obs[mb_idx])
-                value_loss = ((v_estimate - returns[mb_idx])**2).mean()
+                v_estimate = self.agent.get_values(obs[bt_idx, bs_idx])
+                b_returns = returns[bt_idx, bs_idx].unsqueeze(1)
+                assert v_estimate.shape == b_returns.shape, "v_estimate | b_returns shape mismatch"
+                value_loss = ((v_estimate - b_returns)**2).mean()
                 value_loss *= 0.5 * self.config.ppo.vf_coef
                 # Update agent
                 self.agent.critic_opt.zero_grad()
@@ -144,6 +157,43 @@ class PPOTrainingNode(TrainingNode):
                                                self.config.ppo.max_grad_norm)
                 with self._lock:
                     self.agent.actor_opt.step()
+
+    def _compute_advantages(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute Generalized Advantage Estimation (GAE) advantages from the current buffer."""
+        assert self.buffer.buffer_complete, "Buffer must be complete to compute advantages"
+        values = self.agent.get_values(self.buffer.buffer["obs"], requires_grad=False)
+        final_values = self.agent.get_values(self.buffer.final_buffer["obs"], requires_grad=False)
+        values = values.squeeze(-1)  # Remove the last dimension
+        advantages = torch.zeros_like(values)
+        n_trajectories, n_samples = values.shape[0], values.shape[1]
+        last_advantage = torch.zeros(n_trajectories, 1, device=self.config.device)
+        step_shape = (n_trajectories, 1)
+        for step_id in reversed(range(n_samples)):
+            # The estimation computes the advantage values in reverse order by using the
+            # value and advantage estimate of time t + 1 for the observation at time t
+            if step_id == n_samples - 1:  # Terminal sample. Use actual end values
+                terminated = self.buffer.final_buffer["terminated"].unsqueeze(-1)
+                next_value = final_values
+            else:
+                terminated = self.buffer.buffer["terminated"][:, step_id].unsqueeze(-1)
+                next_value = values[:, step_id + 1].unsqueeze(-1)
+            not_terminated = (1. - terminated.float())
+            reward = self.buffer.buffer["reward"][:, step_id].unsqueeze(-1)
+            assert reward.shape == step_shape, f"Reward shape mismatch ({reward.shape})"
+            assert next_value.shape == step_shape, "Next value shape mismatch"
+            assert not_terminated.shape == step_shape, "Not terminated shape mismatch"
+            td_target = reward + self.config.gamma * next_value * not_terminated
+            assert td_target.shape == step_shape, "TD target shape mismatch"
+            value = values[:, step_id].unsqueeze(-1)
+            assert value.shape == step_shape, "Value shape mismatch"
+            td_error = td_target - value
+            assert td_error.shape == step_shape, "TD error shape mismatch"
+            last_advantage = td_error + self.config.gamma * self.config.ppo.gae_lambda * not_terminated * last_advantage  # noqa: E501
+            assert last_advantage.shape == step_shape, "Last advantage shape mismatch"
+            advantages[:, step_id] = last_advantage.squeeze(-1)
+        assert advantages.shape == (n_trajectories, n_samples), "Advantage shape mismatch"
+        assert advantages.shape == values.shape, "Advantage shape mismatch"
+        return advantages, values
 
     def _discover_clients(self, timeout: float = 60.):
         discovery_sub = self.red.pubsub(ignore_subscribe_messages=True)
@@ -172,7 +222,7 @@ class PPOTrainingNode(TrainingNode):
         """
         path.mkdir(exist_ok=True)
         with self._lock:
-            self.agent.save(path / "agent.pt")
+            torch.save(self.agent.state_dict(), path / "agent_state_dict.pt")
         logger.info("Model checkpoint saved")
 
     def load_checkpoint(self, path: Path):
@@ -189,5 +239,5 @@ class PPOTrainingNode(TrainingNode):
 
     def _episode_info_callback(self, episode_info: bytes):
         data = deserialize(episode_info)
-        data["total_steps"] = self._total_env_steps
+        data["total_steps"] = torch.tensor([self._total_env_steps])
         self.red.publish("telemetry", serialize(data))

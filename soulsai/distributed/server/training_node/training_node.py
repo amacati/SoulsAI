@@ -21,6 +21,7 @@ from typing import Any, TYPE_CHECKING
 from contextlib import contextmanager
 
 import numpy as np
+import yaml
 from redis import Redis
 from prometheus_client import start_http_server, Info, Counter, Gauge
 
@@ -62,10 +63,10 @@ class TrainingNode(ABC):
         # Set config, load from checkpoint if specified
         self.config = config
         if self.config.checkpoint.load_config:
-            self.load_config(save_root_dir / "checkpoint" / "config.json")
+            self.load_config(save_root_dir / "checkpoint" / "config.yaml")
             logger.info("Config loading complete")
         self.config.save_dir = self.save_dir.name
-        self.save_config(self.save_dir / "config.json")
+        self.save_config(self.save_dir / "config.yaml")
         # Translate config values that are incompatible with json
         self._max_env_steps = self.config.max_env_steps or float("inf")
         # Load redis secret, create redis connection and subscribers
@@ -184,7 +185,7 @@ class TrainingNode(ABC):
         """
         path.parent.mkdir(exist_ok=True)
         with open(path, "w") as f:
-            json.dump(namespace2dict(self.config), f)
+            yaml.safe_dump(namespace2dict(self.config), f)
 
     def load_config(self, path: Path):
         """Load the training configuration from file.
@@ -193,7 +194,7 @@ class TrainingNode(ABC):
             path: Path to the configuration file.
         """
         with open(path, "r") as f:
-            saved_config = dict2namespace(json.load(f))
+            saved_config = dict2namespace(yaml.safe_load(f))
         assert saved_config.env.name == self.config.env.name, "Config environments do not match"
         assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
         self.config = saved_config

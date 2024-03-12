@@ -14,8 +14,6 @@ from soulsai.utils import module_type_from_string
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from soulsai.core.agent import PPOAgent
-
 buffer_cls: Callable[[str], type[AbstractBuffer]] = module_type_from_string(__name__)
 
 
@@ -470,7 +468,6 @@ class TrajectoryBuffer:
             n_samples: Number of samples for each trajectory.
             obs_shape: Observation shape.
         """
-        raise NotImplementedError("This buffer is currently not functional")
         self.n_trajectories = n_trajectories
         self.n_samples = n_samples
         self.n_batch_samples = n_trajectories * n_samples
@@ -507,7 +504,7 @@ class TrajectoryBuffer:
         # Check if there are unknown keys in the sample and allocate buffers for them if necessary
         for key in set(sample.keys()).difference(set(buffer.keys())):
             if isinstance(sample[key], torch.Tensor):
-                size = (self.n_trajectories, self.n_samples, *sample[key].shape[1:])
+                size = (*buffer.batch_size, *sample[key].shape[1:])
                 buffer[key] = torch.zeros(*size, dtype=sample[key].dtype, device=self.device)
             elif isinstance(sample[key], TensorDict):
                 buffer[key] = TensorDict(sample[key],
@@ -525,39 +522,3 @@ class TrajectoryBuffer:
     def buffer_complete(self) -> bool:
         """Flag to check if all required samples have been added to the buffer."""
         return torch.all(self._complete_flags)
-
-    def compute_advantages_and_values(self, agent: PPOAgent, gamma: float, gae_lambda: float):
-        """Compute the advantage of each observation with GAE and save the values in the buffer.
-
-        Warning:
-            This function HAS to be called before using the samples for training.
-
-        Args:
-            agent: The current PPO agent.
-            gamma: The discount factor.
-            gae_lambda: The GAE discount factor. A lower value is only gamma-just for an accurate
-                estimate of the value function, but reduces the estimate's variance.
-        """
-        self.values = agent.get_values(self.buffer["obs"], requires_grad=False)
-        self.final_buffer["value"] = agent.get_values(self.final_buffer["obs"], requires_grad=False)
-        for trajectory_id in range(self.n_trajectories):
-            last_advantage = 0
-            for step_id in reversed(range(self.n_samples)):
-                # The estimation computes the advantage values in reverse order by using the
-                # value and advantage estimate of time t + 1 for the observation at time t
-                if step_id == self.n_samples - 1:  # Terminal sample. Use actual end values
-                    not_terminated = (1. - self.final_buffer["terminated"][trajectory_id].float())
-                    next_value = self.final_buffer["value"][trajectory_id]
-                else:
-                    terminated = self.buffer["terminated"][trajectory_id, step_id]
-                    not_terminated = (1. - terminated.float())
-                    next_value = self.values[trajectory_id, step_id + 1]
-                reward = self.buffer["reward"][trajectory_id, step_id]
-                print(next_value.shape)
-                print(not_terminated.shape)
-                td_target = reward + gamma * next_value * not_terminated
-                print(td_target.shape)
-                td_error = td_target - self.values[trajectory_id, step_id]
-                last_advantage = td_error + gamma * gae_lambda * not_terminated * last_advantage
-                print(last_advantage.shape)
-                self.advantages[trajectory_id, step_id] = last_advantage

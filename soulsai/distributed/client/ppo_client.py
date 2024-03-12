@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import torch
 import gymnasium
+from tensordict import TensorDict
 
 import soulsai.wrappers
 from soulsai.wrappers import TensorDictWrapper
@@ -64,7 +65,7 @@ def ppo_client(config: SimpleNamespace):
         ppo_steps = 0
         while not stop_flag.is_set() and episode_id != config.max_episodes:
             episode_id += 1
-            steps, episode_reward = 1, 0.
+            steps, episode_reward = torch.tensor([1]), torch.tensor([0.])
             sample = env.reset()
             obs = sample["obs"]
             done = False
@@ -97,8 +98,8 @@ def ppo_client(config: SimpleNamespace):
                     con.push_sample(serialize(sample))
                     ppo_steps = 0
                     con.sync(config.ppo.client_sync_timeout)  # Wait for the new model
-            episode_info = {"ep_reward": episode_reward, "ep_steps": steps, "obs": obs, "eps": 0}
-            con.push_episode_info(serialize(episode_info))
+            episode_info = {"ep_reward": episode_reward, "ep_steps": steps, "obs": obs}
+            con.push_episode_info(serialize(TensorDict(episode_info, batch_size=1)))
             if con.shutdown.is_set():
                 break
     finally:

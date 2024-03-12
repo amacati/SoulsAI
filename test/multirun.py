@@ -202,7 +202,7 @@ def main(args: argparse.Namespace):
         save_path = mkdir_date(save_root)
         save_path = save_path.rename(save_path.parent / ("multirun_" + save_path.name))
         # Copy config from first run, save stats into dictionary, create joint results plot
-        shutil.copyfile(run_dirs[0] / "config.json", save_path / "config.json")
+        shutil.copyfile(run_dirs[0] / "config.yaml", save_path / "config.yaml")
         results = {}
         for i, run_dir in enumerate(run_dirs):
             with open(run_dir / "telemetry.json", "r") as f:
