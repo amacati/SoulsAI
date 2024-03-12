@@ -213,14 +213,19 @@ class DQNTrainingNode(TrainingNode):
         self.red.publish("telemetry", serialize(episode_info))
 
     def _dqn_step(self):
-        """Sample batches, normalize the values if applicable, and update the agent."""
+        """Sample batches, transform the observations and update the agent."""
         batches = self.buffer.sample_batches(self.config.dqn.batch_size,
                                              self.config.dqn.train_epochs)
         for batch in batches:
             for tf in self.transforms.values():
                 tf.update(batch)  # Update transforms with the new training batches
-            batch["obs"][:] = self.transforms["obs"](batch["obs"])
-            batch["next_obs"][:] = self.transforms["obs"](batch["next_obs"])
+        # Transform the observations. We have to transform all batches in one go. Otherwise, the
+        # updated values can get lost, e.g. if the transformation casts the tensor to a different
+        # dtype such as from uint8 to float32. In that case, the float32 tensor would be cast back
+        # to uint8, because we are only writing to parts of the tensor. In addition, transforming
+        # all batches in one go is faster
+        batches["obs"] = self.transforms["obs"](batches["obs"])
+        batches["next_obs"] = self.transforms["obs"](batches["next_obs"])
 
         for batch in batches:
             td_errors = self.agent.train(batch)

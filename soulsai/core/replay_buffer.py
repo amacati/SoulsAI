@@ -61,7 +61,7 @@ class AbstractBuffer(ABC):
         """
 
     @abstractmethod
-    def sample_batch(self, batch_size: int) -> list[np.ndarray]:
+    def sample_batch(self, batch_size: int) -> TensorDict:
         """Sample a single batch from the buffer.
 
         Args:
@@ -72,7 +72,7 @@ class AbstractBuffer(ABC):
         """
 
     @abstractmethod
-    def sample_batches(self, batch_size: int, nbatches: int) -> list[list[np.ndarray]]:
+    def sample_batches(self, batch_size: int, nbatches: int) -> TensorDict:
         """Sample multiple batches from the buffer.
 
         If sufficient samples are available, the batches will not have dublicate samples across all
@@ -217,7 +217,7 @@ class ReplayBuffer(AbstractBuffer):
             raise RuntimeError("Asked to sample more elements than available in buffer")
         return self.buffer[np.array(random.sample(range(self._maxidx + 1), batch_size))]
 
-    def sample_batches(self, batch_size: int, nbatches: int) -> List[TensorDict[torch.Tensor]]:
+    def sample_batches(self, batch_size: int, nbatches: int) -> TensorDict[torch.Tensor]:
         """Sample multiple batches from the buffer.
 
         If sufficient samples are available, the batches will not have dublicate samples across all

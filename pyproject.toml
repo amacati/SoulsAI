@@ -1,0 +1,48 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soulsai"
+version = "0.2"
+description = "Distributed RL framework for SoulsGym environments"
+readme = "README.md"
+authors = [{ name = "Martin Schuck", email = "real.amacati@gmail.com" }]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+]
+keywords = [
+    "gym",
+    "reinforcement learning",
+    "dark souls",
+    "gymnasium",
+    "distributed",
+    "ai",
+]
+dependencies = []
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/amacati/SoulsAI"
+Documentation = "https://soulsai.readthedocs.io/en/latest/"
+Repository = "https://github.com/amacati/SoulsAI"
+
+[tool.setuptools.packages.find]
+namespaces = true
+
+[tool.yapf]
+column_limit = 100
+based_on_style = "google"
+spaces_before_comment = 2

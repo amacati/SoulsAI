@@ -10,5 +10,5 @@ RUN find /home/SoulsAI -type f -name '*.secret' -delete
 RUN apt update
 RUN apt install git -y
 WORKDIR /home/SoulsAI
-RUN python setup.py develop
+RUN pip install -e .
 ENTRYPOINT ["python", "soulsai/distributed/server/training_node/launch.py"]

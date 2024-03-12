@@ -47,7 +47,7 @@ Checkpoints
 On each training start, a unique folder is generated under the saves folder. It contains the
 training configuration saved as a json file, the current node checkpoint, and the training
 results for each episode. Every *n*-th iteration, the training node checkpoints its networks,
-normalizers, replay buffers etc. to the experiment results folder.
+transforms, replay buffers etc. to the experiment results folder.
 
 During training, an additional subfolder for the best model is created. If the telemetry node
 identifies the current model iteration as the best one yet, it sends a quicksave command to the

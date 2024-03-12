@@ -2,7 +2,7 @@ soulsai.core
 ============
 
 The core module contains the basic functionalities for reinforcement learning. It defines agents,
-networks, replay buffers, noise samplers, normalizers and exploration rate schedulers. All of these
+networks, replay buffers, noise samplers, transforms and schedulers. All of these
 classes are already designed with the possibility of using them in a distributed setting in mind.
 
 .. toctree::
