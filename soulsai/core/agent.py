@@ -282,6 +282,16 @@ class DistributionalDQNAgent(Agent):
         self.networks.eval()
         return summed_quantile_loss.detach().cpu().numpy()
 
+    def client_state_dict(self) -> dict:
+        """Get the state dictionary of the agent.
+
+        Removes the target network, which is not needed for inference on the client.
+
+        Returns:
+            The state dictionary of the agent.
+        """
+        return {k: v for k, v in self.state_dict().items() if "target_dqn" not in k}
+
 
 class DistributionalR2D2Agent(Agent):
     """QR R2D2 agent.
@@ -462,3 +472,14 @@ class PPOAgent(Agent):
             self.networks["actor"].reset_noise()
         if self.critic_net_type == "NoisyNet":
             self.networks["critic"].reset_noise()
+
+    def client_state_dict(self) -> dict:
+        """Get the state dictionary of the agent.
+
+        By default, the state dictionary is the same as the state dictionary of the module. Based on
+        the inference requirements, the state dictionary can be modified to exclude unnecessary.
+
+        Returns:
+            The state dictionary of the agent.
+        """
+        return {k: v for k, v in self.state_dict().items() if "critic" not in k}

@@ -246,7 +246,9 @@ class DQNConnector:
                 # We can use a blocking approach instead of changing references between multiple
                 # models as writing the new parameters typically only requires ~1e-3s
                 with lock:
-                    agent.load_state_dict(model_state_dict)
+                    # Strict False because clients might be missing parameters not required for
+                    # inference
+                    agent.load_state_dict(model_state_dict, strict=False)
                     for name, tf in transforms.items():
                         if state_dict := tf_state_dicts.get(name):
                             tf.load_state_dict(state_dict)

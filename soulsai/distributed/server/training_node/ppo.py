@@ -86,7 +86,7 @@ class PPOTrainingNode(TrainingNode):
 
     def _publish_model(self):
         logger.debug(f"Publishing new model iteration {self.agent.model_id}")
-        self.red.set("model_state_dict", serialize(self.agent.state_dict()))
+        self.red.set("model_state_dict", serialize(self.agent.client_state_dict()))
         self.red.publish("model_update", self.agent.model_id.item())
         logger.debug("Model upload successful")
 
