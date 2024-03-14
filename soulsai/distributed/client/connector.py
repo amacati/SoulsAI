@@ -16,7 +16,7 @@ import redis
 from redis import Redis
 import torch.multiprocessing as mp
 
-from soulsai.core.agent import DQNClientAgent, DistributionalDQNClientAgent, PPOClientAgent
+from soulsai.core.agent import Agent, agent_cls
 from soulsai.core.transform import transform_cls
 from soulsai.distributed.common.serialization import deserialize
 from soulsai.utils import load_redis_secret, namespace2dict
@@ -73,15 +73,9 @@ class DQNConnector:
         cxt = mp.get_context("spawn")
         mp.set_start_method("spawn", force=True)
         self.config = config
-        match config.dqn.variant:
-            case "vanilla":
-                agent_cls = DQNClientAgent
-            case "distributional":
-                agent_cls = DistributionalDQNClientAgent
-            case _:
-                raise ValueError(f"DQN variant {config.dqn.variant} is not supported")
-        self.agent = agent_cls(config.dqn.network.type, namespace2dict(config.dqn.network.kwargs),
-                               config.device)
+        self.agent = agent_cls(config.dqn.agent.type)(config.dqn.network.type,
+                                                      namespace2dict(config.dqn.network.kwargs),
+                                                      **namespace2dict(config.dqn.agent.kwargs))
         self.transforms: dict[str, Transform] = {}
         kwargs = namespace2dict(getattr(config.dqn.observation_transform, "kwargs", None))
         self.transforms["obs"] = transform_cls(config.dqn.observation_transform.type)(**kwargs)
@@ -212,7 +206,7 @@ class DQNConnector:
         logger.debug("All background processes joined")
 
     @staticmethod
-    def _update_model(update_event: Event, stop_event: Event, agent: DQNClientAgent,
+    def _update_model(update_event: Event, stop_event: Event, agent: Agent,
                       transforms: dict[str, Transform], lock: Lock, secret: str,
                       config: SimpleNamespace):
         """Update the client model and transforms.
@@ -404,8 +398,11 @@ class PPOConnector:
             ClientRegistrationError: The server failed to respond to the registration.
         """
         self.config = config
-        self.agent = PPOClientAgent(config.ppo.actor_net.type,
-                                    namespace2dict(config.ppo.actor_net.kwargs), config.device)
+        self.agent = agent_cls(config.ppo.agent.type)(config.ppo.actor_net.type,
+                                                      namespace2dict(config.ppo.actor_net.kwargs),
+                                                      config.ppo.critic_net.type,
+                                                      namespace2dict(config.ppo.critic_net.kwargs),
+                                                      **namespace2dict(config.ppo.agent.kwargs))
         self._stop_event = mp.Event()
         self._update_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")

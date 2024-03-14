@@ -2,7 +2,6 @@
 
 # General settings
 loglevel: info
-device: "cuda"
 
 local:
 
@@ -18,7 +17,6 @@ env:
   wrappers:
 
 max_env_steps: 200_000
-gamma: 0.99
 
 # Algorithm choice
 algorithm: "ppo"
@@ -27,26 +25,41 @@ algorithm: "ppo"
 ppo:
   n_clients: 1
   n_steps: 2048
+  train_epochs: 10
+  gamma: 0.99
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  clip_range: 0.2
+  minibatch_size: 64
+  gae_lambda: 0.95
+  client_sync_timeout: 20
+
+  agent:
+    type: "PPOAgent"
+    kwargs:
+      actor_lr: 0.0003
+      critic_lr: 0.0003
+      device: "cuda"
+
   actor_net:
     type: "PPOActor"
     kwargs:
       input_dims: 8
       output_dims: 4
       layer_dims: 64
+
   critic_net:
     type: "PPOCritic"
     kwargs:
       input_dims: 8
       layer_dims: 64
-  vf_coef: 0.5
-  max_grad_norm: 0.5
-  clip_range: 0.2
-  train_epochs: 10
-  minibatch_size: 64
-  actor_lr: 0.0003
-  critic_lr: 0.0003
-  gae_lambda: 0.95
-  client_sync_timeout: 20
+
+  buffer:
+    type: "TrajectoryBuffer"
+    kwargs:
+      n_trajectories: 2
+      n_samples: 2048
+      device: "cuda"
 
 # Training node settings
 checkpoint:

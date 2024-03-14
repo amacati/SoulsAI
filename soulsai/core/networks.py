@@ -38,19 +38,19 @@ def layer_init(layer: nn.Linear, std: float = np.sqrt(2), bias_const: float = 0.
     return layer
 
 
-def polyak_update(network: nn.Module, target_network: nn.Module, tau: float):
+def polyak_update(target_network: nn.Module, network: nn.Module, tau: float):
     """Perform a soft parameter update (also called polyak update).
 
     Soft update the weights of a target network from a source network by calculating the weighted
     average theta_target_net = tau * theta_net + (1-tau) * theta_target_net.
 
     Args:
-        network: The source network.
         target_network. The target network. Parameters get updated in-place.
+        network: The source network.
         tau: Polyak factor controlling the weighted average.
     """
-    for param, target_param in zip(network.parameters(), target_network.parameters()):
-        target_param.copy_((1 - tau) * param.data + tau * target_param.data)
+    for target_param, param in zip(target_network.parameters(), network.parameters()):
+        target_param.copy_((1 - tau) * target_param.data + tau * param.data)
 
 
 class DQN(nn.Module):

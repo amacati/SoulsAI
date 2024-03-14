@@ -2,7 +2,6 @@
 
 # General settings
 loglevel: info
-device: "cuda:0"
 
 # Redis settings
 redis_address: "redis"
@@ -23,7 +22,6 @@ env:
     AtariExpandImage:
       kwargs:
 
-gamma: 0.99
 max_env_steps: 10_000_000
 
 # Algorithm choice
@@ -31,28 +29,41 @@ algorithm: "dqn"
 
 # DQN parameters
 dqn:
-  variant: distributional  # [vanilla, distributional]
-  lr: 0.0001
-  grad_clip: 5.
-  q_clip: 200
   batch_size: 128
   train_epochs: 25
   update_samples: 50
   fill_buffer: False
-  multistep: 3
+  action_masking: False
+  min_samples: null
+  max_model_delay: 10
+
+  agent:
+    type: DistributionalDQNAgent
+    kwargs:
+      lr: 0.0001
+      gamma: 0.99
+      multistep: 3
+      grad_clip: 5.
+      q_clip: 50
+      tau: 0.001  # For soft target update
+      device: "cpu"
+
   network:
     type: "CNNDistributionalDQN" # "CNNDistributionalDQN"
     kwargs:
       input_shape: [1, 84, 84]
       output_dims: 6
       n_quantiles: 32
+
   replay_buffer:
     type: "ReplayBuffer"
     kwargs:
       max_size: 500_000
+  
   observation_transform:
     type: "ImageNormalization"
     kwargs:
+  
   action_transform:
     type: "Choice"
     kwargs:
@@ -65,10 +76,6 @@ dqn:
               type: "UniformDiscreteNoise"
               kwargs:
                 size_n: 6
-  action_masking: False
-  min_samples: null
-  tau: 0.05  # For soft target update
-  max_model_delay: 10
 
 # Training node settings
 checkpoint:

@@ -22,7 +22,7 @@ import torch.nn as nn
 from redis import Redis
 
 from soulsai.core.replay_buffer import buffer_cls
-from soulsai.core.agent import DistributionalDQNAgent, DQNAgent
+from soulsai.core.agent import agent_cls, Agent
 from soulsai.core.transform import transform_cls
 from soulsai.core.scheduler import Scheduler
 from soulsai.distributed.common.serialization import serialize, deserialize
@@ -55,18 +55,11 @@ class DQNTrainingNode(TrainingNode):
         self._model_iterations = 0  # Track number of model iterations for checkpoint trigger
         # Also accept samples from recent model iterations
         self.model_ids = deque(maxlen=self.config.dqn.max_model_delay)
-        match self.config.dqn.variant:
-            case "distributional":
-                agent_cls = DistributionalDQNAgent
-            case "vanilla":
-                agent_cls = DQNAgent
-            case _:
-                raise ValueError(f"DQN variant {self.config.dqn.variant} is not supported")
-        self.agent = agent_cls(self.config.dqn.network.type,
-                               namespace2dict(self.config.dqn.network.kwargs), self.config.dqn.lr,
-                               self.config.gamma, self.config.dqn.multistep,
-                               self.config.dqn.grad_clip, self.config.dqn.q_clip,
-                               self.config.device)
+
+        self.agent = agent_cls(
+            self.config.dqn.agent.type)(self.config.dqn.network.type,
+                                        namespace2dict(self.config.dqn.network.kwargs),
+                                        **namespace2dict(self.config.dqn.agent.kwargs))
         # Compile all agent networks
         torch.compile(self.agent.networks, mode="reduce-overhead")
 
@@ -75,6 +68,7 @@ class DQNTrainingNode(TrainingNode):
         self.transforms["obs"] = transform_cls(config.dqn.observation_transform.type)(**kwargs)
         kwargs = namespace2dict(getattr(config.dqn.action_transform, "kwargs", None))
         self.transforms["action"] = transform_cls(config.dqn.action_transform.type)(**kwargs)
+        self.transforms.to(self.agent.device)
 
         self.buffer = buffer_cls(self.config.dqn.replay_buffer.type)(
             **namespace2dict(self.config.dqn.replay_buffer.kwargs))
@@ -154,7 +148,7 @@ class DQNTrainingNode(TrainingNode):
         self._publish_model_event.set()
 
     @staticmethod
-    def _async_publish_model(event: Event, model: DQNAgent, transforms: nn.ModuleDict):
+    def _async_publish_model(event: Event, model: Agent, transforms: nn.ModuleDict):
         """Upload the model to Redis in a separate process.
 
         Args:
@@ -176,7 +170,7 @@ class DQNTrainingNode(TrainingNode):
                     logger.warning("Model upload can't keep up with model updates!")
                     last_log = time.time()
             event.clear()
-            red.set("model_state_dict", serialize(model.state_dict()))
+            red.set("model_state_dict", serialize(model.client_state_dict()))
             red.hset("transforms_state_dict",
                      mapping={
                          k: serialize(v.state_dict()) for k, v in transforms.items()
@@ -210,12 +204,13 @@ class DQNTrainingNode(TrainingNode):
                     assert key not in episode_info.keys(), f"{key} is already in episode_info!"
                     episode_info[key] = m().unsqueeze(0)
                     i += 1
-        self.red.publish("telemetry", serialize(episode_info))
+        # Cast to CPU to avoid deserializing on CUDA on the telemetry server
+        self.red.publish("telemetry", serialize(episode_info.cpu()))
 
     def _dqn_step(self):
         """Sample batches, transform the observations and update the agent."""
         batches = self.buffer.sample_batches(self.config.dqn.batch_size,
-                                             self.config.dqn.train_epochs)
+                                             self.config.dqn.train_epochs).to(self.agent.device)
         for batch in batches:
             for tf in self.transforms.values():
                 tf.update(batch)  # Update transforms with the new training batches

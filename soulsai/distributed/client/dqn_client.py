@@ -89,7 +89,10 @@ def _dqn_client(config: SimpleNamespace,
     logger.info("Client node running")
     try:
         episode_id = 0
-        samples = deque(maxlen=config.dqn.multistep)
+        multistep = getattr(config.dqn.agent.kwargs, "multistep", 1)
+        assert hasattr(config.dqn.agent.kwargs, "gamma"), "No discount factor specified"
+        gamma = config.dqn.agent.kwargs.gamma
+        samples = deque(maxlen=multistep)
         gauge = WatchdogGauge(sample_gauge) if sample_gauge else None
         while (not stop_flag.is_set() and episode_id != config.max_episodes and  # noqa: W504
                not con.shutdown.is_set()):
@@ -112,10 +115,9 @@ def _dqn_client(config: SimpleNamespace,
                 sample["obs"] = obs
                 samples.append(sample)
                 episode_reward += sample["reward"]
-                if len(samples) == config.dqn.multistep:
+                if len(samples) == config.dqn.agent.kwargs.multistep:
                     rewards = torch.hstack([s["reward"] for s in samples])
-                    discount_rewards: torch.Tensor = (
-                        rewards * config.gamma**torch.arange(config.dqn.multistep))
+                    discount_rewards: torch.Tensor = (rewards * gamma**torch.arange(multistep))
                     sum_rewards = discount_rewards.sum(dim=-1, keepdim=True)
                     msg = TensorDict(
                         {
@@ -155,10 +157,8 @@ def _dqn_client(config: SimpleNamespace,
             # Therefore, the samples have to be discarded to prevent false estimates of the reward.
             if not stop_flag.is_set() and not torch.any(sample["truncated"]):
                 for i in range(1, len(rewards)):
-                    rewards = torch.hstack(
-                        [samples[i + j]["reward"] for j in range(config.dqn.multistep - i)])
-                    discount_rewards: torch.Tensor = (
-                        rewards * config.gamma**torch.arange(config.dqn.multistep - i))
+                    rewards = torch.hstack([samples[i + j]["reward"] for j in range(multistep - i)])
+                    discount_rewards: torch.Tensor = (rewards * gamma**torch.arange(multistep - i))
                     sum_rewards = discount_rewards.sum(dim=-1, keepdim=True)
                     msg = TensorDict(
                         {

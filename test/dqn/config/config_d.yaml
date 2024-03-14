@@ -2,7 +2,6 @@
 
 # General settings
 loglevel: info
-device: "cpu"
 
 local:
 
@@ -19,37 +18,49 @@ env:
   wrappers:
 
 max_env_steps: 100_000
-gamma: 0.99
 
 # Algorithm choice
 algorithm: "dqn"
 
 # DQN parameters
 dqn:
-  variant: distributional  # [vanilla, distributional]
-  lr: 0.001
-  grad_clip: 5.
-  q_clip: 200
   batch_size: 64
   train_epochs: 25
   update_samples: 25
   fill_buffer: False
-  multistep: 4
+  action_masking: False
+  min_samples: null
+  max_model_delay: 10
+
+  agent:
+    type: DistributionalDQNAgent
+    kwargs:
+      lr: 0.001
+      gamma: 0.99
+      multistep: 4
+      grad_clip: 1.
+      q_clip: 300
+      tau: 0.001  # For soft target update
+      device: "cuda"
+  
   network:
     type: "DistributionalDQN"
     kwargs:
       input_dims: 8
       output_dims: 4
       layer_dims: 128
+  
   replay_buffer:
     type: "ReplayBuffer"
     kwargs:
       max_size: 100_000
+  
   observation_transform:
     type: "TensorNormalization"
     kwargs:
       key: "obs"
       shape: [8]
+  
   action_transform:
     type: "Choice"
     kwargs:
@@ -62,10 +73,6 @@ dqn:
               type: "UniformDiscreteNoise"
               kwargs:
                 size_n: 4
-  action_masking: False
-  min_samples: null
-  tau: 0.05  # For soft target update
-  max_model_delay: 10
 
 # Training node settings
 checkpoint:

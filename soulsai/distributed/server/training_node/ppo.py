@@ -45,16 +45,14 @@ class PPOTrainingNode(TrainingNode):
                               namespace2dict(self.config.ppo.actor_net.kwargs),
                               self.config.ppo.critic_net.type,
                               namespace2dict(self.config.ppo.critic_net.kwargs),
-                              self.config.ppo.actor_lr, self.config.ppo.critic_lr, config.device)
+                              **namespace2dict(self.config.ppo.agent.kwargs))
         self.agent.model_id.copy_(torch.tensor([0], dtype=torch.int64))
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves" / "checkpoint")
             logger.info("Checkpoint loading complete")
 
         logger.info(f"Initial model ID: {self.agent.model_id}")
-        self.buffer = TrajectoryBuffer(self.config.ppo.n_clients,
-                                       self.config.ppo.n_steps,
-                                       device=self.config.device)
+        self.buffer = TrajectoryBuffer(**namespace2dict(self.config.ppo.buffer.kwargs))
         self._model_iterations = 0
         logger.info("PPO training node startup complete")
 
@@ -112,9 +110,9 @@ class PPOTrainingNode(TrainingNode):
             assert advantage.shape == (n_trajectories, n_samples), "Advantage shape mismatch"
             assert advantage.shape == value.shape, "advantage and value must have the same shape"
             returns = (advantage + value)
-            obs = self.buffer.buffer["obs"]
-            probs = self.buffer.buffer["prob"]
-            actions = self.buffer.buffer["action"]
+            obs = self.buffer.buffer["obs"].to(self.agent.device)
+            probs = self.buffer.buffer["prob"].to(self.agent.device)
+            actions = self.buffer.buffer["action"].to(self.agent.device)
             rand_idx = torch.randperm(n_samples * n_trajectories)
             s_idx, t_idx = s_idx[rand_idx], t_idx[rand_idx]
             assert s_idx.shape == (n_samples * n_trajectories,), "s_idx shape mismatch"
@@ -161,34 +159,38 @@ class PPOTrainingNode(TrainingNode):
     def _compute_advantages(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute Generalized Advantage Estimation (GAE) advantages from the current buffer."""
         assert self.buffer.buffer_complete, "Buffer must be complete to compute advantages"
-        values = self.agent.get_values(self.buffer.buffer["obs"], requires_grad=False)
-        final_values = self.agent.get_values(self.buffer.final_buffer["obs"], requires_grad=False)
+        obs = self.buffer.buffer["obs"].to(self.agent.device)
+        final_obs = self.buffer.final_buffer["obs"].to(self.agent.device)
+        terminated = self.buffer.buffer["terminated"].to(self.agent.device)
+        final_terminated = self.buffer.final_buffer["terminated"].to(self.agent.device)
+        rewards = self.buffer.buffer["reward"].to(self.agent.device)
+        values = self.agent.get_values(obs, requires_grad=False)
+        final_values = self.agent.get_values(final_obs, requires_grad=False)
         values = values.squeeze(-1)  # Remove the last dimension
         advantages = torch.zeros_like(values)
         n_trajectories, n_samples = values.shape[0], values.shape[1]
-        last_advantage = torch.zeros(n_trajectories, 1, device=self.config.device)
+        last_advantage = torch.zeros(n_trajectories, 1, device=values.device)
         step_shape = (n_trajectories, 1)
         for step_id in reversed(range(n_samples)):
             # The estimation computes the advantage values in reverse order by using the
             # value and advantage estimate of time t + 1 for the observation at time t
             if step_id == n_samples - 1:  # Terminal sample. Use actual end values
-                terminated = self.buffer.final_buffer["terminated"].unsqueeze(-1)
+                not_terminated = (1. - final_terminated.unsqueeze(-1).float())
                 next_value = final_values
             else:
-                terminated = self.buffer.buffer["terminated"][:, step_id].unsqueeze(-1)
+                not_terminated = (1. - terminated[:, step_id].unsqueeze(-1).float())
                 next_value = values[:, step_id + 1].unsqueeze(-1)
-            not_terminated = (1. - terminated.float())
-            reward = self.buffer.buffer["reward"][:, step_id].unsqueeze(-1)
+            reward = rewards[:, step_id].unsqueeze(-1)
             assert reward.shape == step_shape, f"Reward shape mismatch ({reward.shape})"
             assert next_value.shape == step_shape, "Next value shape mismatch"
             assert not_terminated.shape == step_shape, "Not terminated shape mismatch"
-            td_target = reward + self.config.gamma * next_value * not_terminated
+            td_target = reward + self.config.ppo.gamma * next_value * not_terminated
             assert td_target.shape == step_shape, "TD target shape mismatch"
             value = values[:, step_id].unsqueeze(-1)
             assert value.shape == step_shape, "Value shape mismatch"
             td_error = td_target - value
             assert td_error.shape == step_shape, "TD error shape mismatch"
-            last_advantage = td_error + self.config.gamma * self.config.ppo.gae_lambda * not_terminated * last_advantage  # noqa: E501
+            last_advantage = td_error + self.config.ppo.gamma * self.config.ppo.gae_lambda * not_terminated * last_advantage  # noqa: E501
             assert last_advantage.shape == step_shape, "Last advantage shape mismatch"
             advantages[:, step_id] = last_advantage.squeeze(-1)
         assert advantages.shape == (n_trajectories, n_samples), "Advantage shape mismatch"

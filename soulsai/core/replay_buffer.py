@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod, abstractproperty
-from typing import List, Dict, TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable
 import random
 
 import numpy as np
@@ -33,7 +33,7 @@ class AbstractBuffer(ABC):
         """
 
     @abstractmethod
-    def append(self, sample: Dict):
+    def append(self, sample: dict):
         """Append a sample to the buffer.
 
         Args:
@@ -301,7 +301,7 @@ class PrioritizedReplayBuffer(AbstractBuffer):
         """
         return self.maxlen
 
-    def append(self, sample: Dict):
+    def append(self, sample: dict):
         """Append a sample to the buffer.
 
         Args:
@@ -481,7 +481,7 @@ class TrajectoryBuffer:
         # Create a tensor that tracks which samples have already been added for fast checking
         self._complete_flags = torch.zeros((n_trajectories, n_samples + 1), dtype=torch.bool)
 
-    def append(self, sample: Dict):
+    def append(self, sample: dict):
         """Append a PPO sample to the buffer.
 
         Also sets the complete flag for the received sample.
