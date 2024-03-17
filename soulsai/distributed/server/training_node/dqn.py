@@ -69,6 +69,8 @@ class DQNTrainingNode(TrainingNode):
         self.transforms: nn.ModuleDict[str, Transform] = nn.ModuleDict()
         kwargs = namespace2dict(getattr(config.dqn.observation_transform, "kwargs", None))
         self.transforms["obs"] = transform_cls(config.dqn.observation_transform.type)(**kwargs)
+        kwargs = namespace2dict(getattr(config.dqn.value_transform, "kwargs", None))
+        self.transforms["value"] = transform_cls(config.dqn.value_transform.type)(**kwargs)
         kwargs = namespace2dict(getattr(config.dqn.action_transform, "kwargs", None))
         self.transforms["action"] = transform_cls(config.dqn.action_transform.type)(**kwargs)
         self.transforms.to(self.agent.device)

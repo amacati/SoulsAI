@@ -106,9 +106,9 @@ def _dqn_client(
             done = False
             while not done and not stop_flag.is_set():
                 with con:  # Context makes action and model_id consistent
-                    sample = con.observation_transform(sample)
-                    sample["action"] = con.agent(sample["obs"])
-                    sample = con.action_transform(sample)
+                    sample = con.transforms["obs"](sample)
+                    sample = con.transforms["value"](con.agent(sample))
+                    sample = con.transforms["action"](sample)
                     model_id = con.model_id
                 # The observation has been altered by the observation transform. However, we want to
                 # send the original observation to the server. Therefore, we store the original obs,

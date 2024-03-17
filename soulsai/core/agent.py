@@ -104,19 +104,19 @@ class DQNAgent(Agent):
         self.multistep = multistep
         self.grad_clip = grad_clip
 
-    def __call__(self, x: torch.Tensor) -> torch.IntTensor:
+    @torch.no_grad()
+    def __call__(self, sample: TensorDict) -> TensorDict:
         """Calculate the current best action by averaging the values from both networks.
 
         Args:
-            x: Network input.
+            sample: Sample containing the 'obs' key.
 
         Returns:
-            The chosen action.
+            The sample with the value tensor at the '__value__' key.
         """
-        with torch.no_grad():
-            x = torch.as_tensor(x).to(self.device)
-            qvalues = self.networks["dqn1"](x) + self.networks["dqn2"](x)
-            return torch.argmax(qvalues, dim=-1)
+        x = sample["obs"].to(self.device)
+        sample["__value__"] = self.networks["dqn1"](x) + self.networks["dqn2"](x)
+        return sample
 
     def train(self, batch: TensorDict) -> TensorDict:
         """Train the agent with double DQN.
@@ -227,19 +227,18 @@ class DistributionalDQNAgent(Agent):
         N = self.networks["dqn"].n_quantiles
         self.quantile_tau = torch.tensor([i / N for i in range(1, N + 1)]).float().to(self.device)
 
-    def __call__(self, x: torch.Tensor) -> torch.IntTensor:
+    @torch.no_grad()
+    def __call__(self, sample: TensorDict) -> TensorDict:
         """Calculate the current best action.
 
         Args:
-            x: Network input.
+            sample: Sample containing the 'obs' key.
 
         Returns:
-            The chosen action.
+            The sample with the value tensor at the '__value__' key.
         """
-        with torch.no_grad():
-            x = torch.as_tensor(x).to(self.device)
-            qvalues = self.networks["dqn"](x).mean(dim=-1)
-            return torch.argmax(qvalues, dim=-1)
+        sample["__value__"] = self.networks["dqn"](sample["obs"].to(self.device)).mean(dim=-1)
+        return sample
 
     def train(self, batch: TensorDict) -> TensorDict:
         """Train the agent with quantile regression DQN.

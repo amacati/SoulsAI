@@ -61,17 +61,27 @@ dqn:
       max_size: 500_000
   
   observation_transform:
-    type: "ImageNormalization"
+    type: "NormalizeImg"
     kwargs:
-  
+      keys:
+        - "obs"
+
+  value_transform:
+    type: "GreedyAction"
+    kwargs:
+      value_key: "__value__"
+      action_key: "action"
+
   action_transform:
     type: "Choice"
     kwargs:
-      prob: [0.95, 0.05]
+      key: "action"
+      probs: [0.95, 0.05]
       transforms:
         - type: "Identity"
         - type: "ReplaceWithNoise"
           kwargs:
+            key: "action"
             noise:
               type: "UniformDiscreteNoise"
               kwargs:
@@ -140,7 +150,7 @@ monitoring:
 # Client settings
 max_episodes: -1  # -1 for infinite runs
 enable_interrupt: False
-step_delay: 0.003
+step_delay: 0.005
 
 watchdog:
   enable: False

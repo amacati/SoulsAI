@@ -73,6 +73,42 @@ class Identity(Transform):
         return x
 
 
+class Chain(Transform):
+    """Chain transformation class for chaining multiple transformations together."""
+
+    def __init__(self, transforms: list[Transform | dict]):
+        """Initialize the transformation.
+
+        Args:
+            transforms: List of transformations.
+        """
+        super().__init__()
+        for i, tf in enumerate(transforms):
+            if isinstance(tf, dict):
+                transforms[i] = transform_cls(tf["type"])(**(tf.get("kwargs") or {}))
+        assert all(isinstance(x, Transform) for x in transforms), "All elements must be Transforms"
+        self.params["transforms"] = nn.ModuleList(transforms)
+
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> TensorDict:
+        """Apply the transformations in the chain to the input tensor.
+
+        Args:
+            x: Input tensor.
+            keys_mapping: Optional dictionary that maps keys to new keys. This is useful when the
+                transformation should be applied to a subset of the keys, or when the same
+                parameters should be used for different keys, i.e. for 'obs' and 'next_obs'.
+
+        Returns:
+            Transformed TensorDict.
+        """
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
+        for tf in self.params["transforms"]:
+            x = tf(x, keys_mapping)
+        return x
+
+
 class Normalize(Transform):
     """Normalization class for normalizing tensors to have zero mean and unit variance.
 
@@ -243,7 +279,7 @@ class GreedyAction(Transform):
         assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
         value_key = self._value_key if keys_mapping is None else keys_mapping[self._value_key]
         action_key = self._action_key if keys_mapping is None else keys_mapping[self._action_key]
-        x[action_key] = torch.argmax(x[value_key], dim=-1, keepdim=True)
+        x[action_key] = torch.argmax(x[value_key], dim=-1)
         return x
 
 
@@ -352,8 +388,9 @@ class Choice(Transform):
         assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
         key = self._key if keys_mapping is None else keys_mapping[self._key]
         tf_idx = torch.multinomial(self.params["probs"], x[key].shape[0], replacement=True)
-        x[key] = torch.stack(
-            [self.params["transforms"][j](x[i], keys_mapping)[0] for i, j in enumerate(tf_idx)]
+        x = torch.cat(
+            [self.params["transforms"][j](x[[i]], keys_mapping) for i, j in enumerate(tf_idx)],
+            dim=-1,
         )
         return x
 

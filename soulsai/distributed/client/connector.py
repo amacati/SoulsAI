@@ -27,8 +27,6 @@ if TYPE_CHECKING:
     from multiprocessing.synchronize import Event, Lock
     from types import SimpleNamespace
 
-    from torch import Tensor
-
     from soulsai.core.transform import Transform
 
 logger = logging.getLogger(__name__)
@@ -81,6 +79,8 @@ class DQNConnector:
         self.transforms: dict[str, Transform] = {}
         kwargs = namespace2dict(getattr(config.dqn.observation_transform, "kwargs", None))
         self.transforms["obs"] = transform_cls(config.dqn.observation_transform.type)(**kwargs)
+        kwargs = namespace2dict(getattr(config.dqn.value_transform, "kwargs", None))
+        self.transforms["value"] = transform_cls(config.dqn.value_transform.type)(**kwargs)
         kwargs = namespace2dict(getattr(config.dqn.action_transform, "kwargs", None))
         self.transforms["action"] = transform_cls(config.dqn.action_transform.type)(**kwargs)
 
@@ -158,28 +158,6 @@ class DQNConnector:
         Always use with the context manager! See :meth:`.DQNConnector.__enter__`.
         """
         return self.agent.model_id.item()
-
-    def action_transform(self, action: Tensor) -> Tensor:
-        """Apply the action transformation.
-
-        Args:
-            action: Action tensor.
-
-        Returns:
-            Transformed action tensor.
-        """
-        return self.transforms["action"](action)
-
-    def observation_transform(self, obs: Tensor) -> Tensor:
-        """Apply the observation transformation.
-
-        Args:
-            obs: Observation tensor.
-
-        Returns:
-            Transformed observation tensor.
-        """
-        return self.transforms["obs"](obs)
 
     def push_sample(self, sample: bytes):
         """Send a sample message over the message queue.

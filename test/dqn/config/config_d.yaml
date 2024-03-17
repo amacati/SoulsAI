@@ -62,19 +62,28 @@ dqn:
         - "obs"
       shapes:
         - [8]
-  
+
+  value_transform:
+    type: "GreedyAction"
+    kwargs:
+      value_key: "__value__"
+      action_key: "action"
+
   action_transform:
     type: "Choice"
     kwargs:
-      prob: [0.9, 0.1]
-      transforms:
-        - type: "Identity"
-        - type: "ReplaceWithNoise"
-          kwargs:
-            noise:
-              type: "UniformDiscreteNoise"
-              kwargs:
-                size_n: 4
+    keys:
+      - "action"
+    prob: [0.9, 0.1]
+    transforms:
+      - type: "Identity"
+      - type: "ReplaceWithNoise"
+        kwargs:
+          key: "action"
+          noise:
+            type: "UniformDiscreteNoise"
+            kwargs:
+              size_n: 4
 
 # Training node settings
 checkpoint:
