@@ -104,7 +104,7 @@ class DQNAgent(Agent):
         self.multistep = multistep
         self.grad_clip = grad_clip
 
-    def __call__(self, x: np.ndarray) -> torch.IntTensor:
+    def __call__(self, x: torch.Tensor) -> torch.IntTensor:
         """Calculate the current best action by averaging the values from both networks.
 
         Args:
@@ -116,10 +116,10 @@ class DQNAgent(Agent):
         with torch.no_grad():
             x = torch.as_tensor(x).to(self.device)
             qvalues = self.networks["dqn1"](x) + self.networks["dqn2"](x)
-            return torch.argmax(qvalues, dim=-1, keepdim=True)
+            return torch.argmax(qvalues, dim=-1)
 
-    def train(self, sample: TensorDict) -> np.ndarray:
-        """Train the agent with dueling Q networks and optional action masks.
+    def train(self, batch: TensorDict) -> TensorDict:
+        """Train the agent with double DQN.
 
         Calculates the TD error between the predictions from the trained network and the data with
         a Q(s+1, a) estimate from the estimation network and takes an optimization step for the
@@ -127,47 +127,53 @@ class DQNAgent(Agent):
         network.
 
         Args:
-            sample: A training sample as TensorDict containing observations, actions, rewards etc.
-                as keys.
+            batch: A TensorDict training batch containing observations, actions, rewards etc.
 
         Returns:
-            The TD error for each sample in the batch.
+            The batch, optionally with additional info from the training.
         """
         self.networks.train()
-        batch_size = sample.batch_size[0]
+        batch_size = batch.batch_size[0]
         coin = random.choice([True, False])
         train_net, estimate_net = ("dqn1", "dqn2") if coin else ("dqn2", "dqn1")
         train_net, estimate_net = self.networks[train_net], self.networks[estimate_net]
         self.dqn1_opt.zero_grad()
         self.dqn2_opt.zero_grad()
         train_opt = self.dqn1_opt if coin else self.dqn2_opt
-        obs = torch.as_tensor(sample["obs"], dtype=torch.float32).to(self.device)
-        rewards = torch.as_tensor(sample["reward"], dtype=torch.float32).to(self.device)
-        next_obs = torch.as_tensor(sample["next_obs"], dtype=torch.float32).to(self.device)
-        actions = torch.as_tensor(sample["action"])
-        terminated = torch.as_tensor(sample["terminated"], dtype=torch.float32).to(self.device)
+        obs = batch["obs"].float().to(self.device)
+        reward = batch["reward"].float().to(self.device)
+        next_obs = batch["next_obs"].float().to(self.device)
+        action = batch["action"].to(self.device)
+        terminated = batch["terminated"].float().to(self.device)
         action_masks = None
-        if "action_mask" in sample.keys():
-            action_masks = torch.as_tensor(sample["action_mask"], dtype=torch.bool).to(self.device)
-        q_a = train_net(obs)[range(batch_size), actions]
+        if "action_mask" in batch.keys():
+            action_masks = torch.as_tensor(batch["action_mask"], dtype=torch.bool).to(self.device)
+        q_a = train_net(obs)[range(batch_size), action]
+        assert q_a.shape == (batch_size,), f"Unexpected shape {q_a.shape}"
         with torch.no_grad():
             q_next = train_net(next_obs)
             if action_masks is not None:
                 q_next = torch.where(action_masks, q_next, -torch.inf)
+            assert q_next.ndim == 2, f"Unexpected shape {q_next.shape}"
+            assert q_next.shape[0] == batch_size, f"Unexpected shape {q_next.shape}"
             a_next = torch.max(q_next, 1).indices
             q_a_next = estimate_net(next_obs)[range(batch_size), a_next]
+            assert q_a_next.shape == (batch_size,), f"Unexpected shape {q_a_next.shape}"
             q_a_next = torch.clamp(q_a_next, -self.q_clip, self.q_clip)
-            q_td = rewards + self.gamma**self.multistep * q_a_next * (1 - terminated)
-        sample_loss = (q_a - q_td) ** 2
-        if "weights" in sample.keys():
-            assert sample["weights"].shape == (batch_size,)
-            sample_loss = sample_loss * torch.tensor(sample["weights"]).to(self.device)
-        loss = sample_loss.mean()
-        loss.backward()
+            q_td = reward + self.gamma**self.multistep * q_a_next * (1 - terminated)
+            assert q_td.shape == (batch_size,), f"Unexpected shape {q_td.shape}"
+        td_error = q_a - q_td
+        huber_loss = F.huber_loss(td_error, torch.zeros_like(td_error), reduction="none", delta=1.0)
+        assert huber_loss.shape == (batch_size,), f"Unexpected shape {huber_loss.shape}"
+        if "__weight__" in batch.keys():
+            assert batch["__weight__"].shape == (batch_size,)
+            batch["__priority__"] = huber_loss.detach()
+            huber_loss = huber_loss * batch["__priority__"].to(self.device)
+        huber_loss.mean().backward()
         torch.nn.utils.clip_grad_norm_(train_net.parameters(), self.grad_clip)
         train_opt.step()
         self.networks.eval()
-        return sample_loss.detach().cpu().numpy()
+        return batch
 
     def update_callback(self):
         """Reset noisy networks after an update."""
@@ -221,7 +227,7 @@ class DistributionalDQNAgent(Agent):
         N = self.networks["dqn"].n_quantiles
         self.quantile_tau = torch.tensor([i / N for i in range(1, N + 1)]).float().to(self.device)
 
-    def __call__(self, x: np.ndarray) -> torch.IntTensor:
+    def __call__(self, x: torch.Tensor) -> torch.IntTensor:
         """Calculate the current best action.
 
         Args:
@@ -235,38 +241,32 @@ class DistributionalDQNAgent(Agent):
             qvalues = self.networks["dqn"](x).mean(dim=-1)
             return torch.argmax(qvalues, dim=-1)
 
-    def train(self, sample: TensorDict) -> np.ndarray:
-        """Train the agent with dual quantile regression DQN.
+    def train(self, batch: TensorDict) -> TensorDict:
+        """Train the agent with quantile regression DQN.
 
-        Calculates the TD error between the predictions from the trained network and the data with
-        a Q(s+1, a) estimate from the estimation network and takes an optimization step for the
-        train network. ``dqn1`` and ``dqn2`` are randomly assigned their role as estimation or train
-        network.
+        Calculates the TD error between the predictions from the main network and the data with
+        a Q(s+1, a) estimate from the target network and takes an optimization step for the
+        train network. The action for the next state is chosen by the main network as in double DQN.
 
         Args:
-            sample: A training sample as TensorDict containing observations, actions, rewards etc.
-                as keys.
+            batch: A TensorDict training batch containing observations, actions, rewards etc.
 
         Returns:
-            The TD error for each sample in the batch.
+            The batch, optionally with additional info from the training.
         """
         self.networks.train()
-        batch_size, N = sample.batch_size[0], self.networks["dqn"].n_quantiles
+        batch_size, N = batch.batch_size[0], self.networks["dqn"].n_quantiles
         self.opt.zero_grad()
         # Move data to tensors. Unsqueeze rewards and terminated in preparation for broadcasting
-        obs = torch.as_tensor(sample["obs"], dtype=torch.float32).to(self.device)
-        rewards = (
-            torch.as_tensor(sample["reward"], dtype=torch.float32).unsqueeze(-1).to(self.device)
-        )
-        next_obs = torch.as_tensor(sample["next_obs"], dtype=torch.float32).to(self.device)
-        actions = torch.as_tensor(sample["action"])
-        terminated = (
-            torch.as_tensor(sample["terminated"], dtype=torch.float32).unsqueeze(-1).to(self.device)
-        )
+        obs = batch["obs"].float().to(self.device)
+        reward = batch["reward"].float().unsqueeze(-1).to(self.device)
+        next_obs = batch["next_obs"].float().to(self.device)
+        action = batch["action"].to(self.device)
+        terminated = batch["terminated"].float().unsqueeze(-1).to(self.device)
         action_masks = None
-        if "action_mask" in sample.keys():
-            action_masks = torch.as_tensor(sample["action_mask"], dtype=torch.bool).to(self.device)
-        q_a = self.networks["dqn"](obs)[range(batch_size), actions, :]
+        if "action_mask" in batch.keys():
+            action_masks = torch.as_tensor(batch["action_mask"], dtype=torch.bool).to(self.device)
+        q_a = self.networks["dqn"](obs)[range(batch_size), action, :]
         with torch.no_grad():
             q_next = self.networks["dqn"](next_obs)  # Let train net choose actions
             if action_masks is not None:
@@ -279,7 +279,7 @@ class DistributionalDQNAgent(Agent):
             q_a_next = self.networks["target_dqn"](next_obs)[range(batch_size), a_next, :]
             assert q_a_next.shape == (batch_size, N), f"Unexpected shape {q_a_next.shape}"
             q_a_next = torch.clamp(q_a_next, -self.q_clip, self.q_clip)
-            q_targets = rewards + self.gamma**self.multistep * q_a_next * (1 - terminated)
+            q_targets = reward + self.gamma**self.multistep * q_a_next * (1 - terminated)
             assert q_targets.shape == (batch_size, N)
         td_error = q_targets[:, None, :] - q_a[..., None]  # Broadcast to shape [B N N]
         assert td_error.shape == (batch_size, N, N), f"Unexpected shape {td_error.shape}"
@@ -287,17 +287,17 @@ class DistributionalDQNAgent(Agent):
         quantile_loss = abs(self.quantile_tau - (td_error.detach() < 0).float()) * huber_loss
         assert quantile_loss.shape == (batch_size, N, N), quantile_loss.shape
         summed_quantile_loss = quantile_loss.mean(dim=2).sum(1)
-        if "weights" in sample.keys():
-            assert sample["weights"].shape == (batch_size,)
-            weights = torch.tensor(sample["weights"]).to(self.device)
-            summed_quantile_loss = summed_quantile_loss * weights
+        if "__weight__" in batch.keys():
+            assert batch["__weight__"].shape == (batch_size,)
+            batch["__priority__"] = summed_quantile_loss.detach()
+            summed_quantile_loss = summed_quantile_loss * batch["__weight__"].to(self.device)
         loss = summed_quantile_loss.mean()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.networks["dqn"].parameters(), self.grad_clip)
         self.opt.step()
         polyak_update(self.networks["target_dqn"], self.networks["dqn"], self.tau)
         self.networks.eval()
-        return summed_quantile_loss.detach().cpu().numpy()
+        return batch
 
     def client_state_dict(self) -> dict:
         """Get the state dictionary of the agent.

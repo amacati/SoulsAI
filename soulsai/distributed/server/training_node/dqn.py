@@ -233,9 +233,9 @@ class DQNTrainingNode(TrainingNode):
         batches = self.transforms["obs"](batches, keys_mapping={"obs": "next_obs"})
 
         for batch in batches:
-            td_errors = self.agent.train(batch)
-            if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
-                self.buffer.update_priorities(batch, td_errors)  # TODO: Fix with TensorDict batches
+            batch = self.agent.train(batch)
+            if self.config.dqn.replay_buffer.type == "PrioritizedReplayBuffer":
+                self.buffer.update_priorities(batch)
         self.agent.update_callback()
 
     def checkpoint(self, path: Path, options: dict = {}):
