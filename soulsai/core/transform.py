@@ -166,7 +166,7 @@ class Normalize(Transform):
                 sample_key = keys_mapping[key]
             idx = self._indexes[key]
             mean, std = self.params[f"{key}_mean"], self.params[f"{key}_std"]
-            x[sample_key][idx] = (x[sample_key][idx] - mean[idx]) / std[idx]
+            x[sample_key][..., idx] = (x[sample_key][..., idx] - mean[..., idx]) / std[..., idx]
         return x
 
     def update(self, x: TensorDict):
