@@ -216,13 +216,16 @@ class TensorDictWrapper(Wrapper):
             match value:
                 case np.ndarray():
                     if value.dtype == np.object_:
-                        info_tf[key] = self._transform_np_object(value)
+                        value = self._transform_np_object(value)
                     else:
-                        info_tf[key] = torch.as_tensor(value, device=self.device)
+                        value = torch.as_tensor(value, device=self.device)
+                    info_tf[key] = value if self.vectorized else value.unsqueeze(0)
                 case Tensor():
-                    info_tf[key] = value.to(self.device)
+                    value = value.to(self.device)
+                    info_tf[key] = value if self.vectorized else value.unsqueeze(0)
                 case int() | float() | str() | bool():
-                    continue  # We wait until we can add scalar values to TensorDict
+                    assert not self.vectorized, "Scalar info only supported in non-vectorized envs"
+                    info[key] = torch.tensor([value], device=self.device)  # Add batch dimension
                 case _:
                     if key not in self._failed_info_keys:
                         self._failed_info_keys.add(key)  # Only log once per key
@@ -232,14 +235,7 @@ class TensorDictWrapper(Wrapper):
                                 f"type {type(value)}"
                             )
                         )
-        info = TensorDict(info_tf, batch_size=self.num_envs, device=self.device)
-        if self.vectorized:
-            return info
-        info = info.unsqueeze(0)  # Add batch dimension
-        for key, value in info.items():
-            if isinstance(value, (int, float, str, bool)):
-                info[key] = torch.tensor([value], device=self.device)  # Add batch dimension
-        return info
+        return TensorDict(info_tf, batch_size=self.num_envs, device=self.device)
 
     def _transform_np_object(self, value: np.ndarray) -> dict[str, np.ndarray] | np.ndarray:
         """Convert a numpy array with dtype np.object to a list of Tensors."""
