@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Callable
 import torch
 import torch.nn as nn
 from tensordict import TensorDict
+from tensordict.utils import expand_right
 from torch import Tensor
 
 from soulsai.core.noise import Noise, noise_cls
@@ -259,8 +260,27 @@ class Mask(Transform):
         mask_key = self._mask_key if keys_mapping is None else keys_mapping[self._mask_key]
         key = self._key if keys_mapping is None else keys_mapping[self._key]
         assert not torch.all(x[self._mask_key] == 0), "All values are masked"
-        x[key][~x[mask_key]] = self._mask_value
+        x[key].masked_fill(~x[mask_key], self._mask_value)
         return x
+
+    def mask_tensor(self, x: Tensor, sample: TensorDict, auto_expand: bool = False) -> Tensor:
+        """Mask the input tensor with `self._mask_value` at the masked indices.
+
+        Args:
+            x: Input tensor.
+            sample: Input TensorDict containing `self._mask_key`.
+            auto_expand: Whether to automatically expand the mask to the right.
+
+        Returns:
+            The masked tensor.
+        """
+        assert isinstance(sample, TensorDict), f"Expected TensorDict, is {type(sample)}"
+        assert isinstance(x, Tensor), f"Expected Tensor, is {type(x)}"
+        assert not torch.all(sample[self._mask_key] == 0), "All values are masked"
+        # Expand the mask to the right dimensions if necessary. Useful for masking value
+        # distributions
+        mask = ~sample[self._mask_key]
+        return x.masked_fill(expand_right(mask, x.shape) if auto_expand else mask, self._mask_value)
 
 
 class GreedyAction(Transform):

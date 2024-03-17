@@ -21,8 +21,9 @@ if TYPE_CHECKING:
     import numpy as np
     from tensordict import TensorDict
 
-logger = logging.getLogger(__name__)
+    from soulsai.core.transform import Mask
 
+logger = logging.getLogger(__name__)
 agent_cls = module_type_from_string(__name__)
 
 
@@ -118,7 +119,7 @@ class DQNAgent(Agent):
         sample["__value__"] = self.networks["dqn1"](x) + self.networks["dqn2"](x)
         return sample
 
-    def train(self, batch: TensorDict) -> TensorDict:
+    def train(self, batch: TensorDict, mask: Mask | None = None) -> TensorDict:
         """Train the agent with double DQN.
 
         Calculates the TD error between the predictions from the trained network and the data with
@@ -128,6 +129,7 @@ class DQNAgent(Agent):
 
         Args:
             batch: A TensorDict training batch containing observations, actions, rewards etc.
+            mask: Optional mask for the value network.
 
         Returns:
             The batch, optionally with additional info from the training.
@@ -145,15 +147,12 @@ class DQNAgent(Agent):
         next_obs = batch["next_obs"].float().to(self.device)
         action = batch["action"].to(self.device)
         terminated = batch["terminated"].float().to(self.device)
-        action_masks = None
-        if "action_mask" in batch.keys():
-            action_masks = torch.as_tensor(batch["action_mask"], dtype=torch.bool).to(self.device)
         q_a = train_net(obs)[range(batch_size), action]
         assert q_a.shape == (batch_size,), f"Unexpected shape {q_a.shape}"
         with torch.no_grad():
             q_next = train_net(next_obs)
-            if action_masks is not None:
-                q_next = torch.where(action_masks, q_next, -torch.inf)
+            # Optionally mask the estimated Q values
+            q_next = q_next if mask is None else mask.mask_tensor(q_next, batch)
             assert q_next.ndim == 2, f"Unexpected shape {q_next.shape}"
             assert q_next.shape[0] == batch_size, f"Unexpected shape {q_next.shape}"
             a_next = torch.max(q_next, 1).indices
@@ -240,7 +239,7 @@ class DistributionalDQNAgent(Agent):
         sample["__value__"] = self.networks["dqn"](sample["obs"].to(self.device)).mean(dim=-1)
         return sample
 
-    def train(self, batch: TensorDict) -> TensorDict:
+    def train(self, batch: TensorDict, mask: Mask | None = None) -> TensorDict:
         """Train the agent with quantile regression DQN.
 
         Calculates the TD error between the predictions from the main network and the data with
@@ -249,6 +248,7 @@ class DistributionalDQNAgent(Agent):
 
         Args:
             batch: A TensorDict training batch containing observations, actions, rewards etc.
+            mask: Optional mask for the value network.
 
         Returns:
             The batch, optionally with additional info from the training.
@@ -262,16 +262,12 @@ class DistributionalDQNAgent(Agent):
         next_obs = batch["next_obs"].float().to(self.device)
         action = batch["action"].to(self.device)
         terminated = batch["terminated"].float().unsqueeze(-1).to(self.device)
-        action_masks = None
-        if "action_mask" in batch.keys():
-            action_masks = torch.as_tensor(batch["action_mask"], dtype=torch.bool).to(self.device)
         q_a = self.networks["dqn"](obs)[range(batch_size), action, :]
         with torch.no_grad():
             q_next = self.networks["dqn"](next_obs)  # Let train net choose actions
-            if action_masks is not None:
-                assert action_masks.shape == (batch_size, self.networks["dqn"].output_dims)
-                action_masks = action_masks.unsqueeze(1).expand(q_next.shape)
-                q_next = torch.where(action_masks, q_next, -torch.inf)
+            # Optionally mask the estimated Q values
+            q_next = q_next if mask is None else mask.mask_tensor(q_next, batch, auto_expand=True)
+            assert q_next.shape == (batch_size, self.networks["dqn"].output_dims, N)
             a_next = torch.argmax(q_next.mean(dim=-1), dim=-1)
             # Estimate quantiles of actions chosen by train net with target net to avoid
             # overestimation

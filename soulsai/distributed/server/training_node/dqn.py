@@ -25,7 +25,7 @@ from redis import Redis
 from soulsai.core.agent import Agent, agent_cls
 from soulsai.core.replay_buffer import buffer_cls
 from soulsai.core.scheduler import Scheduler
-from soulsai.core.transform import transform_cls
+from soulsai.core.transform import Mask, transform_cls
 from soulsai.distributed.common.serialization import deserialize, serialize
 from soulsai.distributed.server.training_node.connector import DQNServerConnector
 from soulsai.distributed.server.training_node.training_node import TrainingNode
@@ -74,6 +74,8 @@ class DQNTrainingNode(TrainingNode):
         kwargs = namespace2dict(getattr(config.dqn.action_transform, "kwargs", None))
         self.transforms["action"] = transform_cls(config.dqn.action_transform.type)(**kwargs)
         self.transforms.to(self.agent.device)
+        mask = [m for m in self.transforms["value"].modules() if isinstance(m, Mask)]
+        self._value_mask = mask[0] if mask else None
 
         self.buffer = buffer_cls(self.config.dqn.replay_buffer.type)(
             **namespace2dict(self.config.dqn.replay_buffer.kwargs)
@@ -235,7 +237,7 @@ class DQNTrainingNode(TrainingNode):
         batches = self.transforms["obs"](batches, keys_mapping={"obs": "next_obs"})
 
         for batch in batches:
-            batch = self.agent.train(batch)
+            batch = self.agent.train(batch, self._value_mask)
             if self.config.dqn.replay_buffer.type == "PrioritizedReplayBuffer":
                 self.buffer.update_priorities(batch)
         self.agent.update_callback()
