@@ -56,10 +56,12 @@ dqn:
       max_size: 100_000
   
   observation_transform:
-    type: "TensorNormalization"
+    type: "Normalize"
     kwargs:
-      key: "obs"
-      shape: [8]
+      keys:
+        - "obs"
+      shapes:
+        - [8]
   
   action_transform:
     type: "Choice"

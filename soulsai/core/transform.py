@@ -1,21 +1,24 @@
 """Transformation module for all data transformations."""
+
 from __future__ import annotations
 
-from typing import Callable, Mapping
 import io
 import logging
+from typing import Callable
 
 import torch
-from torch import Tensor
 import torch.nn as nn
 from tensordict import TensorDict
+from torch import Tensor
 
-from soulsai.core.noise import noise_cls, Noise
-from soulsai.core.scheduler import scheduler_cls, Scheduler
+from soulsai.core.noise import Noise, noise_cls
+from soulsai.core.scheduler import Scheduler, scheduler_cls
 from soulsai.utils import module_type_from_string
 
 logger = logging.getLogger(__name__)
 transform_cls: Callable[[str], type[Transform]] = module_type_from_string(__name__)
+
+NestedKey = str | tuple[str]
 
 
 class Transform(nn.Module):
@@ -54,108 +57,67 @@ class Transform(nn.Module):
 class Identity(Transform):
     """Identity transformation class for no transformation."""
 
-    def forward(self, x: TensorDict) -> TensorDict:
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> TensorDict:
         """Return the input tensor unchanged.
 
         Args:
             x: Input tensor.
+            keys_mapping: Optional dictionary that maps keys to new keys. Present for compatibility.
 
         Returns:
             Input tensor.
         """
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
         return x
 
 
-class TensorNormalization(Transform):
-    """Standard normalization transformation class for Tensors.
+class Normalize(Transform):
+    """Normalization class for normalizing tensors to have zero mean and unit variance.
 
-    The normalization is done using Welford's algorithm for numerical stability.
+    Mean and standard deviation parameters are estimated from the data during the update step.
     """
 
-    def __init__(self, key: str, shape: tuple[int]):
+    def __init__(self, keys: list[NestedKey], shapes: list[tuple[int]]):
         """Initialize the mean, standard deviation and helper parameters.
 
         Args:
-            key: Key of the input tensor in update TensorDict.
-            shape: Shape of the input tensor.
+            keys: Keys of elements normalized by the transformation.
+            shapes: Shapes of elements.
         """
         super().__init__()
-        self.key = key
-        self.params["mean"] = nn.Parameter(torch.zeros(shape), requires_grad=False)
-        self.params["std"] = nn.Parameter(torch.ones(shape), requires_grad=False)
-        self.params["m2"] = nn.Parameter(torch.zeros(shape), requires_grad=False)
-        self.params["count"] = nn.Parameter(torch.zeros(1, dtype=torch.int64), requires_grad=False)
-        self.params["eps2"] = nn.Parameter(torch.tensor(1e-4), requires_grad=False)
-
-    def forward(self, x: Tensor) -> tuple[Tensor]:
-        """Normalize the input tensor to have zero mean and unit variance.
-
-        Args:
-            x: Input tensor.
-
-        Returns:
-            Normalized tensor.
-        """
-        assert isinstance(x, Tensor), f"Expected input to be a Tensor, is {type(x)}"
-        return (x - self.params["mean"]) / self.params["std"]
-
-    def update(self, x: TensorDict):
-        """Update the mean and standard deviation estimate from a sample TensorDict batch.
-
-        Args:
-            x: Input TensorDict containing the tensor at `self.key`.
-        """
-        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
-        x = x[self.key]
-        assert isinstance(x, Tensor), f"Expected update value to be a Tensor, is {type(x)}"
-        # A batched variant of Welford's algorithm
-        # See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm  # noqa: E501
-        self.params["count"] += x.shape[0]
-        delta = x - self.params["mean"]
-        self.params["mean"] += torch.sum(delta / self.params["count"], axis=0)
-        self.params["m2"] += torch.sum(delta * (x - self.params["mean"]), axis=0)
-        # Numerical stability
-        std2 = torch.maximum(self.params["eps2"], self.params["m2"] / self.params["count"])
-        self.params["std"][:] = torch.sqrt(std2)
-
-
-class TensorDictNormalization(Transform):
-    """Standard normalization transformation class for TensorDicts."""
-
-    def __init__(self, shapes: Mapping[str, tuple[int]]):
-        """Initialize the mean, standard deviation and helper parameters.
-
-        Args:
-            shapes: Dictionary of keys and shapes of the input tensors in the TensorDict. If nested,
-                the keys in the TensorDict are concatenated with a dot. Keys in the shapes
-                dictionary must match the keys in the TensorDict accordingly.
-        """
-        super().__init__()
-        for key, shape in shapes.items():
+        self._keys = [k if isinstance(k, str) else tuple(k) for k in keys]
+        for key, shape in zip(keys, shapes):
             self.params[f"{key}_mean"] = nn.Parameter(torch.zeros(shape), requires_grad=False)
             self.params[f"{key}_std"] = nn.Parameter(torch.ones(shape), requires_grad=False)
             self.params[f"{key}_m2"] = nn.Parameter(torch.zeros(shape), requires_grad=False)
         self.params["count"] = nn.Parameter(torch.zeros(1, dtype=torch.int64), requires_grad=False)
         self.params["eps2"] = nn.Parameter(torch.tensor(1e-4), requires_grad=False)
 
-    def forward(self, x: TensorDict) -> Tensor:
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> TensorDict:
         """Normalize the input TensorDict to have zero mean and unit variance.
 
         Args:
-            x: Input TensorDict.
+            x: Sample TensorDict.
+            keys_mapping: Optional dictionary that maps keys to new keys. This is useful when the
+                transformation should be applied to a subset of the keys, or when the same
+                parameters should be used for different keys, i.e. for 'obs' and 'next_obs'.
 
         Returns:
             Normalized TensorDict.
         """
         assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
-        norm_td = TensorDict(
-            {
-                k: (v - self.params[f"{k}_mean"]) / self.params[f"{k}_std"]
-                for k, v in x.flatten_keys().items()
-            },
-            batch_size=x.batch_size,
-            device=x.device).unflatten_keys()
-        return norm_td
+        for key in self._keys:
+            sample_key = key
+            if keys_mapping is not None:  # Remap keys if necessary
+                if key not in keys_mapping:  # Skip keys not in the remapping
+                    continue
+                sample_key = keys_mapping[key]
+            x[sample_key] = (x[sample_key] - self.params[f"{key}_mean"]) / self.params[f"{key}_std"]
+        return x
 
     def update(self, x: TensorDict):
         """Update the keys' mean and standard deviation estimate from a sample TensorDict batch.
@@ -168,70 +130,232 @@ class TensorDictNormalization(Transform):
         self.params["count"] += x.batch_size[0]
         # A batched variant of Welford's algorithm
         # See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm  # noqa: E501
-        for key, value in x.flatten_keys().items():
-            delta = value - self.params[f"{key}_mean"]
+        for key in self._keys:
+            delta = x[key] - self.params[f"{key}_mean"]
             self.params[f"{key}_mean"] += torch.sum(delta / self.params["count"], axis=0)
-            self.params[f"{key}_m2"] += torch.sum(delta * (value - self.params[f"{key}_mean"]),
-                                                  axis=0)
-            std2 = torch.maximum(self.params["eps2"],
-                                 self.params[f"{key}_m2"] / self.params["count"])
+            self.params[f"{key}_m2"] += torch.sum(
+                delta * (x[key] - self.params[f"{key}_mean"]), axis=0
+            )
+            std2 = torch.maximum(
+                self.params["eps2"], self.params[f"{key}_m2"] / self.params["count"]
+            )
             self.params[f"{key}_std"].copy_(torch.sqrt(std2))
 
 
-class ImageNormalization(Transform):
+class NormalizeImg(Transform):
     """Image normalization transformation class for normalizing images to the range [-1, 1]."""
 
-    def __init__(self):
+    def __init__(self, keys: list[NestedKey]):
         """Initialize the transformation."""
         super().__init__()
+        self._keys = [k if isinstance(k, str) else tuple(k) for k in keys]
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> TensorDict:
         """Normalize the input tensor to the range [-1, 1].
 
         Args:
-            x: Input image tensor.
+            x: Sample TensorDict.
+            keys_mapping: Optional dictionary that maps keys to new keys. This is useful when the
+                normalization should be applied to a subset of the keys, or when the same parameters
+                should be used for different keys, i.e. for 'obs' and 'next_obs'.
 
         Returns:
-            Normalized tensor.
+            Normalized TensorDict.
         """
-        return (x / 255.0) * 2.0 - 1.0
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
+        for key in self._keys:
+            if keys_mapping is not None:  # Remap keys if necessary
+                if key not in keys_mapping:  # Skip keys not in the remapping
+                    continue
+                key = keys_mapping[key]
+            x[key] = (x[key] / 255.0) * 2.0 - 1.0
+        return x
+
+
+class Mask(Transform):
+    """Mask the value tensor with -inf at the masked indices."""
+
+    def __init__(self, key: NestedKey, mask_key: NestedKey, mask_value: float = -torch.inf):
+        """Initialize the transformation.
+
+        Args:
+            key: Key of the action tensor in the input TensorDict.
+            mask_key: Key of the action mask tensor in the input TensorDict.
+            mask_value: Value to use for masking.
+        """
+        super().__init__()
+        self._key = key if isinstance(key, str) else tuple(key)
+        self._mask_key = mask_key if isinstance(mask_key, str) else tuple(mask_key)
+        self._mask_value = mask_value
+
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> TensorDict:
+        """Mask the action value tensor with `self._mask_value` at the masked indices.
+
+        Args:
+            x: Input TensorDict.
+            keys_mapping: Optional dictionary that maps keys to new keys. This is useful when the
+                transformation should be applied to a subset of the keys, or when the same
+                parameters should be used for different keys, i.e. for 'obs' and 'next_obs'.
+
+        Returns:
+            The masked TensorDict.
+        """
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
+        mask_key = self._mask_key if keys_mapping is None else keys_mapping[self._mask_key]
+        key = self._key if keys_mapping is None else keys_mapping[self._key]
+        assert not torch.all(x[self._mask_key] == 0), "All values are masked"
+        x[key][~x[mask_key]] = self._mask_value
+        return x
+
+
+class GreedyAction(Transform):
+    """Greedy action transformation class for selecting the action with the highest value."""
+
+    def __init__(self, value_key: str, action_key: str):
+        """Initialize the transformation.
+
+        Args:
+            value_key: Key of the value tensor in the input TensorDict.
+            action_key: Key of the action tensor in the input TensorDict.
+        """
+        super().__init__()
+        self._value_key = value_key
+        self._action_key = action_key
+
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> TensorDict:
+        """Select the action with the highest value.
+
+        Args:
+            x: Input TensorDict.
+            keys_mapping: Optional dictionary that maps keys to new keys. This is useful when the
+                transformation should be applied to a subset of the keys, or when the same
+                parameters should be used for different keys, i.e. for 'obs' and 'next_obs'.
+
+        Returns:
+            The input TensorDict with the action tensor set to the action with the highest value.
+        """
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
+        value_key = self._value_key if keys_mapping is None else keys_mapping[self._value_key]
+        action_key = self._action_key if keys_mapping is None else keys_mapping[self._action_key]
+        x[action_key] = torch.argmax(x[value_key], dim=-1, keepdim=True)
+        return x
+
+
+class ExponentialAction(Transform):
+    """Select an action using Boltzmann exploration with a temperature parameter."""
+
+    def __init__(self, value_key: NestedKey, action_key: NestedKey, scheduler: Scheduler | dict):
+        """Initialize the transformation.
+
+        Args:
+            value_key: Key of the value tensor in the input TensorDict.
+            action_key: Key of the action tensor in the input TensorDict.
+            scheduler: Temperature scheduler for the Boltzmann exploration.
+        """
+        super().__init__()
+        self._value_key = value_key
+        self._action_key = action_key
+        if isinstance(scheduler, dict):
+            scheduler = scheduler_cls(scheduler["type"])(**(scheduler.get("kwargs") or {}))
+        self.params["scheduler"] = scheduler
+        self.params["value_mean"] = nn.Parameter(torch.tensor(0.0), requires_grad=False)
+        self.params["value_m2"] = nn.Parameter(torch.tensor(0.0), requires_grad=False)
+        self.params["value_std"] = nn.Parameter(torch.tensor(1.0), requires_grad=False)
+        self.params["count"] = nn.Parameter(torch.tensor(0), requires_grad=False)
+        self.params["eps2"] = nn.Parameter(torch.tensor(1e-4), requires_grad=False)
+
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> TensorDict:
+        """Select an action using Boltzmann exploration with a temperature parameter.
+
+        Args:
+            x: Input TensorDict.
+            keys_mapping: Optional dictionary that maps keys to new keys. This is useful when the
+                transformation should be applied to a subset of the keys, or when the same
+                parameters should be used for different keys, i.e. for 'obs' and 'next_obs'.
+
+        Returns:
+            The input TensorDict with the action tensor set to the action selected using Boltzmann
+            exploration.
+        """
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
+        value_key = self._value_key if keys_mapping is None else keys_mapping[self._value_key]
+        action_key = self._action_key if keys_mapping is None else keys_mapping[self._action_key]
+        values = x[value_key]
+        values = (values - self.params["value_mean"]) / self.params["value_std"]
+        dist = torch.distributions.Categorical(logits=values / self.params["scheduler"]())
+        x[action_key] = dist.sample().unsqueeze(-1)  # Same as keepdim=True in torch.argmax
+        return x
+
+    def update(self, x: TensorDict):
+        """Update the temperature parameter."""
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
+        assert len(x.batch_size) == 1, f"Batch size must be a scalar, is {x.batch_size}"
+        self.params["count"] += x.batch_size[0]
+        data = x[self._value_key]
+        delta = data - self.params["value_mean"]
+        self.params["value_mean"] += torch.sum(delta / self.params["count"])
+        self.params["value_m2"] += torch.sum(delta * (data - self.params["value_mean"]))
+        std2 = torch.maximum(self.params["eps2"], self.params["value_m2"] / self.params["count"])
+        self.params["value_std"].copy_(torch.sqrt(std2))
+        self.params["scheduler"].update(1)
 
 
 class Choice(Transform):
     """Choice transformation class for selecting one of several transforms at random."""
 
-    def __init__(self, transforms: list[Transform | dict], prob: list[float]):
+    def __init__(self, key: NestedKey, transforms: list[Transform | dict], probs: list[float]):
         """Initialize the transformation.
 
         Args:
+            key: Key(s) of the input tensor in the sample TensorDict.
             transforms: List of transformations.
-            prob: List of probabilities for choosing each transformation.
+            probs: List of probabilities for choosing each transformation.
         """
         super().__init__()
+        self._key = key if isinstance(key, str) else tuple(key)
+
         for i, tf in enumerate(transforms):
             if isinstance(tf, dict):
                 transforms[i] = transform_cls(tf["type"])(**(tf.get("kwargs") or {}))
         assert all(isinstance(x, Transform) for x in transforms), "All elements must be Transforms"
 
         self.params["transforms"] = nn.ModuleList(transforms)
-        prob = torch.tensor(prob, dtype=torch.float32)
-        assert torch.all(prob >= 0), "p must be non-negative"
-        assert torch.isclose(prob.sum(), torch.tensor(1.0)), "p must sum to 1"
-        assert len(prob) == len(transforms), "prob must have the same length as transforms"
-        prob = prob / prob.sum()
-        self.params["prob"] = nn.Parameter(prob, requires_grad=False)
+        probs = torch.tensor(probs, dtype=torch.float32)
+        assert torch.all(probs >= 0), "p must be non-negative"
+        assert torch.isclose(probs.sum(), torch.tensor(1.0)), "p must sum to 1"
+        assert len(probs) == len(transforms), "probs must have the same length as transforms"
+        probs = probs / probs.sum()
+        self.params["probs"] = nn.Parameter(probs, requires_grad=False)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> TensorDict:
         """Choose a transformation at random and apply it to the input tensor.
 
         Args:
-            x: Input tensor.
+            x: Sample TensorDict.
+            keys_mapping: Optional dictionary that maps keys to new keys. This is useful when the
+                transformation should be applied to a subset of the keys, or when the same
+                parameters should be used for different keys, i.e. for 'obs' and 'next_obs'.
 
         Returns:
-            Transformed tensor.
+            Transformed TensorDict.
         """
-        tf_idx = torch.multinomial(self.params["prob"], x.shape[0], replacement=True)
-        return torch.stack([self.params["transforms"][j](x[i])[0] for i, j in enumerate(tf_idx)])
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
+        key = self._key if keys_mapping is None else keys_mapping[self._key]
+        tf_idx = torch.multinomial(self.params["probs"], x[key].shape[0], replacement=True)
+        x[key] = torch.stack(
+            [self.params["transforms"][j](x[i], keys_mapping)[0] for i, j in enumerate(tf_idx)]
+        )
+        return x
 
 
 class ScheduledChoice(Transform):
@@ -241,14 +365,18 @@ class ScheduledChoice(Transform):
     each call to `update`. This allows us to implement behaviors like annealing exploration rates.
     """
 
-    def __init__(self, transforms: list[Transform | dict], scheduler: Scheduler | dict):
+    def __init__(
+        self, key: NestedKey, transforms: list[Transform | dict], scheduler: Scheduler | dict
+    ):
         """Initialize the transformation.
 
         Args:
+            key: Key of the input tensor in the sample TensorDict.
             transforms: List of transformations.
-            prob: List of probabilities for choosing each transformation.
+            scheduler: `Scheduler` or dictionary with `type` and optional `kwargs` keys.
         """
         super().__init__()
+        self._key = key if isinstance(key, str) else tuple(key)
         for i, tf in enumerate(transforms):
             if isinstance(tf, dict):
                 transforms[i] = transform_cls(tf["type"])(**(tf.get("kwargs") or {}))
@@ -259,22 +387,33 @@ class ScheduledChoice(Transform):
             scheduler = scheduler_cls(scheduler["type"])(**(scheduler.get("kwargs") or {}))
         self.params["scheduler"] = scheduler
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> TensorDict:
         """Choose a transformation at random and apply it to the input tensor.
 
         Args:
-            x: Input tensor.
+            x: Sample TensorDict.
+            keys_mapping: Optional dictionary that maps keys to new keys. This is useful when the
+                transformation should be applied to a subset of the keys, or when the same
+                parameters should be used for different keys, i.e. for 'obs' and 'next_obs'.
 
         Returns:
-            Transformed tensor.
+            Transformed TensorDict.
         """
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
         probs = self.params["scheduler"]()
         assert torch.all(probs >= 0), "p must be non-negative"
         probs /= probs.sum()
-        tf_idx = torch.multinomial(probs, x.shape[0], replacement=True)
-        return torch.stack([self.params["transforms"][j](x[i])[0] for i, j in enumerate(tf_idx)])
+        key = self._key if keys_mapping is None else keys_mapping[self._key]
+        tf_idx = torch.multinomial(probs, x[key].shape[0], replacement=True)
+        x = torch.cat(
+            [self.params["transforms"][j](x[[i]], keys_mapping) for i, j in enumerate(tf_idx)],
+            dim=-1,
+        )
+        return x
 
-    def update(self, x: TensorDict):
+    def update(self, _: TensorDict):
         """Update the transformation parameters.
 
         Args:
@@ -286,18 +425,35 @@ class ScheduledChoice(Transform):
 class ReplaceWithNoise(Transform):
     """Replace the input tensor with noise."""
 
-    def __init__(self, noise: Noise | dict):
+    def __init__(self, key: NestedKey, noise: Noise | dict):
         """Construct the noise if necessary and initialize the transformation.
 
         Args:
+            key: Key of the input tensor in the sample TensorDict.
             noise: Noise object or dictionary with `type` and optional `kwargs` keys.
         """
         super().__init__()
+        self._key = key if isinstance(key, str) else tuple(key)
         if isinstance(noise, dict):
             noise = noise_cls(noise["type"])(**(noise.get("kwargs") or {}))
         assert isinstance(noise, Noise), "noise must be a Noise object"
         self.noise = noise
 
-    def forward(self, x: Tensor) -> Tensor:
-        """Replace the input tensor with noise."""
-        return self.noise(x)
+    def forward(
+        self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
+    ) -> Tensor:
+        """Replace the input tensor with noise.
+
+        Args:
+            x: Sample TensorDict.
+            keys_mapping: Optional dictionary that maps keys to new keys. This is useful when the
+                transformation should be applied to a subset of the keys, or when the same
+                parameters should be used for different keys, i.e. for 'obs' and 'next_obs'.
+
+        Returns:
+            Transformed TensorDict.
+        """
+        assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
+        key = self._key if keys_mapping is None else keys_mapping[self._key]
+        x[key] = self.noise(x[key])
+        return x

@@ -4,20 +4,21 @@ Since models are trained on the server, all server agents have to support the se
 parameters into a format suitable for uploading it to the Redis data base. To reduce bandwidth,
 agents can choose which parameters to serialize and which to keep local.
 """
+
 from __future__ import annotations
 
-import random
 import logging
-from typing import Tuple, TYPE_CHECKING
+import random
+from typing import TYPE_CHECKING, Tuple
 
 import torch
 import torch.nn.functional as F
-import numpy as np
 
 from soulsai.core.networks import net_cls, polyak_update
 from soulsai.utils import module_type_from_string
 
 if TYPE_CHECKING:
+    import numpy as np
     from tensordict import TensorDict
 
 logger = logging.getLogger(__name__)
@@ -42,8 +43,9 @@ class Agent(torch.nn.Module):
         super().__init__()
         self.device = device
         self.networks = torch.nn.ModuleDict()
-        self.model_id = torch.nn.Parameter(torch.tensor([-1], dtype=torch.int64),
-                                           requires_grad=False)
+        self.model_id = torch.nn.Parameter(
+            torch.tensor([-1], dtype=torch.int64), requires_grad=False
+        )
 
     def update_callback(self):
         """Update callback for networks with special requirements."""
@@ -68,8 +70,17 @@ class DQNAgent(Agent):
     the current value. The network estimating the current value then gets updated.
     """
 
-    def __init__(self, network_type: str, network_kwargs: dict, lr: float, gamma: float,
-                 multistep: int, grad_clip: float, q_clip: float, device: torch.device):
+    def __init__(
+        self,
+        network_type: str,
+        network_kwargs: dict,
+        lr: float,
+        gamma: float,
+        multistep: int,
+        grad_clip: float,
+        q_clip: float,
+        device: torch.device,
+    ):
         """Initialize the networks and optimizers.
 
         Args:
@@ -93,12 +104,11 @@ class DQNAgent(Agent):
         self.multistep = multistep
         self.grad_clip = grad_clip
 
-    def __call__(self, x: np.ndarray, action_mask: np.ndarray | None = None) -> torch.IntTensor:
+    def __call__(self, x: np.ndarray) -> torch.IntTensor:
         """Calculate the current best action by averaging the values from both networks.
 
         Args:
             x: Network input.
-            action_mask: Optional mask to restrict the network to a set of permitted actions.
 
         Returns:
             The chosen action.
@@ -106,9 +116,6 @@ class DQNAgent(Agent):
         with torch.no_grad():
             x = torch.as_tensor(x).to(self.device)
             qvalues = self.networks["dqn1"](x) + self.networks["dqn2"](x)
-            if action_mask is not None:
-                c = torch.as_tensor(action_mask, dtype=torch.bool, device=self.device)
-                qvalues = torch.where(c, qvalues, -torch.inf)
             return torch.argmax(qvalues, dim=-1, keepdim=True)
 
     def train(self, sample: TensorDict) -> np.ndarray:
@@ -151,7 +158,7 @@ class DQNAgent(Agent):
             q_a_next = estimate_net(next_obs)[range(batch_size), a_next]
             q_a_next = torch.clamp(q_a_next, -self.q_clip, self.q_clip)
             q_td = rewards + self.gamma**self.multistep * q_a_next * (1 - terminated)
-        sample_loss = (q_a - q_td)**2
+        sample_loss = (q_a - q_td) ** 2
         if "weights" in sample.keys():
             assert sample["weights"].shape == (batch_size,)
             sample_loss = sample_loss * torch.tensor(sample["weights"]).to(self.device)
@@ -172,8 +179,18 @@ class DQNAgent(Agent):
 class DistributionalDQNAgent(Agent):
     """QR DQN agent."""
 
-    def __init__(self, network_type: str, network_kwargs: dict, lr: float, gamma: float,
-                 multistep: int, grad_clip: float, q_clip: float, tau: float, device: torch.device):
+    def __init__(
+        self,
+        network_type: str,
+        network_kwargs: dict,
+        lr: float,
+        gamma: float,
+        multistep: int,
+        grad_clip: float,
+        q_clip: float,
+        tau: float,
+        device: torch.device,
+    ):
         """Initialize the networks and optimizers.
 
         Args:
@@ -184,13 +201,15 @@ class DistributionalDQNAgent(Agent):
             multistep: Number of multi-step returns considered in the TD update.
             grad_clip: Gradient clipping value for the Q networks.
             q_clip: Maximal value of the estimator network during training.
+            tau: Polyak averaging factor for the target network.
             device: Torch device for the networks.
         """
         super().__init__(device)
         self.network_type = network_type
         self.networks.add_module("dqn", net_cls(network_type)(**network_kwargs).to(self.device))
-        self.networks.add_module("target_dqn",
-                                 net_cls(network_type)(**network_kwargs).to(self.device))
+        self.networks.add_module(
+            "target_dqn", net_cls(network_type)(**network_kwargs).to(self.device)
+        )
         self.networks["target_dqn"].load_state_dict(self.networks["dqn"].state_dict())
         self.networks["target_dqn"].requires_grad_(False)
         self.opt = torch.optim.AdamW(self.networks["dqn"].parameters(), lr)
@@ -202,12 +221,11 @@ class DistributionalDQNAgent(Agent):
         N = self.networks["dqn"].n_quantiles
         self.quantile_tau = torch.tensor([i / N for i in range(1, N + 1)]).float().to(self.device)
 
-    def __call__(self, x: np.ndarray, action_mask: np.ndarray | None = None) -> torch.IntTensor:
+    def __call__(self, x: np.ndarray) -> torch.IntTensor:
         """Calculate the current best action.
 
         Args:
             x: Network input.
-            action_mask: Optional mask to restrict the network to a set of permitted actions.
 
         Returns:
             The chosen action.
@@ -215,10 +233,7 @@ class DistributionalDQNAgent(Agent):
         with torch.no_grad():
             x = torch.as_tensor(x).to(self.device)
             qvalues = self.networks["dqn"](x).mean(dim=-1)
-            if action_mask is not None:
-                c = torch.as_tensor(action_mask, dtype=torch.bool, device=self.device)
-                qvalues = torch.where(c, qvalues, -torch.inf)
-            return torch.argmax(qvalues, dim=-1, keepdim=True)
+            return torch.argmax(qvalues, dim=-1)
 
     def train(self, sample: TensorDict) -> np.ndarray:
         """Train the agent with dual quantile regression DQN.
@@ -240,12 +255,14 @@ class DistributionalDQNAgent(Agent):
         self.opt.zero_grad()
         # Move data to tensors. Unsqueeze rewards and terminated in preparation for broadcasting
         obs = torch.as_tensor(sample["obs"], dtype=torch.float32).to(self.device)
-        rewards = torch.as_tensor(sample["reward"],
-                                  dtype=torch.float32).unsqueeze(-1).to(self.device)
+        rewards = (
+            torch.as_tensor(sample["reward"], dtype=torch.float32).unsqueeze(-1).to(self.device)
+        )
         next_obs = torch.as_tensor(sample["next_obs"], dtype=torch.float32).to(self.device)
         actions = torch.as_tensor(sample["action"])
-        terminated = torch.as_tensor(sample["terminated"],
-                                     dtype=torch.float32).unsqueeze(-1).to(self.device)
+        terminated = (
+            torch.as_tensor(sample["terminated"], dtype=torch.float32).unsqueeze(-1).to(self.device)
+        )
         action_masks = None
         if "action_mask" in sample.keys():
             action_masks = torch.as_tensor(sample["action_mask"], dtype=torch.bool).to(self.device)
@@ -266,7 +283,7 @@ class DistributionalDQNAgent(Agent):
             assert q_targets.shape == (batch_size, N)
         td_error = q_targets[:, None, :] - q_a[..., None]  # Broadcast to shape [B N N]
         assert td_error.shape == (batch_size, N, N), f"Unexpected shape {td_error.shape}"
-        huber_loss = F.huber_loss(td_error, torch.zeros_like(td_error), reduction="none", delta=1.)
+        huber_loss = F.huber_loss(td_error, torch.zeros_like(td_error), reduction="none", delta=1.0)
         quantile_loss = abs(self.quantile_tau - (td_error.detach() < 0).float()) * huber_loss
         assert quantile_loss.shape == (batch_size, N, N), quantile_loss.shape
         summed_quantile_loss = quantile_loss.mean(dim=2).sum(1)
@@ -302,8 +319,17 @@ class DistributionalR2D2Agent(Agent):
     potential non-markovian elements in the environment.
     """
 
-    def __init__(self, network_type: str, network_kwargs: dict, lr: float, gamma: float,
-                 multistep: int, grad_clip: float, q_clip: float, device: torch.device):
+    def __init__(
+        self,
+        network_type: str,
+        network_kwargs: dict,
+        lr: float,
+        gamma: float,
+        multistep: int,
+        grad_clip: float,
+        q_clip: float,
+        device: torch.device,
+    ):
         """Initialize the networks and optimizers.
 
         Args:
@@ -329,14 +355,16 @@ class DistributionalR2D2Agent(Agent):
         N = self.networks["qr_dqn1"].n_quantiles
         self.quantile_tau = torch.tensor([i / N for i in range(1, N + 1)]).float().to(self.device)
 
-    def train(self,
-              obs: np.ndarray,
-              actions: np.ndarray,
-              rewards: np.ndarray,
-              next_obs: np.ndarray,
-              terminated: np.ndarray,
-              action_masks: np.ndarray | None = None,
-              weights: np.ndarray | None = None) -> np.ndarray:
+    def train(
+        self,
+        obs: np.ndarray,
+        actions: np.ndarray,
+        rewards: np.ndarray,
+        next_obs: np.ndarray,
+        terminated: np.ndarray,
+        action_masks: np.ndarray | None = None,
+        weights: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Train the agent with quantile regression DQN and a target network.
 
         Args:
@@ -381,7 +409,7 @@ class DistributionalR2D2Agent(Agent):
             q_targets = rewards + self.gamma**self.multistep * q_a_next * (1 - terminated)
         td_error = q_targets[:, None, :] - q_a[..., None]  # Broadcast to shape [B N N]
         assert td_error.shape == (batch_size, N, N)
-        huber_loss = F.huber_loss(td_error, torch.zeros_like(td_error), reduction="none", delta=1.)
+        huber_loss = F.huber_loss(td_error, torch.zeros_like(td_error), reduction="none", delta=1.0)
         quantile_loss = abs(self.quantile_tau - (td_error.detach() < 0).float()) * huber_loss
         assert quantile_loss.shape == (batch_size, N, N), quantile_loss.shape
         summed_quantile_loss = quantile_loss.mean(dim=2).sum(1)
@@ -402,8 +430,16 @@ class PPOAgent(Agent):
     Uses a critic for general advantage estimation (see https://arxiv.org/pdf/2006.05990.pdf).
     """
 
-    def __init__(self, actor_net: str, actor_net_kwargs: dict, critic_net: str,
-                 critic_net_kwargs: dict, actor_lr: float, critic_lr: float, device: torch.device):
+    def __init__(
+        self,
+        actor_net: str,
+        actor_net_kwargs: dict,
+        critic_net: str,
+        critic_net_kwargs: dict,
+        actor_lr: float,
+        critic_lr: float,
+        device: torch.device,
+    ):
         """Initialize the actor and critic networks.
 
         Args:

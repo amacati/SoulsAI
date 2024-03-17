@@ -8,31 +8,33 @@ buffer. Older samples are rejected and discarded.
 This approach also allows us to dynamically add and remove worker nodes, making the overall
 architecture more resilient against connection failures, client errors etc.
 """
+
 from __future__ import annotations
 
-import logging
-from pathlib import Path
-from collections import deque
-import time
-from typing import TYPE_CHECKING
 import json
+import logging
+import time
+from collections import deque
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
 from redis import Redis
 
+from soulsai.core.agent import Agent, agent_cls
 from soulsai.core.replay_buffer import buffer_cls
-from soulsai.core.agent import agent_cls, Agent
-from soulsai.core.transform import transform_cls
 from soulsai.core.scheduler import Scheduler
-from soulsai.distributed.common.serialization import serialize, deserialize
-from soulsai.distributed.server.training_node.training_node import TrainingNode
+from soulsai.core.transform import transform_cls
+from soulsai.distributed.common.serialization import deserialize, serialize
 from soulsai.distributed.server.training_node.connector import DQNServerConnector
-from soulsai.utils import namespace2dict, load_redis_secret
+from soulsai.distributed.server.training_node.training_node import TrainingNode
+from soulsai.utils import load_redis_secret, namespace2dict
 
 if TYPE_CHECKING:
-    from types import SimpleNamespace
     from multiprocessing.synchronize import Event
+    from types import SimpleNamespace
+
     from soulsai.core.transform import Transform
 
 logger = logging.getLogger(__name__)
@@ -56,10 +58,11 @@ class DQNTrainingNode(TrainingNode):
         # Also accept samples from recent model iterations
         self.model_ids = deque(maxlen=self.config.dqn.max_model_delay)
 
-        self.agent = agent_cls(
-            self.config.dqn.agent.type)(self.config.dqn.network.type,
-                                        namespace2dict(self.config.dqn.network.kwargs),
-                                        **namespace2dict(self.config.dqn.agent.kwargs))
+        self.agent = agent_cls(self.config.dqn.agent.type)(
+            self.config.dqn.network.type,
+            namespace2dict(self.config.dqn.network.kwargs),
+            **namespace2dict(self.config.dqn.agent.kwargs),
+        )
         # Compile all agent networks
         torch.compile(self.agent.networks, mode="reduce-overhead")
 
@@ -71,7 +74,8 @@ class DQNTrainingNode(TrainingNode):
         self.transforms.to(self.agent.device)
 
         self.buffer = buffer_cls(self.config.dqn.replay_buffer.type)(
-            **namespace2dict(self.config.dqn.replay_buffer.kwargs))
+            **namespace2dict(self.config.dqn.replay_buffer.kwargs)
+        )
 
         # Translate config params
         if self.config.dqn.min_samples:
@@ -94,11 +98,11 @@ class DQNTrainingNode(TrainingNode):
         async_upload_kwargs = {
             "event": self._publish_model_event,
             "model": self.agent,
-            "transforms": self.transforms
+            "transforms": self.transforms,
         }
-        self.model_publish_process = cxt.Process(target=self._async_publish_model,
-                                                 kwargs=async_upload_kwargs,
-                                                 daemon=True)
+        self.model_publish_process = cxt.Process(
+            target=self._async_publish_model, kwargs=async_upload_kwargs, daemon=True
+        )
         self.model_publish_process.start()
 
         # We also asynchronously receive samples from the clients to interleave the training and
@@ -138,8 +142,12 @@ class DQNTrainingNode(TrainingNode):
         with self._lock:  # Prevent deque mutated during iteration error in other threads
             self.model_ids.append(self.agent.model_id.item())
         if time.time() - self._log_times["model_update"] > 10:
-            logger.info((f"{time.strftime('%X')}: Model update complete."
-                         f"\nTotal env steps: {self._total_env_steps}"))
+            logger.info(
+                (
+                    f"{time.strftime('%X')}: Model update complete."
+                    f"\nTotal env steps: {self._total_env_steps}"
+                )
+            )
             logger.info(f"Model update took {t2 - t1:.2f} seconds")
             self._log_times["model_update"] = time.time()
 
@@ -157,7 +165,7 @@ class DQNTrainingNode(TrainingNode):
             transforms: ModuleDict of observation, action etc. transforms.
         """
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
-        red = Redis(host='redis', port=6379, password=secret, db=0)
+        red = Redis(host="redis", port=6379, password=secret, db=0)
         last_log = time.time()  # Reduce number of log messages for model updates
         while True:
             t = time.perf_counter()
@@ -171,10 +179,10 @@ class DQNTrainingNode(TrainingNode):
                     last_log = time.time()
             event.clear()
             red.set("model_state_dict", serialize(model.client_state_dict()))
-            red.hset("transforms_state_dict",
-                     mapping={
-                         k: serialize(v.state_dict()) for k, v in transforms.items()
-                     })
+            red.hset(
+                "transforms_state_dict",
+                mapping={k: serialize(v.state_dict()) for k, v in transforms.items()},
+            )
             red.publish("model_update", model.model_id.item())
             logger.debug("Model upload successful")
 
@@ -189,7 +197,7 @@ class DQNTrainingNode(TrainingNode):
     def _episode_info_callback(self, episode_info: bytes):
         episode_info = deserialize(episode_info)
         with self._lock:  # Prevent deque mutated during iteration error
-            if not episode_info["model_id"] in self.model_ids:
+            if episode_info["model_id"] not in self.model_ids:
                 logger.warning("Stale episode info rejected")
                 return
         assert "total_steps" not in episode_info.keys(), "total_steps is a reserved key!"
@@ -209,8 +217,9 @@ class DQNTrainingNode(TrainingNode):
 
     def _dqn_step(self):
         """Sample batches, transform the observations and update the agent."""
-        batches = self.buffer.sample_batches(self.config.dqn.batch_size,
-                                             self.config.dqn.train_epochs).to(self.agent.device)
+        batches = self.buffer.sample_batches(
+            self.config.dqn.batch_size, self.config.dqn.train_epochs
+        ).to(self.agent.device)
         for batch in batches:
             for tf in self.transforms.values():
                 tf.update(batch)  # Update transforms with the new training batches
@@ -219,8 +228,9 @@ class DQNTrainingNode(TrainingNode):
         # dtype such as from uint8 to float32. In that case, the float32 tensor would be cast back
         # to uint8, because we are only writing to parts of the tensor. In addition, transforming
         # all batches in one go is faster
-        batches["obs"] = self.transforms["obs"](batches["obs"])
-        batches["next_obs"] = self.transforms["obs"](batches["next_obs"])
+        batches = self.transforms["obs"](batches)
+        # Use the observation transform also for the next observation
+        batches = self.transforms["obs"](batches, keys_mapping={"obs": "next_obs"})
 
         for batch in batches:
             td_errors = self.agent.train(batch)
@@ -249,7 +259,7 @@ class DQNTrainingNode(TrainingNode):
                 torch.save(tf.state_dict(), path / f"{name}_transform.pt")
             training_stats = {
                 "_total_env_steps": self._total_env_steps,
-                "_model_iterations": self._model_iterations
+                "_model_iterations": self._model_iterations,
             }
             with open(path / "training_stats.json", "w") as f:
                 json.dump(training_stats, f)

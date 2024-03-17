@@ -3,21 +3,22 @@
 We use TensorDicts throughout the whole framework to serialize, store and manipulate data. This
 wrapper ensures that environments are compatible with this data model.
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable, TYPE_CHECKING
-import logging
 import copy
+import logging
+from typing import TYPE_CHECKING, Any, Callable
 
-import torch
-from torch import Tensor
-from tensordict import TensorDict, set_lazy_legacy
 import numpy as np
-from gymnasium import Wrapper, Env
+import torch
+from gymnasium import Env, Wrapper
+from tensordict import TensorDict, set_lazy_legacy
+from torch import Tensor
 
 if TYPE_CHECKING:
-    from gymnasium.vector import VectorEnv
     from gymnasium.experimental.vector import VectorEnv as ExpVectorEnv
+    from gymnasium.vector import VectorEnv
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +32,9 @@ class TensorDictWrapper(Wrapper):
     wrapper is a no-op. Observations are always converted to Tensors on the training device.
     """
 
-    def __init__(self,
-                 env: VectorEnv | ExpVectorEnv | Env,
-                 device: torch.device = torch.device("cpu")):
+    def __init__(
+        self, env: VectorEnv | ExpVectorEnv | Env, device: torch.device = torch.device("cpu")
+    ):
         """Initialize the wrapper.
 
         Args:
@@ -55,6 +56,7 @@ class TensorDictWrapper(Wrapper):
         self.observation_space.sample = self._patch_space(self.observation_space.sample)
         self.action_space.sample = self._patch_space(self.action_space.sample)
         self._failed_info_keys = set()  # Keep track of info keys that failed to convert
+        self._last_obs = None  # Store the last observation and include it in the step() sample
 
     def step(self, action: Tensor) -> TensorDict[str, Tensor]:
         """Advance one step in the environment and return the results as a TensorDict.
@@ -66,7 +68,10 @@ class TensorDictWrapper(Wrapper):
             A TensorDict containing the next observation, reward, termination signal, and info.
         """
         assert isinstance(action, Tensor), f"Expected action to be a Tensor, got {type(action)}."
-        sample = TensorDict({"action": action}, batch_size=self.num_envs, device=self.device)
+        assert self._last_obs is not None, "Call reset() before calling step() for the first time."
+        sample = TensorDict(
+            {"action": action, "obs": self._last_obs}, batch_size=self.num_envs, device=self.device
+        )
         # Convert action to np if necessary or send to env_device. If the environment is not
         # vectorized, we also extract the first element of the action
         action = self.transform_action(action)
@@ -76,12 +81,12 @@ class TensorDictWrapper(Wrapper):
         sample["terminated"] = self.transform_done(terminated).clone()
         sample["truncated"] = self.transform_done(truncated).clone()
         sample["info"] = self.transform_info(info).clone()
+        self._last_obs = sample["next_obs"].clone()  # Store the last observation for the next step
         return sample
 
-    def reset(self,
-              *,
-              seed: int | None = None,
-              options: dict[str, Any] | None = None) -> TensorDict[str, Tensor]:
+    def reset(
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
+    ) -> TensorDict[str, Tensor]:
         """Reset the environment and return the initial observation.
 
         Args:
@@ -95,10 +100,12 @@ class TensorDictWrapper(Wrapper):
         sample = TensorDict({}, batch_size=self.num_envs, device=self.device)
         sample["obs"] = self.transform_obs(obs).clone()
         sample["info"] = self.transform_info(info).clone()
+        self._last_obs = sample["obs"].clone()  # Store the last observation for the step() sample
         return sample
 
-    def transform_obs(self,
-                      obs: np.ndarray | Tensor | dict[str, np.ndarray]) -> Tensor | TensorDict:
+    def transform_obs(
+        self, obs: np.ndarray | Tensor | dict[str, np.ndarray]
+    ) -> Tensor | TensorDict:
         """Convert the observation to a Tensor or TensorDict.
 
         If the environment is not vectorized, we add a batch dimension to the observation.
@@ -219,8 +226,12 @@ class TensorDictWrapper(Wrapper):
                 case _:
                     if key not in self._failed_info_keys:
                         self._failed_info_keys.add(key)  # Only log once per key
-                        logger.warning((f"Dropping info key '{key}' with unsupported conversion "
-                                        f"type {type(value)}"))
+                        logger.warning(
+                            (
+                                f"Dropping info key '{key}' with unsupported conversion "
+                                f"type {type(value)}"
+                            )
+                        )
         info = TensorDict(info_tf, batch_size=self.num_envs, device=self.device)
         if self.vectorized:
             return info
@@ -243,7 +254,6 @@ class TensorDictWrapper(Wrapper):
                 raise TypeError(f"Unsupported type {type(value[0])}")
 
     def _patch_space(self, fn: Callable) -> Callable:
-
         def wrapper() -> Tensor:
             return torch.as_tensor(fn(), device=self.device)
 

@@ -1,34 +1,34 @@
 """The connector module provides connectors that abstract the client communication with Redis."""
+
 from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
+import queue
 import socket
 import time
-import queue
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
-from typing import TYPE_CHECKING
-
-from typing import Any
 
 import redis
-from redis import Redis
 import torch.multiprocessing as mp
+from redis import Redis
 
 from soulsai.core.agent import Agent, agent_cls
 from soulsai.core.transform import transform_cls
 from soulsai.distributed.common.serialization import deserialize
-from soulsai.utils import load_redis_secret, namespace2dict
 from soulsai.exception import ClientRegistrationError, ServerTimeoutError
+from soulsai.utils import load_redis_secret, namespace2dict
 
 if TYPE_CHECKING:
-    from types import SimpleNamespace
-    from multiprocessing.synchronize import Event
     from multiprocessing.connection import Connection
-    from multiprocessing.synchronize import Lock
     from multiprocessing.queues import Queue
+    from multiprocessing.synchronize import Event, Lock
+    from types import SimpleNamespace
+
     from torch import Tensor
+
     from soulsai.core.transform import Transform
 
 logger = logging.getLogger(__name__)
@@ -50,13 +50,13 @@ class DQNConnector:
         In order to avoid races during the update or a mismatch in model IDs and network weights,
         these attributes should always be accessed by using the connector as context manager.
 
-        Example:
-            .. code-block:: python
+    Example:
+        .. code-block:: python
 
-                con = DQNConnector(config)
-                with con:
-                    con.agent(obs)
-                    print(con.model_id)
+            con = DQNConnector(config)
+            with con:
+                con.agent(obs)
+                print(con.model_id)
 
     If the communication with Redis is interrupted, the connector will automatically try to
     reestablish the connection. In the client thread, this is only visible through a logger warning.
@@ -73,9 +73,11 @@ class DQNConnector:
         cxt = mp.get_context("spawn")
         mp.set_start_method("spawn", force=True)
         self.config = config
-        self.agent = agent_cls(config.dqn.agent.type)(config.dqn.network.type,
-                                                      namespace2dict(config.dqn.network.kwargs),
-                                                      **namespace2dict(config.dqn.agent.kwargs))
+        self.agent = agent_cls(config.dqn.agent.type)(
+            config.dqn.network.type,
+            namespace2dict(config.dqn.network.kwargs),
+            **namespace2dict(config.dqn.agent.kwargs),
+        )
         self.transforms: dict[str, Transform] = {}
         kwargs = namespace2dict(getattr(config.dqn.observation_transform, "kwargs", None))
         self.transforms["obs"] = transform_cls(config.dqn.observation_transform.type)(**kwargs)
@@ -110,8 +112,15 @@ class DQNConnector:
         for tf in self.transforms.values():
             tf.share_memory()
 
-        args = (self._update_event, self._stop_event, self.agent, self.transforms, self._lock,
-                secret, config)
+        args = (
+            self._update_event,
+            self._stop_event,
+            self.agent,
+            self.transforms,
+            self._lock,
+            secret,
+            config,
+        )
         self.model_updater = cxt.Process(target=self._update_model, args=args, daemon=True)
         self.model_updater.start()
 
@@ -188,7 +197,7 @@ class DQNConnector:
         """
         self._push_msg("episode_info", episode_info)
 
-    def _push_msg(self, msg_type: str, msg: Any):
+    def _push_msg(self, msg_type: str, msg: bytes):
         try:
             self._msg_queue.put_nowait((msg_type, msg))
         except queue.Full:
@@ -206,9 +215,15 @@ class DQNConnector:
         logger.debug("All background processes joined")
 
     @staticmethod
-    def _update_model(update_event: Event, stop_event: Event, agent: Agent,
-                      transforms: dict[str, Transform], lock: Lock, secret: str,
-                      config: SimpleNamespace):
+    def _update_model(
+        update_event: Event,
+        stop_event: Event,
+        agent: Agent,
+        transforms: dict[str, Transform],
+        lock: Lock,
+        secret: str,
+        config: SimpleNamespace,
+    ):
         """Update the client model and transforms.
 
         Model updates are triggered by a separate process that waits for new model update messages.
@@ -225,15 +240,14 @@ class DQNConnector:
             config: Client config.
         """
         logger.debug("Background update process startup")
-        red = Redis(host=config.redis_address,
-                    password=secret,
-                    port=6379,
-                    db=0,
-                    socket_keepalive=True,
-                    socket_keepalive_options={
-                        socket.TCP_KEEPIDLE: 10,
-                        socket.TCP_KEEPINTVL: 60
-                    })
+        red = Redis(
+            host=config.redis_address,
+            password=secret,
+            port=6379,
+            db=0,
+            socket_keepalive=True,
+            socket_keepalive_options={socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60},
+        )
         update_event.set()  # Ensure load on first start up
         while not stop_event.is_set():
             if not update_event.wait(1):
@@ -258,12 +272,14 @@ class DQNConnector:
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
                 socket_options = {socket.TCP_KEEPIDLE: 10, socket.TCP_KEEPINTVL: 60}
-                red = Redis(host=config.redis_address,
-                            password=secret,
-                            port=6379,
-                            db=0,
-                            socket_keepalive=True,
-                            socket_keepalive_options=socket_options)
+                red = Redis(
+                    host=config.redis_address,
+                    password=secret,
+                    port=6379,
+                    db=0,
+                    socket_keepalive=True,
+                    socket_keepalive_options=socket_options,
+                )
                 update_event.set()  # Make sure to get latest model after connection is restored
 
     @staticmethod
@@ -273,11 +289,11 @@ class DQNConnector:
         red = Redis(host=address, password=secret, port=6379, db=0)
         while not stop_event.is_set() or not msg_queue.empty():
             try:
-                msg = msg_queue.get(block=True, timeout=1.)
+                msg = msg_queue.get(block=True, timeout=1.0)
             except queue.Empty:
                 continue  # Check again if stop event has been set
             try:
-                # msg[0] is the message type, msg[1] the message encoded by capnproto
+                # msg[0] is the message type, msg[1] the message content
                 match msg[0]:
                     case "samples":
                         red.lpush("samples", msg[1])
@@ -355,17 +371,17 @@ class DQNConnector:
             secret: Redis secret.
             stop_flag: Connector shutdown signal.
         """
-        red = Redis(host=address, password=secret, port=6379, db=0, socket_timeout=5.)
+        red = Redis(host=address, password=secret, port=6379, db=0, socket_timeout=5.0)
         msg_sub = red.pubsub(ignore_subscribe_messages=True)
         msg_sub.subscribe("model_update")
         while not stop_flag.is_set():
             try:
-                if msg_sub.get_message(timeout=10.) is None:
+                if msg_sub.get_message(timeout=10.0) is None:
                     red.ping()  # Periodically check if the connection is still alive
                     continue
                 update_flag.set()
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
-                red = Redis(host=address, password=secret, port=6379, db=0, socket_timeout=5.)
+                red = Redis(host=address, password=secret, port=6379, db=0, socket_timeout=5.0)
                 # Try to reconnect. Don't reenter main loop since msg_sub may have been reset
                 # without properly subscribing and get_message() would throw a RuntimeError
                 while not stop_flag.is_set():
@@ -400,11 +416,13 @@ class PPOConnector:
             ClientRegistrationError: The server failed to respond to the registration.
         """
         self.config = config
-        self.agent = agent_cls(config.ppo.agent.type)(config.ppo.actor_net.type,
-                                                      namespace2dict(config.ppo.actor_net.kwargs),
-                                                      config.ppo.critic_net.type,
-                                                      namespace2dict(config.ppo.critic_net.kwargs),
-                                                      **namespace2dict(config.ppo.agent.kwargs))
+        self.agent = agent_cls(config.ppo.agent.type)(
+            config.ppo.actor_net.type,
+            namespace2dict(config.ppo.actor_net.kwargs),
+            config.ppo.critic_net.type,
+            namespace2dict(config.ppo.critic_net.kwargs),
+            **namespace2dict(config.ppo.agent.kwargs),
+        )
         self._stop_event = mp.Event()
         self._update_event = mp.Event()
         secret = load_redis_secret(Path(__file__).parents[3] / "config" / "redis.secret")
@@ -426,7 +444,7 @@ class PPOConnector:
         self.red.publish("ppo_discovery", tmp_id)
         tstart = time.time()
         while time.time() - tstart < 60:
-            msg = discovery_sub.get_message(timeout=60.)
+            msg = discovery_sub.get_message(timeout=60.0)
             if not msg:  # ignore_subscribe_messages + timeout doesn't work, so we have to handle it
                 time.sleep(0.5)
                 continue
@@ -437,9 +455,11 @@ class PPOConnector:
         self.client_id = json.loads(msg["data"])
         logger.info(f"Client registration successful. New client ID: {self.client_id}")
 
-        self.heartbeat = mp.Process(target=self._heartbeat,
-                                    args=(address, secret, self.client_id, self._stop_event),
-                                    daemon=True)
+        self.heartbeat = mp.Process(
+            target=self._heartbeat,
+            args=(address, secret, self.client_id, self._stop_event),
+            daemon=True,
+        )
         self.heartbeat.start()
 
         self._msg_pipe, _msg_pipe = mp.Pipe()
@@ -487,7 +507,7 @@ class PPOConnector:
             msg = json.dumps({"client_id": con_id, "timestamp": time.time()})
             red.publish("heartbeat", msg)
 
-    def sync(self, timeout: float = 100.):
+    def sync(self, timeout: float = 100.0):
         """Wait for the server to update its network weights and load them into the client agent.
 
         Note:

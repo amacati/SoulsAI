@@ -3,29 +3,29 @@
 If specified, the training function is executed by a :class:`.ClientWatchdog` to restart the
 sampling whenever the sampling rate drops below the expected value.
 """
+
 from __future__ import annotations
 
 import logging
-from threading import Event
 import time
 from collections import deque
+from threading import Event
 from typing import TYPE_CHECKING
 
-import numpy as np
 import gymnasium
 import torch
 from tensordict import TensorDict
 
 import soulsai.wrappers
-from soulsai.wrappers import TensorDictWrapper
-from soulsai.utils import namespace2dict
-from soulsai.distributed.common.serialization import serialize
 from soulsai.distributed.client.connector import DQNConnector
 from soulsai.distributed.client.watchdog import ClientWatchdog, WatchdogGauge
+from soulsai.distributed.common.serialization import serialize
+from soulsai.utils import namespace2dict
+from soulsai.wrappers import TensorDictWrapper
 
 if TYPE_CHECKING:
-    from types import SimpleNamespace
     from multiprocessing.sharedctypes import Synchronized
+    from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +52,9 @@ def dqn_client(config: SimpleNamespace):
         _dqn_client(config)
 
 
-def _dqn_client(config: SimpleNamespace,
-                stop_flag: Event = Event(),
-                sample_gauge: Synchronized | None = None):
+def _dqn_client(
+    config: SimpleNamespace, stop_flag: Event = Event(), sample_gauge: Synchronized | None = None
+):
     """DQN client main function.
 
     Data processing, sample encodings etc. are configurable to customize the client for different
@@ -94,54 +94,40 @@ def _dqn_client(config: SimpleNamespace,
         gamma = config.dqn.agent.kwargs.gamma
         samples = deque(maxlen=multistep)
         gauge = WatchdogGauge(sample_gauge) if sample_gauge else None
-        while (not stop_flag.is_set() and episode_id != config.max_episodes and  # noqa: W504
-               not con.shutdown.is_set()):
+        while (
+            not stop_flag.is_set()
+            and episode_id != config.max_episodes  # noqa: W504
+            and not con.shutdown.is_set()
+        ):
             episode_id += 1
-            steps, episode_reward = 1, 0.
+            steps, episode_reward = 1, 0.0
             samples.clear()
             sample: TensorDict = env.reset()
-            obs = sample["obs"]
-            action_mask = np.zeros(config.env.n_actions) if config.dqn.action_masking else None
-            if action_mask is not None:
-                action_mask[sample["info", "allowed_actions"]] = 1
             done = False
             while not done and not stop_flag.is_set():
                 with con:  # Context makes action and model_id consistent
-                    # TODO: Integrate action masking
-                    obs_t = con.observation_transform(obs)
-                    action = con.action_transform(con.agent(obs_t))
+                    sample = con.observation_transform(sample)
+                    sample["action"] = con.agent(sample["obs"])
+                    sample = con.action_transform(sample)
                     model_id = con.model_id
-                sample = env.step(action)
-                sample["obs"] = obs
-                samples.append(sample)
+                # The observation has been altered by the observation transform. However, we want to
+                # send the original observation to the server. Therefore, we store the original obs,
+                # transform the sample, choose the action and then overwrite it with the original
+                sample = env.step(sample["action"])
+                samples.append(sample.clone())
                 episode_reward += sample["reward"]
                 if len(samples) == config.dqn.agent.kwargs.multistep:
                     rewards = torch.hstack([s["reward"] for s in samples])
-                    discount_rewards: torch.Tensor = (rewards * gamma**torch.arange(multistep))
+                    discount_rewards: torch.Tensor = rewards * gamma ** torch.arange(multistep)
                     sum_rewards = discount_rewards.sum(dim=-1, keepdim=True)
-                    msg = TensorDict(
-                        {
-                            "obs": samples[0]["obs"],
-                            "action": samples[0]["action"],
-                            "reward": sum_rewards,
-                            "next_obs": samples[-1]["next_obs"],
-                            "terminated": samples[-1]["terminated"],
-                            "truncated": samples[-1]["truncated"],
-                            "model_id": torch.tensor([model_id] * env.num_envs)
-                        },
-                        batch_size=env.num_envs)
-                    if samples[-1].get("info", None) is not None:
-                        msg["info"] = samples[-1]["info"]
+                    msg = _sample_msg(
+                        samples, sum_rewards, index=0, model_id=model_id, batch_size=env.num_envs
+                    )
                     con.push_sample(serialize(msg))
-                    if gauge:
-                        gauge.inc(1)
-                obs = sample["next_obs"]
-                if config.dqn.action_masking:
-                    action_mask[:] = 0
-                    action_mask[sample["info", "allowed_actions"]] = 1
+                    gauge and gauge.inc(1)
+                sample["obs"] = sample["next_obs"]
                 steps += 1
-                if config.step_delay:  # Enable Dockerfiles to simulate slow clients
-                    time.sleep(config.step_delay)
+                config.step_delay and time.sleep(config.step_delay)  # Enable Docker to slow clients
                 done = torch.all(sample["terminated"] | sample["truncated"])
             # Sent the remaining samples for multistep > 1. We have no access to the remaining
             # required samples for a multistep reward. There are two cases:
@@ -158,33 +144,23 @@ def _dqn_client(config: SimpleNamespace,
             if not stop_flag.is_set() and not torch.any(sample["truncated"]):
                 for i in range(1, len(rewards)):
                     rewards = torch.hstack([samples[i + j]["reward"] for j in range(multistep - i)])
-                    discount_rewards: torch.Tensor = (rewards * gamma**torch.arange(multistep - i))
+                    discount_rewards: torch.Tensor = rewards * gamma ** torch.arange(multistep - i)
                     sum_rewards = discount_rewards.sum(dim=-1, keepdim=True)
-                    msg = TensorDict(
-                        {
-                            "obs": samples[i]["obs"],
-                            "action": samples[i]["action"],
-                            "reward": sum_rewards,
-                            "next_obs": samples[-1]["next_obs"],
-                            "terminated": samples[-1]["terminated"],
-                            "truncated": samples[-1]["truncated"],
-                            "model_id": torch.tensor([model_id] * env.num_envs)
-                        },
-                        batch_size=1)
-                    if samples[-1].get("info", None) is not None:
-                        msg["info"] = samples[-1]["info"]
+                    msg = _sample_msg(
+                        samples, sum_rewards, index=i, model_id=model_id, batch_size=env.num_envs
+                    )
                     con.push_sample(serialize(msg))
-                if gauge:
-                    gauge.inc(len(rewards) - 1)
+                gauge and gauge.inc(len(rewards) - 1)
             if torch.any(sample["terminated"] | sample["truncated"]):
                 ep_info = TensorDict(
                     {
                         "ep_reward": torch.tensor([episode_reward]),
                         "ep_steps": torch.tensor([steps]),
                         "model_id": torch.tensor([model_id] * env.num_envs),
-                        "obs": sample["obs"]
+                        "obs": sample["obs"],
                     },
-                    batch_size=1)
+                    batch_size=1,
+                )
                 if sample.get("info", None) is not None:
                     ep_info["info"] = sample["info"]
                 con.push_episode_info(serialize(ep_info))
@@ -192,3 +168,32 @@ def _dqn_client(config: SimpleNamespace,
     finally:
         env.close()
         con.close()
+
+
+def _sample_msg(
+    samples: deque[TensorDict], reward: float, index: int, model_id: int, batch_size: int
+) -> TensorDict:
+    """Create a sample message for the DQN server.
+
+    Args:
+        samples: The samples to be sent to the server.
+        reward: The reward to be sent to the server.
+        index: The index of the first sample in the deque.
+        model_id: The model id of the agent that generated the samples.
+        batch_size: The batch size of the samples.
+    """
+    msg = TensorDict(
+        {
+            "obs": samples[index]["obs"],
+            "action": samples[index]["action"],
+            "reward": reward,
+            "next_obs": samples[-1]["next_obs"],
+            "terminated": samples[-1]["terminated"],
+            "truncated": samples[-1]["truncated"],
+            "model_id": torch.tensor([model_id] * batch_size),
+        },
+        batch_size=batch_size,
+    )
+    if samples[-1].get("info", None) is not None:
+        msg["info"] = samples[-1]["info"]
+    return msg

@@ -1,9 +1,10 @@
 """The replay buffer module offers performant implementations of replay buffers for DQN and PPO."""
+
 from __future__ import annotations
 
+import random
 from abc import ABC, abstractmethod, abstractproperty
 from typing import TYPE_CHECKING, Callable
-import random
 
 import numpy as np
 import torch
@@ -117,10 +118,9 @@ class ReplayBuffer(AbstractBuffer):
     already filled with experience.
     """
 
-    def __init__(self,
-                 max_size: int,
-                 device: torch.device = torch.device("cpu"),
-                 seed: int | None = None):
+    def __init__(
+        self, max_size: int, device: torch.device = torch.device("cpu"), seed: int | None = None
+    ):
         """Create the buffer tensor dict and set the index to 0.
 
         Args:
@@ -169,13 +169,15 @@ class ReplayBuffer(AbstractBuffer):
         # Check if there are unknown keys in the sample and allocate buffers for them if necessary
         for key in set(sample.keys()).difference(set(self.buffer.keys())):
             if isinstance(sample[key], torch.Tensor):
-                self.buffer[key] = torch.empty((self.max_size, *sample[key].shape[1:]),
-                                               dtype=sample[key].dtype,
-                                               device=self.device)
+                self.buffer[key] = torch.empty(
+                    (self.max_size, *sample[key].shape[1:]),
+                    dtype=sample[key].dtype,
+                    device=self.device,
+                )
             elif isinstance(sample[key], TensorDict):
-                self.buffer[key] = TensorDict(sample[key],
-                                              batch_size=self.max_size,
-                                              device=self.device)
+                self.buffer[key] = TensorDict(
+                    sample[key], batch_size=self.max_size, device=self.device
+                )
             else:
                 raise ValueError(f"Unknown sample type for key {key}")
 
@@ -257,13 +259,15 @@ class PrioritizedReplayBuffer(AbstractBuffer):
     https://github.com/google/dopamine/blob/a6f414ca01a81e933359a4922965178a40e0f38a/dopamine/jax/agents/quantile/quantile_agent.py#L262
     """
 
-    def __init__(self,
-                 maxlen: int,
-                 obs_shape: tuple[int, ...],
-                 n_actions: int,
-                 action_masking: bool = False,
-                 beta: float = 0.5,
-                 obs_dtype: str | np.dtype = np.float32):
+    def __init__(
+        self,
+        maxlen: int,
+        obs_shape: tuple[int, ...],
+        n_actions: int,
+        action_masking: bool = False,
+        beta: float = 0.5,
+        obs_dtype: str | np.dtype = np.float32,
+    ):
         """Preallocate the buffer arrays and set the index to 0.
 
         Args:
@@ -285,7 +289,7 @@ class PrioritizedReplayBuffer(AbstractBuffer):
             "nextObs": np.zeros((maxlen, *obs_shape), dtype=obs_dtype),
             "terminated": np.zeros(maxlen),
             "truncated": np.zeros(maxlen),
-            "priority": np.zeros(maxlen)
+            "priority": np.zeros(maxlen),
         }
         self._action_masking = action_masking
         self._sum_priorities_alpha = 0
@@ -322,7 +326,7 @@ class PrioritizedReplayBuffer(AbstractBuffer):
         # recompute the new maximum index and priority. In practice, this does not happen often, as
         # older samples should generally have a lower TD error and therefore lower priority.
         if self._idx == self._max_priority_idx:
-            self.buffers["priority"][self._idx] = 0.  # Set to 0 to remove from max calculation
+            self.buffers["priority"][self._idx] = 0.0  # Set to 0 to remove from max calculation
             self._max_priority_idx = np.argmax(self.buffers["priority"])
         # Set the priortiy of the new sample to the current maximum priority and update the sum of
         # priorities
@@ -369,14 +373,14 @@ class PrioritizedReplayBuffer(AbstractBuffer):
         """
         if batch_size > self._maxidx + 1:
             raise RuntimeError("Asked to sample more elements than available in buffer")
-        priorities = self.buffers["priority"][:self._maxidx + 1]
+        priorities = self.buffers["priority"][: self._maxidx + 1]
         probabilities = np.sqrt(priorities) / self._sum_priorities_alpha
         i = np.random.choice(self._maxidx + 1, batch_size, replace=False, p=probabilities)
         keys = ("obs", "action", "reward", "nextObs", "terminated")  # Order of keys is important!
         if self._action_masking:
             keys += ("action_mask",)
         batch = [self.buffers[key][i] for key in keys]
-        weights = ((self._maxidx + 1) * probabilities[i])**-self.beta
+        weights = ((self._maxidx + 1) * probabilities[i]) ** -self.beta
         normalized_weights = weights / weights.max()
         batch.extend([normalized_weights.astype(np.float32), i])
         return batch
@@ -399,24 +403,23 @@ class PrioritizedReplayBuffer(AbstractBuffer):
         """
         if batch_size > self._maxidx + 1:
             raise RuntimeError("Asked to sample more elements than available in buffer")
-        priorities = self.buffers["priority"][:self._maxidx + 1]
+        priorities = self.buffers["priority"][: self._maxidx + 1]
         probabilities = np.sqrt(priorities) / self._sum_priorities_alpha
         # If the buffer contains more samples than requested in total, indices are chosen such that
         # no sample is sampled twice across all batches. If more total samples are requested than
         # available in the buffer, resort to random independent indices in each batch
         if batch_size * nbatches <= self._maxidx + 1:
             nsamples = batch_size * nbatches
-            unique_indices = np.random.choice(self._maxidx + 1,
-                                              nsamples,
-                                              replace=False,
-                                              p=probabilities)
+            unique_indices = np.random.choice(
+                self._maxidx + 1, nsamples, replace=False, p=probabilities
+            )
             indices = np.split(unique_indices, nbatches)
         else:
             indices = [
                 np.random.choice(self._maxidx + 1, batch_size, replace=False, p=probabilities)
                 for _ in range(nbatches)
             ]
-        weights = [((self._maxidx + 1) * probabilities[i])**-self.beta for i in indices]
+        weights = [((self._maxidx + 1) * probabilities[i]) ** -self.beta for i in indices]
         normalized_weights = [(w / w.max()).astype(np.float32) for w in weights]
         keys = ("obs", "action", "reward", "nextObs", "terminated")  # Order of keys is important!
         if self._action_masking:
@@ -457,10 +460,9 @@ class TrajectoryBuffer:
         This buffer is designed for categorical actions PPO only!
     """
 
-    def __init__(self,
-                 n_trajectories: int,
-                 n_samples: int,
-                 device: torch.device = torch.device("cpu")):
+    def __init__(
+        self, n_trajectories: int, n_samples: int, device: torch.device = torch.device("cpu")
+    ):
         """Preallocate the sample tensors and completion flags.
 
         Args:
@@ -507,9 +509,9 @@ class TrajectoryBuffer:
                 size = (*buffer.batch_size, *sample[key].shape[1:])
                 buffer[key] = torch.zeros(*size, dtype=sample[key].dtype, device=self.device)
             elif isinstance(sample[key], TensorDict):
-                buffer[key] = TensorDict(sample[key],
-                                         batch_size=buffer.batch_size,
-                                         device=self.device)
+                buffer[key] = TensorDict(
+                    sample[key], batch_size=buffer.batch_size, device=self.device
+                )
             else:
                 raise ValueError(f"Unknown sample type for key {key}")
 
