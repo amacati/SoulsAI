@@ -1,7 +1,8 @@
 """Wrappers for the Iudex Gundyr boss fight in Dark Souls III."""
+
 from __future__ import annotations
 
-from typing import Any, Iterable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterable
 
 import numpy as np
 from gymnasium import ObservationWrapper
@@ -17,8 +18,8 @@ if TYPE_CHECKING:
 class IudexObservationWrapper(ObservationWrapper):
     """Observation wrapper for the state-based Iudex Gundyr boss fight in soulsgym."""
 
-    space_coords_low = np.array([110., 540., -73.])
-    space_coords_high = np.array([190., 640., -55.])
+    space_coords_low = np.array([110.0, 540.0, -73.0])
+    space_coords_high = np.array([190.0, 640.0, -55.0])
     space_coords_diff = space_coords_high - space_coords_low
 
     def __init__(self, env: IudexEnv):
@@ -43,11 +44,12 @@ class IudexObservationWrapper(ObservationWrapper):
         iudex_animations = self.game_data.boss_animations["iudex"]["all"]
         boss_animations = [a["ID"] for a in iudex_animations.values()]
         filtered_boss_animations = unique(
-            map(lambda x: self.filter_boss_animation(x)[0], boss_animations))
+            map(lambda x: self.filter_boss_animation(x)[0], boss_animations)
+        )
         self.boss_animation_encoder.fit(filtered_boss_animations)
         # Initialize internal counters
-        self._current_time = 0.
-        self._acuumulated_time = 0.
+        self._current_time = 0.0
+        self._acuumulated_time = 0.0
         self._last_animation = None
         # Set the new observation space
         obs = self.observation(self.observation_space.sample())
@@ -82,9 +84,15 @@ class IudexObservationWrapper(ObservationWrapper):
         player_animation_onehot = self.player_animation_encoder(player_animation)
         boss_animation_onehot, boss_animation_duration = self.boss_animation_transform(obs)
         animation_times = [obs["player_animation_duration"], boss_animation_duration]
-        return np.concatenate((self._common_transforms(obs), animation_times,
-                               player_animation_onehot, boss_animation_onehot),
-                              dtype=np.float32)
+        return np.concatenate(
+            (
+                self._common_transforms(obs),
+                animation_times,
+                player_animation_onehot,
+                boss_animation_onehot,
+            ),
+            dtype=np.float32,
+        )
 
     def _common_transforms(self, obs: dict) -> np.ndarray:
         player_hp = obs["player_hp"] / obs["player_max_hp"]
@@ -108,10 +116,9 @@ class IudexObservationWrapper(ObservationWrapper):
         )
         return np.concatenate(args, dtype=np.float32)
 
-    def reset(self,
-              *,
-              seed: int | None = None,
-              options: dict[str, Any] | None = None) -> tuple[dict, dict[str, Any]]:
+    def reset(
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
+    ) -> tuple[dict, dict[str, Any]]:
         """Reset the stateful attributed of the transformer.
 
         Modifies the :attr:`env` after calling :meth:`reset`, returning a modified observation using
@@ -139,8 +146,8 @@ class IudexObservationWrapper(ObservationWrapper):
         """
         boss_animation, is_filtered = self.filter_boss_animation(obs["boss_animation"])
         if not is_filtered:
-            self._acuumulated_time = 0.
-            self._current_time = 0.
+            self._acuumulated_time = 0.0
+            self._current_time = 0.0
             self._last_animation = boss_animation
             return self.boss_animation_encoder(boss_animation), obs["boss_animation_duration"]
         if obs["boss_animation"] != self._last_animation:
@@ -213,8 +220,11 @@ class IudexObservationWrapper(ObservationWrapper):
             The observation with unpacked floats.
         """
         scalars = [
-            "player_hp", "player_sp", "boss_hp", "boss_animation_duration",
-            "player_animation_duration"
+            "player_hp",
+            "player_sp",
+            "boss_hp",
+            "boss_animation_duration",
+            "player_animation_duration",
         ]
         for key in scalars:
             if isinstance(obs[key], np.ndarray):
@@ -227,8 +237,8 @@ class IudexObservationWrapper(ObservationWrapper):
         return obs
 
     def _reset_internal_counters(self):
-        self._current_time = 0.
-        self._acuumulated_time = 0.
+        self._current_time = 0.0
+        self._acuumulated_time = 0.0
         self._last_animation = None
 
 

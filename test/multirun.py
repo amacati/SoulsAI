@@ -3,22 +3,23 @@
 It is useful to check the performance of algorithms and parameters with statistical significance
 using the ``SoulsAI`` framework.
 """
+
 from __future__ import annotations
 
-import time
-import shutil
-import json
 import argparse
-from typing import TYPE_CHECKING
+import json
+import shutil
+import time
 from pathlib import Path
 from subprocess import Popen
+from typing import TYPE_CHECKING
 
 import docker
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from redis import Redis
 
-from soulsai.utils import mkdir_date, load_redis_secret, running_mean
+from soulsai.utils import load_redis_secret, mkdir_date, running_mean
 
 if TYPE_CHECKING:
     from docker.client import DockerClient
@@ -198,7 +199,7 @@ def main(args: argparse.Namespace):
         save_root = Path(__file__).parents[1] / "saves"
         save_dirs = [d for d in save_root.iterdir() if d.is_dir() and d.name[:4].isdigit()]
         assert len(save_dirs) >= args.nruns, "Not enough runs to summarize"
-        run_dirs = sorted(save_dirs)[-args.nruns:]
+        run_dirs = sorted(save_dirs)[-args.nruns :]
         save_path = mkdir_date(save_root)
         save_path = save_path.rename(save_path.parent / ("multirun_" + save_path.name))
         # Copy config from first run, save stats into dictionary, create joint results plot
@@ -217,16 +218,13 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('algorithm',
-                        type=str,
-                        help='Training algorithm',
-                        choices=["ppo", "dqn", "dqn_atari"])
-    parser.add_argument('nruns', type=int, help='Number of training runs')
-    parser.add_argument('nclients', type=int, default=1, help='Number of client nodes')
-    parser.add_argument('--profile',
-                        type=str,
-                        default="",
-                        help='Docker compose profile',
-                        required=False)
+    parser.add_argument(
+        "algorithm", type=str, help="Training algorithm", choices=["ppo", "dqn", "dqn_atari"]
+    )
+    parser.add_argument("nruns", type=int, help="Number of training runs")
+    parser.add_argument("nclients", type=int, default=1, help="Number of client nodes")
+    parser.add_argument(
+        "--profile", type=str, default="", help="Docker compose profile", required=False
+    )
     args = parser.parse_args()
     main(args)

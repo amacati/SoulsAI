@@ -4,8 +4,9 @@ Since soulsgym requires Windows with a Dark Souls III installation, we cannot ru
 machines. The dummy environments replay input data collected from soulsgym environments and can be
 used to test the observation wrappers.
 """
-from pathlib import Path
+
 import json
+from pathlib import Path
 
 import gymnasium
 

@@ -1,10 +1,10 @@
 """The transformation module allows the transformation of ``SoulsGym`` envs observations."""
+
 from __future__ import annotations
 
-from typing import List, Iterable, Tuple, Dict
+from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
-
 from soulsgym.games.game import StaticGameData
 
 from soulsai.data.one_hot_encoder import OneHotEncoder
@@ -18,14 +18,15 @@ class GameStateTransformer:
     """
 
     SOULSGYM_STEP_TIME = 0.1
-    space_coords_low = np.array([110., 540., -73.])
-    space_coords_high = np.array([190., 640., -55.])
+    space_coords_low = np.array([110.0, 540.0, -73.0])
+    space_coords_high = np.array([190.0, 640.0, -55.0])
     space_coords_diff = space_coords_high - space_coords_low
 
     def __init__(self, game_id: str = "DarkSoulsIII", boss_id: str = "iudex"):
         """Initialize the one-hot encoders and set up attributes for the stateful transformation.
 
         Args:
+            game_id: Game ID.
             boss_id: Boss ID.
         """
         self.game_id = game_id
@@ -41,11 +42,12 @@ class GameStateTransformer:
         iudex_animations = self.game_data.boss_animations[self.boss_id]["all"]
         boss_animations = [a["ID"] for a in iudex_animations.values()]
         filtered_boss_animations = unique(
-            map(lambda x: self.filter_boss_animation(x)[0], boss_animations))
+            map(lambda x: self.filter_boss_animation(x)[0], boss_animations)
+        )
         self.boss_animation_encoder.fit(filtered_boss_animations)
         # Initialize stateful attributes
-        self._current_time = 0.
-        self._acuumulated_time = 0.
+        self._current_time = 0.0
+        self._acuumulated_time = 0.0
         self._last_animation = None
 
     def transform(self, obs: Dict) -> np.ndarray:
@@ -73,9 +75,15 @@ class GameStateTransformer:
         player_animation_onehot = self.player_animation_encoder(player_animation)
         boss_animation_onehot, boss_animation_duration = self.boss_animation_transform(obs)
         animation_times = [obs["player_animation_duration"], boss_animation_duration]
-        return np.concatenate((self._common_transforms(obs), animation_times,
-                               player_animation_onehot, boss_animation_onehot),
-                              dtype=np.float32)
+        return np.concatenate(
+            (
+                self._common_transforms(obs),
+                animation_times,
+                player_animation_onehot,
+                boss_animation_onehot,
+            ),
+            dtype=np.float32,
+        )
 
     def stateless_transform(self, obs: Dict) -> np.ndarray:
         """Transform a game observation with a stateless conversion.
@@ -90,14 +98,21 @@ class GameStateTransformer:
         """
         obs = self._unpack_obs(obs)
         animation_times = np.concatenate(
-            (obs["player_animation_duration"], obs["boss_animation_duration"]))
+            (obs["player_animation_duration"], obs["boss_animation_duration"])
+        )
         player_animation = self.filter_player_animation(obs["player_animation"])
         player_animation_onehot = self.player_animation_encoder(player_animation)
         boss_animation = self.filter_boss_animation(obs["boss_animation"])[0]
         boss_animation_onehot = self.boss_animation_encoder(boss_animation)
-        return np.concatenate((self._common_transforms(obs), animation_times,
-                               player_animation_onehot, boss_animation_onehot),
-                              dtype=np.float32)
+        return np.concatenate(
+            (
+                self._common_transforms(obs),
+                animation_times,
+                player_animation_onehot,
+                boss_animation_onehot,
+            ),
+            dtype=np.float32,
+        )
 
     def _common_transforms(self, obs: Dict) -> np.ndarray:
         player_hp = obs["player_hp"] / obs["player_max_hp"]
@@ -126,8 +141,8 @@ class GameStateTransformer:
 
         See :meth:`.GameStateTransformer.boss_animation_transform`.
         """
-        self._current_time = 0.
-        self._acuumulated_time = 0.
+        self._current_time = 0.0
+        self._acuumulated_time = 0.0
         self._last_animation = None
 
     def boss_animation_transform(self, obs: Dict) -> Tuple[np.ndarray, float]:
@@ -148,8 +163,8 @@ class GameStateTransformer:
         """
         boss_animation, is_filtered = self.filter_boss_animation(obs["boss_animation"])
         if not is_filtered:
-            self._acuumulated_time = 0.
-            self._current_time = 0.
+            self._acuumulated_time = 0.0
+            self._current_time = 0.0
             self._last_animation = boss_animation
             return self.boss_animation_encoder(boss_animation), obs["boss_animation_duration"]
         if obs["boss_animation"] != self._last_animation:
@@ -222,8 +237,11 @@ class GameStateTransformer:
             The observation with unpacked floats.
         """
         scalars = [
-            "player_hp", "player_sp", "boss_hp", "boss_animation_duration",
-            "player_animation_duration"
+            "player_hp",
+            "player_sp",
+            "boss_hp",
+            "boss_animation_duration",
+            "player_animation_duration",
         ]
         for key in scalars:
             if isinstance(obs[key], np.ndarray):

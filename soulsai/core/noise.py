@@ -3,6 +3,7 @@
 By providing a common interface for all noise samplers, algorithms can sample exploration actions
 independently of the noise type chosen.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -49,8 +50,9 @@ class UniformDiscreteNoise(Noise):
         """
         super().__init__()
         assert size_n > 0
-        self.size_n = torch.nn.Parameter(torch.tensor(size_n, dtype=torch.int32),
-                                         requires_grad=False)
+        self.size_n = torch.nn.Parameter(
+            torch.tensor(size_n, dtype=torch.int32), requires_grad=False
+        )
 
     def sample(self, _: torch.Tensor) -> torch.Tensor:
         """Sample a random action in the range of [0, ``size_n``).
@@ -78,8 +80,9 @@ class MaskedDiscreteNoise(Noise):
         """
         super().__init__()
         assert size_n > 0
-        self.size_n = torch.nn.Parameter(torch.tensor(size_n, dtype=torch.int32),
-                                         requires_grad=False)
+        self.size_n = torch.nn.Parameter(
+            torch.tensor(size_n, dtype=torch.int32), requires_grad=False
+        )
 
     def sample(self, mask: torch.BoolTensor) -> torch.Tensor:
         """Sample a random action in the range of [0, ``size_n``) while omitting masked actions.

@@ -1,12 +1,13 @@
 """Common observation wrappers for gymnasium environments."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-from gymnasium import ObservationWrapper, Env
-from gymnasium.spaces import Box
 import einops
+import numpy as np
+from gymnasium import Env, ObservationWrapper
+from gymnasium.spaces import Box
 
 if TYPE_CHECKING:
     from gymnasium.wrappers.frame_stack import LazyFrames

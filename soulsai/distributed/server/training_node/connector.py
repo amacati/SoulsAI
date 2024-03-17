@@ -9,13 +9,14 @@ method.
 After a training step, the DQNServer does not have to wait for new samples to download from Redis,
 but fetches them from the internal queue instead, which should be much faster.
 """
+
 from __future__ import annotations
 
-import time
-import logging
 import itertools
-import queue
+import logging
 import multiprocessing
+import queue
+import time
 from typing import TYPE_CHECKING
 
 from redis import Redis
@@ -42,7 +43,7 @@ class DQNServerConnector:
             redis_address: The address of the Redis server.
             redis_password: The password of the Redis server.
         """
-        ctx = multiprocessing.get_context('spawn')
+        ctx = multiprocessing.get_context("spawn")
         self._stop_event = ctx.Event()
         self._msg_queue = ctx.Queue()
         args = (self._msg_queue, redis_address, redis_password, self._stop_event)
@@ -67,8 +68,9 @@ class DQNServerConnector:
             logger.warning("empty")
             return []
 
-    def _consume_msgs(self, msg_queue: Queue, redis_address: str, redis_password: str,
-                      stop_event: Event):
+    def _consume_msgs(
+        self, msg_queue: Queue, redis_address: str, redis_password: str, stop_event: Event
+    ):
         """Consume messages from Redis and put them into the queue.
 
         Args:

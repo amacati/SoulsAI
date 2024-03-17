@@ -1,24 +1,29 @@
 """The main telemetry node module."""
+
 from __future__ import annotations
 
-import logging
 import json
-from pathlib import Path
+import logging
 import time
-from typing import Callable, TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable
 
-from redis import Redis
 from prometheus_client import start_http_server
+from redis import Redis
 
-from soulsai.utils import load_redis_secret, load_remote_config
 from soulsai.distributed.common.serialization import deserialize
-from soulsai.distributed.server.telemetry_node.connectors import (TelemetryConnector,
-                                                                  GrafanaConnector,
-                                                                  FileStorageConnector,
-                                                                  WandBConnector)
-from soulsai.distributed.server.telemetry_node.transforms import telemetry_transform
-from soulsai.distributed.server.telemetry_node.transforms import TelemetryTransform
 from soulsai.distributed.server.telemetry_node.callbacks import telemetry_callback
+from soulsai.distributed.server.telemetry_node.connectors import (
+    FileStorageConnector,
+    GrafanaConnector,
+    TelemetryConnector,
+    WandBConnector,
+)
+from soulsai.distributed.server.telemetry_node.transforms import (
+    TelemetryTransform,
+    telemetry_transform,
+)
+from soulsai.utils import load_redis_secret, load_remote_config
 
 if TYPE_CHECKING:
     from types import SimpleNamespace
@@ -37,8 +42,16 @@ class TelemetryNode:
     """
 
     stats = [
-        "rewards", "rewards_av", "steps", "steps_av", "boss_hp", "boss_hp_av", "wins", "wins_av",
-        "eps", "samples"
+        "rewards",
+        "rewards_av",
+        "steps",
+        "steps_av",
+        "boss_hp",
+        "boss_hp_av",
+        "wins",
+        "wins_av",
+        "eps",
+        "samples",
     ]
 
     def __init__(self, config: SimpleNamespace):
@@ -51,7 +64,7 @@ class TelemetryNode:
 
         # Read redis server secret and connect to Redis
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
-        self.red = Redis(host='redis', port=6379, password=secret, db=0)
+        self.red = Redis(host="redis", port=6379, password=secret, db=0)
         self.config = load_remote_config(config.redis_address, secret, self.red)
 
         # Initialize the subscriber for telemetry information from the training node
@@ -62,7 +75,7 @@ class TelemetryNode:
         self._shutdown = False
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.cmd_sub.subscribe(shutdown=self.shutdown)
-        self.cmd_sub.run_in_thread(sleep_time=1., daemon=True)
+        self.cmd_sub.run_in_thread(sleep_time=1.0, daemon=True)
 
         # Start a Prometheus server to make the telemetry node status visible in Grafana
         start_http_server(8080)
@@ -177,5 +190,5 @@ class TelemetryNode:
         self._shutdown = True
 
     def _latest_moving_av(self, x: list[float]) -> float:
-        view = x[-self.config.telemetry.moving_average:]
+        view = x[-self.config.telemetry.moving_average :]
         return sum(view) / len(view)  # len(view) can be smaller than N

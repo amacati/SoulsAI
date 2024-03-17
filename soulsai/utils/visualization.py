@@ -1,23 +1,22 @@
 """Visualization module for creating training plots from the training statistics."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
-import numpy as np
 
 from soulsai.utils.utils import running_mean, running_std
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import numpy as np
 
-def save_plots(x: np.ndarray,
-               ys: list[np.ndarray],
-               xlabel: str,
-               ylabels: list[str],
-               path: Path,
-               N_av: int = 50):
+
+def save_plots(
+    x: np.ndarray, ys: list[np.ndarray], xlabel: str, ylabels: list[str], path: Path, N_av: int = 50
+):
     """Plot and save the training progress dashboard.
 
     Stats are smoothed by computing the mean over a running window. Confidence intervals are given

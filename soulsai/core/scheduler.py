@@ -2,6 +2,7 @@
 
 Schedulers can be saved and loaded to allow for checkpointing of the complete training process.
 """
+
 from __future__ import annotations
 
 import torch
@@ -53,12 +54,14 @@ class LinearScheduler(Scheduler):
             steps: The number of steps to reach the end value.
         """
         super().__init__()
-        self.params = nn.ParameterDict({
-            "start": nn.Parameter(torch.tensor(start), requires_grad=False),
-            "end": nn.Parameter(torch.tensor(end), requires_grad=False),
-            "steps": nn.Parameter(torch.tensor(steps), requires_grad=False),
-            "step": nn.Parameter(torch.tensor(0), requires_grad=False),
-        })
+        self.params = nn.ParameterDict(
+            {
+                "start": nn.Parameter(torch.tensor(start), requires_grad=False),
+                "end": nn.Parameter(torch.tensor(end), requires_grad=False),
+                "steps": nn.Parameter(torch.tensor(steps), requires_grad=False),
+                "step": nn.Parameter(torch.tensor(0), requires_grad=False),
+            }
+        )
 
     def forward(self) -> torch.FloatTensor:
         """Calculate the value at the current decay step.

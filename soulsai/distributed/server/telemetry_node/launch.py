@@ -1,4 +1,5 @@
 """Dockerfile entrypoint to start the telemetry node."""
+
 import logging
 from pathlib import Path
 

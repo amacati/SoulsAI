@@ -1,17 +1,18 @@
 """The ``utils`` module contains various utility functions for conversions and config handling."""
-import json
-from types import SimpleNamespace
-from typing import List, NewType, Callable
-import logging
-from pathlib import Path
-from datetime import datetime
-import time
+
 import copy
+import json
+import logging
 import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Callable, List, NewType
 
 import numpy as np
-import yaml
 import redis
+import yaml
 
 from soulsai.exception import InvalidConfigError, MissingConfigError
 
@@ -34,7 +35,7 @@ def running_mean(x: List, N: int) -> np.ndarray:
     """
     y = np.copy(x)
     if len(x) >= N:
-        y[N - 1:] = np.convolve(x, np.ones((N,)) / N, mode='valid')
+        y[N - 1 :] = np.convolve(x, np.ones((N,)) / N, mode="valid")
     return y
 
 
@@ -52,7 +53,7 @@ def running_std(x: List, N: int) -> np.ndarray:
     """
     std = np.zeros_like(x)
     if len(x) >= N:
-        std[N - 1:] = np.std(np.lib.stride_tricks.sliding_window_view(x, N), axis=-1)
+        std[N - 1 :] = np.std(np.lib.stride_tricks.sliding_window_view(x, N), axis=-1)
     return std
 
 
@@ -190,10 +191,12 @@ def namespace2dict(ns: SimpleNamespace | None) -> dict:
     return ns_dict
 
 
-def load_remote_config(address: str,
-                       secret: str,
-                       red: RedisType | None = None,
-                       local_config: SimpleNamespace | None = None) -> SimpleNamespace:
+def load_remote_config(
+    address: str,
+    secret: str,
+    red: RedisType | None = None,
+    local_config: SimpleNamespace | None = None,
+) -> SimpleNamespace:
     """Load the training configuration from the training server.
 
     This function allows us to only specify the address of a training server and its credentials.

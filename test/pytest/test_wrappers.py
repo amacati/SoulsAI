@@ -1,12 +1,12 @@
 """Test the observation wrapper for the Iudex environment."""
+
 import json
 from pathlib import Path
 
 import numpy as np
+from dummy_env import IudexDummyEnv
 
 from soulsai.wrappers.iudex_wrappers import IudexObservationWrapper
-
-from dummy_env import IudexDummyEnv
 
 
 def load_ground_truth_data() -> list[np.ndarray]:
@@ -41,7 +41,8 @@ def test_iudex_observation_wrapper():
         obs, _ = env.reset()
         if not np.allclose(obs, gt_obs[step], atol=1e-7):
             raise AssertionError(
-                f"Obs and ground truth do not match! Step {step}, episode {episode}")
+                f"Obs and ground truth do not match! Step {step}, episode {episode}"
+            )
         step += 1
         while not done:
             # We disregard the action as the dummy env replays the action from the ground truth data
@@ -49,5 +50,6 @@ def test_iudex_observation_wrapper():
             done = terminated or truncated
             if not np.allclose(obs, gt_obs[step], atol=1e-7):
                 raise AssertionError(
-                    f"Obs and ground truth do not match! Step {step}, episode {episode}")
+                    f"Obs and ground truth do not match! Step {step}, episode {episode}"
+                )
             step += 1

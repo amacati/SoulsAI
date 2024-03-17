@@ -2,8 +2,9 @@
 
 We include it to avoid the dependency on heavy frameworks like ``sklearn`` for a trivial task.
 """
-from typing import Collection, Hashable
+
 import logging
+from typing import Collection, Hashable
 
 import numpy as np
 

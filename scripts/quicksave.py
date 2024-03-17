@@ -3,11 +3,12 @@
 The script has to be run on the server that is running the Redis node. The checkpoint will be put
 into a separate folder.
 """
+
+import json
 from pathlib import Path
 
-from redis import Redis
 import fire
-import json
+from redis import Redis
 
 from soulsai.utils import load_redis_secret
 

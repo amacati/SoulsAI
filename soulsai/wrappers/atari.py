@@ -1,4 +1,5 @@
 """Utility wrapper to make the Atari observations compatible with PyTorch."""
+
 import numpy as np
 from gymnasium import Env, ObservationWrapper
 

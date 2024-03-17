@@ -4,20 +4,21 @@ The module contains a file connector that saves the data to a json file and plot
 a Grafana connector that exposes the data to a Grafana instance, and a Weights and Biases connector
 that sends the data to a Weights and Biases project.
 """
-import logging
-from threading import Thread
+
 import json
-from typing import List
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
+from threading import Thread
+from typing import List
 
 import numpy as np
-from flask import Flask, request
 import wandb
+from flask import Flask, request
 
+from soulsai.exception import InvalidConfigError
 from soulsai.utils import namespace2dict
 from soulsai.utils.visualization import save_plots
-from soulsai.exception import InvalidConfigError
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +81,14 @@ class FileStorageConnector(TelemetryConnector):
         if self.plot:
             xkey = self.config.monitoring.file_storage.plot.xkey
             ykeys = self.config.monitoring.file_storage.plot.ykeys
-            save_plots(x=np.array(data[xkey]),
-                       ys=[np.array(data[key]) for key in ykeys],
-                       xlabel=xkey,
-                       ylabels=ykeys,
-                       path=self.figure_path,
-                       N_av=self.config.telemetry.moving_average)
+            save_plots(
+                x=np.array(data[xkey]),
+                ys=[np.array(data[key]) for key in ykeys],
+                xlabel=xkey,
+                ylabels=ykeys,
+                path=self.figure_path,
+                N_av=self.config.telemetry.moving_average,
+            )
 
     def _check_config(self, config: dict):
         if not hasattr(config.monitoring, "file_storage"):
@@ -93,7 +96,8 @@ class FileStorageConnector(TelemetryConnector):
         for attr in ["path", "plot"]:
             if not hasattr(config.monitoring.file_storage, attr):
                 raise InvalidConfigError(
-                    f"File storage monitoring config missing attribute `{attr}`.")
+                    f"File storage monitoring config missing attribute `{attr}`."
+                )
 
 
 class GrafanaConnector(TelemetryConnector):
@@ -118,7 +122,7 @@ class GrafanaConnector(TelemetryConnector):
         self.app_thread = None
         self.data = {}
         self.config = config
-        logging.getLogger('werkzeug').setLevel(logging.ERROR)  # Disable werkzeug logging messages
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)  # Disable werkzeug logging messages
 
     def start(self, host: str = "0.0.0.0", port: int = 80):
         """Start the Grafana connector server.
@@ -224,11 +228,13 @@ class WandBConnector(TelemetryConnector):
     def start(self):
         """Start the telemetry connector."""
         save_dir = str(Path(self.config.monitoring.wandb.save_dir))
-        self.run = wandb.init(project=self.config.monitoring.wandb.project,
-                              entity=self.config.monitoring.wandb.entity,
-                              group=getattr(self.config.monitoring.wandb, "group", None),
-                              config=namespace2dict(self.config),
-                              dir=save_dir)
+        self.run = wandb.init(
+            project=self.config.monitoring.wandb.project,
+            entity=self.config.monitoring.wandb.entity,
+            group=getattr(self.config.monitoring.wandb, "group", None),
+            config=namespace2dict(self.config),
+            dir=save_dir,
+        )
 
     def update(self, data: dict):
         """Upload the new stats to Weights and Biases.
@@ -251,4 +257,5 @@ class WandBConnector(TelemetryConnector):
         for attr in ["project", "entity", "save_dir"]:
             if not hasattr(config.monitoring.wandb, attr):
                 raise InvalidConfigError(
-                    f"Weights and Biases monitoring config missing attribute `{attr}`.")
+                    f"Weights and Biases monitoring config missing attribute `{attr}`."
+                )

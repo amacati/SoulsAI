@@ -2,11 +2,12 @@
 
 These callbacks are used to perform special actions when the telemetry node has been updated.
 """
+
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
-import logging
 
 from soulsai.utils import module_type_from_string
 
@@ -33,7 +34,8 @@ class TelemetryCallback(ABC):
         """Execute the callback for the telemetry node.
 
         Args:
-            sample: The sample to process.
+            telemetry_node: Pass a reference to the telemetry node to give callbacks access to its
+                statistics.
         """
 
 

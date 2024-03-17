@@ -4,6 +4,7 @@ Note:
     The implementation of PPO is synchronous. Therefore, the client and server are currently not
     resilient against disconnects.
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,15 +12,15 @@ import time
 from multiprocessing import Event
 from typing import TYPE_CHECKING
 
-import torch
 import gymnasium
+import torch
 from tensordict import TensorDict
 
 import soulsai.wrappers
-from soulsai.wrappers import TensorDictWrapper
-from soulsai.utils import namespace2dict
-from soulsai.distributed.common.serialization import serialize
 from soulsai.distributed.client.connector import PPOConnector
+from soulsai.distributed.common.serialization import serialize
+from soulsai.utils import namespace2dict
+from soulsai.wrappers import TensorDictWrapper
 
 if TYPE_CHECKING:
     from types import SimpleNamespace
@@ -65,7 +66,7 @@ def ppo_client(config: SimpleNamespace):
         ppo_steps = 0
         while not stop_flag.is_set() and episode_id != config.max_episodes:
             episode_id += 1
-            steps, episode_reward = torch.tensor([1]), torch.tensor([0.])
+            steps, episode_reward = torch.tensor([1]), torch.tensor([0.0])
             sample = env.reset()
             obs = sample["obs"]
             done = False

@@ -4,13 +4,14 @@ While the architecture is usually less important for agent performance while sta
 reasonable hyperparameter regimes and mostly dense networks, users may want to experiment with
 different network styles such as noisy nets for exploration.
 """
-from typing import Callable
-import logging
 
+import logging
+from typing import Callable
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
 from soulsai.utils import module_type_from_string
 
@@ -45,7 +46,7 @@ def polyak_update(target_network: nn.Module, network: nn.Module, tau: float):
     average theta_target_net = tau * theta_net + (1-tau) * theta_target_net.
 
     Args:
-        target_network. The target network. Parameters get updated in-place.
+        target_network: The target network. Parameters get updated in-place.
         network: The source network.
         tau: Polyak factor controlling the weighted average.
     """
@@ -115,7 +116,7 @@ class AdvantageDQN(nn.Module):
         for i in range(nlayers):
             size_in = input_dims if i == 0 else layer_dims
             layer = nn.Linear(size_in, layer_dims)
-            torch.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2.))
+            torch.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2.0))
             self.layers.append(layer)
             self.layers.append(nn.ReLU())
         self.baseline = nn.Linear(layer_dims, 1)
@@ -300,8 +301,9 @@ class CNNDistributionalDQN(nn.Module):
         with torch.no_grad():
             n_flatten = self.cnn(torch.zeros((1, *input_shape))).shape[1]
         n_out = output_dims * n_quantiles
-        self.linear = nn.Sequential(nn.Linear(n_flatten, n_out * 2), nn.ReLU(),
-                                    nn.Linear(n_out * 2, n_out))
+        self.linear = nn.Sequential(
+            nn.Linear(n_flatten, n_out * 2), nn.ReLU(), nn.Linear(n_out * 2, n_out)
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the forward pass of the network.
@@ -395,14 +397,20 @@ class ImpalaDistributionalDQN(nn.Module):
         assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
         self.output_dims = output_dims
         self.n_quantiles = n_quantiles
-        self.cnn = nn.Sequential(ImpalaBlock(input_shape[0], 16), ImpalaBlock(16, 32),
-                                 ImpalaBlock(32, 32), nn.Flatten(), nn.ReLU())
+        self.cnn = nn.Sequential(
+            ImpalaBlock(input_shape[0], 16),
+            ImpalaBlock(16, 32),
+            ImpalaBlock(32, 32),
+            nn.Flatten(),
+            nn.ReLU(),
+        )
         # Compute shape by doing one forward pass
         with torch.no_grad():
             n_flatten = self.cnn(torch.zeros((1, *input_shape))).shape[1]
         n_out = output_dims * n_quantiles
-        self.linear = nn.Sequential(nn.Linear(n_flatten, n_out * 2), nn.ReLU(),
-                                    nn.Linear(n_out * 2, n_out))
+        self.linear = nn.Sequential(
+            nn.Linear(n_flatten, n_out * 2), nn.ReLU(), nn.Linear(n_out * 2, n_out)
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the forward pass of the network.
@@ -557,7 +565,7 @@ class PPOCritic(nn.Module):
         super().__init__()
         self.linear1 = layer_init(nn.Linear(input_dims, layer_dims))
         self.linear2 = layer_init(nn.Linear(layer_dims, layer_dims))
-        self.output = layer_init(nn.Linear(layer_dims, 1), std=1.)
+        self.output = layer_init(nn.Linear(layer_dims, 1), std=1.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the forward pass of the network.

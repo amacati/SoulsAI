@@ -1,10 +1,11 @@
 """Transformation module for telemetry data transformations."""
+
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import Callable, TYPE_CHECKING
 import operator
 import time
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Callable
 
 from soulsai.utils import module_type_from_string
 
@@ -86,13 +87,15 @@ class Timer(TelemetryTransform):
 class CompareValue(TelemetryTransform):
     """Compare a value from the sample to a given value."""
 
-    def __init__(self,
-                 key: str,
-                 value: float,
-                 name: str | None = None,
-                 op: str = "gt",
-                 scale: float = 1.0,
-                 offset: float = 0.0):
+    def __init__(
+        self,
+        key: str,
+        value: float,
+        name: str | None = None,
+        op: str = "gt",
+        scale: float = 1.0,
+        offset: float = 0.0,
+    ):
         """Initialize the transformation.
 
         Args:

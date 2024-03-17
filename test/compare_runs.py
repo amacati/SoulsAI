@@ -1,12 +1,13 @@
 """Script to compare and plot the results of different experiment runs."""
-from pathlib import Path
-import json
-import argparse
-from typing import List
-import logging
 
-import numpy as np
+import argparse
+import json
+import logging
+from pathlib import Path
+from typing import List
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 from soulsai.utils import running_mean
 
@@ -100,8 +101,9 @@ def main(folder_names: List[str]):
                 # Load results from json, convert arrays to np arrays
                 results.append({key: np.array(value) for key, value in json.load(f).items()})
         except FileNotFoundError as e:
-            logger.error(("Missing averaged stats file, specified folder is not a multirun "
-                          "experiment."))
+            logger.error(
+                ("Missing averaged stats file, specified folder is not a multirun " "experiment.")
+            )
             raise e
     # Display results
     plot_comparison(folder_names, results)
@@ -109,7 +111,7 @@ def main(folder_names: List[str]):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('folders', nargs="+")
+    parser.add_argument("folders", nargs="+")
     args = parser.parse_args()
     logging.basicConfig()
     logging.getLogger().setLevel(logging.INFO)

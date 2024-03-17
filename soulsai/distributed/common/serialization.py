@@ -4,6 +4,7 @@ For simplicity, all data that is serialized must be of type `TensorDict`. This a
 serialize and deserialize the data using PyTorch's `torch.save` and `torch.load` functions in
 combination with `io.BytesIO` to convert the data to and from bytes.
 """
+
 from __future__ import annotations
 
 import io
