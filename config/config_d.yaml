@@ -11,6 +11,7 @@ local:
 # Environment information
 env:
   name: SoulsGymIudex-v0
+  vectorize: False
   kwargs:
     game_speed: 1.
   obs_shape: [74]

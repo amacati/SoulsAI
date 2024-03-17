@@ -169,9 +169,7 @@ class ReplayBuffer(AbstractBuffer):
                     device=self.device,
                 )
             elif isinstance(sample[key], TensorDict):
-                self.buffer[key] = TensorDict(
-                    sample[key], batch_size=self.max_size, device=self.device
-                )
+                self.buffer[key] = TensorDict({}, batch_size=self.max_size, device=self.device)
             else:
                 raise ValueError(f"Unknown sample type for key {key}")
 
