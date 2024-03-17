@@ -105,4 +105,4 @@ class MaskedDiscreteNoise(Noise):
         Returns:
             The random action.
         """
-        return torch.argmax(torch.rand(self.size_n) * sample[self._mask_key])
+        return torch.argmax(torch.rand(self.size_n) * sample[self._mask_key]).reshape(1)
