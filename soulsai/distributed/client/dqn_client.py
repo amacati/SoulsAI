@@ -129,6 +129,8 @@ def _dqn_client(
                 steps += 1
                 config.step_delay and time.sleep(config.step_delay)  # Enable Docker to slow clients
                 done = torch.all(sample["terminated"] | sample["truncated"])
+            if stop_flag.is_set():  # If the training was interrupted, don't send the episode info
+                break
             # Sent the remaining samples for multistep > 1. We have no access to the remaining
             # required samples for a multistep reward. There are two cases:
             #
@@ -141,7 +143,7 @@ def _dqn_client(
             # gamma ** multistep to the reward. However, our multistep samples are missing terms in
             # the reward sum because we can't generate the future samples for the estimate.
             # Therefore, the samples have to be discarded to prevent false estimates of the reward.
-            if not stop_flag.is_set() and not torch.any(sample["truncated"]):
+            if not torch.any(sample["truncated"]):
                 for i in range(1, len(rewards)):
                     rewards = torch.hstack([samples[i + j]["reward"] for j in range(multistep - i)])
                     discount_rewards: torch.Tensor = rewards * gamma ** torch.arange(multistep - i)
