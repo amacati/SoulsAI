@@ -260,7 +260,7 @@ class Mask(Transform):
         mask_key = self._mask_key if keys_mapping is None else keys_mapping[self._mask_key]
         key = self._key if keys_mapping is None else keys_mapping[self._key]
         assert not torch.all(x[self._mask_key] == 0), "All values are masked"
-        x[key].masked_fill(~x[mask_key], self._mask_value)
+        x[key] = x[key].masked_fill(~x[mask_key], self._mask_value)
         return x
 
     def mask_tensor(self, x: Tensor, sample: TensorDict, auto_expand: bool = False) -> Tensor:
