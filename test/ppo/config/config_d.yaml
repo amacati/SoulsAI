@@ -6,7 +6,7 @@ loglevel: info
 local:
 
 # Redis settings
-redis_address: "redis"
+redis_address: redis
 
 # Environment information
 env:
@@ -19,7 +19,7 @@ env:
 max_env_steps: 200_000
 
 # Algorithm choice
-algorithm: "ppo"
+algorithm: ppo
 
 # PPO settings
 ppo:
@@ -35,31 +35,31 @@ ppo:
   client_sync_timeout: 20
 
   agent:
-    type: "PPOAgent"
+    type: PPOAgent
     kwargs:
       actor_lr: 0.0003
       critic_lr: 0.0003
-      device: "cuda"
+      device: cuda
 
   actor_net:
-    type: "PPOActor"
+    type: PPOActor
     kwargs:
       input_dims: 8
       output_dims: 4
       layer_dims: 64
 
   critic_net:
-    type: "PPOCritic"
+    type: PPOCritic
     kwargs:
       input_dims: 8
       layer_dims: 64
 
   buffer:
-    type: "TrajectoryBuffer"
+    type: TrajectoryBuffer
     kwargs:
       n_trajectories: 2
       n_samples: 2048
-      device: "cuda"
+      device: cuda
 
 # Training node settings
 checkpoint:
@@ -75,52 +75,52 @@ telemetry:
   update_interval: 5
   moving_average: 20
   transforms:
-    - type: "MetricByKey"
+    - type: MetricByKey
       kwargs:
-        key: "ep_reward"
-        name: "rewards"
-    - type: "MetricByKey"
+        key: ep_reward
+        name: rewards
+    - type: MetricByKey
       kwargs:
-        key: "ep_steps"
-        name: "steps"
-    - type: "MetricByKey"
+        key: ep_steps
+        name: steps
+    - type: MetricByKey
       kwargs:
-        key: "total_steps"
-        name: "n_env_steps"
-    - type: "CompareValue"
+        key: total_steps
+        name: n_env_steps
+    - type: CompareValue
       kwargs:
-        key: "ep_reward"
-        name: "wins"
+        key: ep_reward
+        name: wins
         value: 200
         op: gt  # Greater than
-    - type: "Timer"
+    - type: Timer
   log_keys:
-    - "rewards_av"
-    - "steps_av"
+    - rewards_av
+    - steps_av
   callbacks:
-    - type: "SaveBest"
+    - type: SaveBest
       kwargs:
-        key: "rewards_av"
-        channel: "save_best"
+        key: rewards_av
+        channel: save_best
 
 # Monitoring
 monitoring:
   file_storage:
-    path: "/home/SoulsAI/saves"
+    path: /home/SoulsAI/saves
     plot:
-      xkey: "n_env_steps"
+      xkey: n_env_steps
       ykeys:
-        - "rewards_av"
-        - "steps_av"
-        - "wins_av"
-        - "time"
+        - rewards_av
+        - steps_av
+        - wins_av
+        - time
   grafana: True
   prometheus: True
   wandb:
-    project: "soulsai_ppo"
-    entity: "amacati"
-    group: "testing"
-    save_dir: "/home/SoulsAI/saves"
+    project: soulsai_ppo
+    entity: amacati
+    group: testing
+    save_dir: /home/SoulsAI/saves
 
 # Client settings
 max_episodes: -1  # -1 for infinite runs

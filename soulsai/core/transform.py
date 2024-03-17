@@ -115,12 +115,18 @@ class Normalize(Transform):
     Mean and standard deviation parameters are estimated from the data during the update step.
     """
 
-    def __init__(self, keys: list[NestedKey], shapes: list[tuple[int]]):
+    def __init__(
+        self,
+        keys: list[NestedKey],
+        shapes: list[tuple[int]],
+        indexes: list[list[int] | None] | None = None,
+    ):
         """Initialize the mean, standard deviation and helper parameters.
 
         Args:
             keys: Keys of elements normalized by the transformation.
             shapes: Shapes of elements.
+            indexes: Optional list of indexes to normalize. If None, all elements are normalized.
         """
         super().__init__()
         self._keys = [k if isinstance(k, str) else tuple(k) for k in keys]
@@ -130,6 +136,12 @@ class Normalize(Transform):
             self.params[f"{key}_m2"] = nn.Parameter(torch.zeros(shape), requires_grad=False)
         self.params["count"] = nn.Parameter(torch.zeros(1, dtype=torch.int64), requires_grad=False)
         self.params["eps2"] = nn.Parameter(torch.tensor(1e-4), requires_grad=False)
+        self._indexes = None
+        if indexes is not None:
+            self._indexes = {
+                k: torch.tensor(idx) if idx is not None else slice(None)
+                for k, idx in zip(self._keys, indexes)
+            }
 
     def forward(
         self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None
@@ -152,7 +164,9 @@ class Normalize(Transform):
                 if key not in keys_mapping:  # Skip keys not in the remapping
                     continue
                 sample_key = keys_mapping[key]
-            x[sample_key] = (x[sample_key] - self.params[f"{key}_mean"]) / self.params[f"{key}_std"]
+            idx = self._indexes[key]
+            mean, std = self.params[f"{key}_mean"], self.params[f"{key}_std"]
+            x[sample_key][idx] = (x[sample_key][idx] - mean[idx]) / std[idx]
         return x
 
     def update(self, x: TensorDict):

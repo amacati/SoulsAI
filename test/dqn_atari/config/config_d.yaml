@@ -4,7 +4,7 @@
 loglevel: info
 
 # Redis settings
-redis_address: "redis"
+redis_address: redis
 
 local:
 
@@ -25,7 +25,7 @@ env:
 max_env_steps: 10_000_000
 
 # Algorithm choice
-algorithm: "dqn"
+algorithm: dqn
 
 # DQN parameters
 dqn:
@@ -46,44 +46,44 @@ dqn:
       grad_clip: 5.
       q_clip: 50
       tau: 0.001  # For soft target update
-      device: "cpu"
+      device: cpu
 
   network:
-    type: "CNNDistributionalDQN" # "CNNDistributionalDQN"
+    type: CNNDistributionalDQN # CNNDistributionalDQN
     kwargs:
       input_shape: [1, 84, 84]
       output_dims: 6
       n_quantiles: 32
 
   replay_buffer:
-    type: "ReplayBuffer"
+    type: ReplayBuffer
     kwargs:
       max_size: 500_000
   
   observation_transform:
-    type: "NormalizeImg"
+    type: NormalizeImg
     kwargs:
       keys:
-        - "obs"
+        - obs
 
   value_transform:
-    type: "GreedyAction"
+    type: GreedyAction
     kwargs:
-      value_key: "__value__"
-      action_key: "action"
+      value_key: __value__
+      action_key: action
 
   action_transform:
-    type: "Choice"
+    type: Choice
     kwargs:
-      key: "action"
+      key: action
       probs: [0.95, 0.05]
       transforms:
-        - type: "Identity"
-        - type: "ReplaceWithNoise"
+        - type: Identity
+        - type: ReplaceWithNoise
           kwargs:
-            key: "action"
+            key: action
             noise:
-              type: "UniformDiscreteNoise"
+              type: UniformDiscreteNoise
               kwargs:
                 size_n: 6
 
@@ -101,51 +101,51 @@ telemetry:
   update_interval: 5
   moving_average: 20
   transforms:
-    - type: "MetricByKey"
+    - type: MetricByKey
       kwargs:
-        key: "ep_reward"
-        name: "rewards"
-    - type: "MetricByKey"
+        key: ep_reward
+        name: rewards
+    - type: MetricByKey
       kwargs:
-        key: "ep_steps"
-        name: "steps"
-    - type: "MetricByKey"
+        key: ep_steps
+        name: steps
+    - type: MetricByKey
       kwargs:
-        key: "total_steps"
-        name: "n_env_steps"
-    - type: "CompareValue"
+        key: total_steps
+        name: n_env_steps
+    - type: CompareValue
       kwargs:
-        key: "ep_reward"
-        name: "wins"
+        key: ep_reward
+        name: wins
         value: 200
         op: gt  # Greater than
-    - type: "Timer"
+    - type: Timer
   log_keys:
-    - "rewards_av"
-    - "steps_av"
+    - rewards_av
+    - steps_av
   callbacks:
-    - type: "SaveBest"
+    - type: SaveBest
       kwargs:
-        key: "rewards_av"
-        channel: "save_best"
+        key: rewards_av
+        channel: save_best
 
 monitoring:
   file_storage:
-    path: "/home/SoulsAI/saves"
+    path: /home/SoulsAI/saves
     plot:
-      xkey: "n_env_steps"
+      xkey: n_env_steps
       ykeys:
-        - "rewards_av"
-        - "steps_av"
-        - "wins_av"
-        - "time"
+        - rewards_av
+        - steps_av
+        - wins_av
+        - time
   grafana: True
   prometheus: True
   wandb:
-    project: "soulsai_dqn_atari"
-    entity: "amacati"
-    group: "testing"
-    save_dir: "/home/SoulsAI/saves"
+    project: soulsai_dqn_atari
+    entity: amacati
+    group: testing
+    save_dir: /home/SoulsAI/saves
 
 # Client settings
 max_episodes: -1  # -1 for infinite runs
