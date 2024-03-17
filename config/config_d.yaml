@@ -71,7 +71,7 @@ dqn:
         - type: Mask
           kwargs:
             key: __value__
-            mask_key: action_mask
+            mask_key: [info, action_mask]
         - type: GreedyAction
           kwargs:
             value_key: __value__
@@ -88,8 +88,9 @@ dqn:
           kwargs:
             key: action
             noise:
-              type: UniformDiscreteNoise
+              type: MaskedDiscreteNoise
               kwargs:
+                mask_key: [info, action_mask]
                 size_n: 20
 
 # Training node settings

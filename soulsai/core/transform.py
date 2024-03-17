@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import torch
 import torch.nn as nn
@@ -15,10 +15,11 @@ from soulsai.core.noise import Noise, noise_cls
 from soulsai.core.scheduler import Scheduler, scheduler_cls
 from soulsai.utils import module_type_from_string
 
+if TYPE_CHECKING:
+    from tensordict import NestedKey
+
 logger = logging.getLogger(__name__)
 transform_cls: Callable[[str], type[Transform]] = module_type_from_string(__name__)
-
-NestedKey = str | tuple[str]
 
 
 class Transform(nn.Module):
@@ -491,5 +492,5 @@ class ReplaceWithNoise(Transform):
         """
         assert isinstance(x, TensorDict), f"Expected input to be a TensorDict, is {type(x)}"
         key = self._key if keys_mapping is None else keys_mapping[self._key]
-        x[key] = self.noise(x[key])
+        x[key] = self.noise(x)
         return x
