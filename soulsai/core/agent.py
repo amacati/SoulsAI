@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, Callable, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from soulsai.core.transform import Mask
 
 logger = logging.getLogger(__name__)
-agent_cls = module_type_from_string(__name__)
+agent_cls: Callable[[str], type[Agent]] = module_type_from_string(__name__)
 
 
 class Agent(torch.nn.Module):

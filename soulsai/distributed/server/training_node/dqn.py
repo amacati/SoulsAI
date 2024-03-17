@@ -256,7 +256,7 @@ class DQNTrainingNode(TrainingNode):
             return
         path.mkdir(exist_ok=True)
         with self._lock:
-            self.agent.save(path / "agent.pt")
+            torch.save(self.agent.state_dict(), path / "agent.pt")
             if self.config.checkpoint.save_buffer or options.get("save_buffer", False):
                 self.buffer.save(path / "buffer.pkl")
             for name, tf in self.transforms.items():
@@ -275,7 +275,7 @@ class DQNTrainingNode(TrainingNode):
         Args:
             path: Path to the save folder.
         """
-        self.agent.load(path / "agent.pt")
+        self.agent.load_state_dict(torch.load(path / "agent.pt"))
         for name, tf in self.transforms.items():
             tf.load_state_dict(torch.load(path / f"{name}_transform.pt"))
         if self.config.checkpoint.load_buffer:
