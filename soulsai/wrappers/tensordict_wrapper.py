@@ -225,7 +225,7 @@ class TensorDictWrapper(Wrapper):
                     info_tf[key] = value if self.vectorized else value.unsqueeze(0)
                 case int() | float() | str() | bool():
                     assert not self.vectorized, "Scalar info only supported in non-vectorized envs"
-                    info[key] = torch.tensor([value], device=self.device)  # Add batch dimension
+                    info_tf[key] = torch.tensor([value], device=self.device)  # Add batch dimension
                 case _:
                     if key not in self._failed_info_keys:
                         self._failed_info_keys.add(key)  # Only log once per key
