@@ -1,11 +1,12 @@
 """The ``watchdog`` module allows the execution of functions under special surveillance."""
+
 from __future__ import annotations
 
-import time
 import logging
-from typing import Callable, Any, TYPE_CHECKING
-from threading import Thread, Event
+import time
 from multiprocessing import Value
+from threading import Event, Thread
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from multiprocessing.sharedctypes import Synchronized
@@ -47,9 +48,11 @@ class ClientWatchdog:
         self.watchdog_thread.start()
         while not self.shutdown.is_set():
             try:
-                self._watched_fn(*self._external_args,
-                                 stop_flag=self._fn_shutdown,
-                                 sample_gauge=self.sample_gauge)
+                self._watched_fn(
+                    *self._external_args,
+                    stop_flag=self._fn_shutdown,
+                    sample_gauge=self.sample_gauge,
+                )
             except Exception as e:
                 logger.info(f"{type(e).__name__}: {e}")
                 self._fn_shutdown.clear()
@@ -68,19 +71,24 @@ class ClientWatchdog:
         while not self.shutdown.is_set():
             # Check performance metric
             if self.sample_gauge.value < self.minimum_samples_per_minute:
-                logger.warning((f"Current sample count {self.sample_gauge.value}/m is less than"
-                                " required. Resetting training"))
+                logger.warning(
+                    (
+                        f"Current sample count {self.sample_gauge.value}/m is less than"
+                        " required. Resetting training"
+                    )
+                )
                 self.sample_gauge.value = 1_000_000
                 self._watchdog_fn_shutdown.set()
                 self._fn_shutdown.set()
             else:
                 logger.debug(f"Watchdog check passed ({self.sample_gauge.value} samples/min)")
-            time.sleep(10.)
+            time.sleep(10.0)
 
 
 class WatchdogGauge:
+    """A simple gauge to measure the sample rate."""
 
-    def __init__(self, sync_value: Synchronized, update_time: float = 60.):
+    def __init__(self, sync_value: Synchronized, update_time: float = 60.0):
         """Create a wrapper around the synchronized shared value.
 
         Args:
@@ -93,6 +101,15 @@ class WatchdogGauge:
         self._update_time = update_time
 
     def inc(self, amount: int = 1):
+        """Increment the gauge by a given amount.
+
+        On each increment, the gauge checks if more than `update_time` seconds have passed since the
+        last time update. If so, it updates the shared value with the current sample rate and resets
+        the counter and timer.
+
+        Args:
+            amount: The amount to increment the gauge by.
+        """
         if self._cnt == -1:
             self._cnt = amount
             self._t_start = time.time()

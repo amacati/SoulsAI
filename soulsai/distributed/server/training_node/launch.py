@@ -1,11 +1,12 @@
 """Dockerfile entrypoint to start the train node."""
+
 import logging
 from pathlib import Path
 
 from soulsai.distributed.server.training_node.dqn import DQNTrainingNode
 from soulsai.distributed.server.training_node.ppo import PPOTrainingNode
-from soulsai.utils import load_config
 from soulsai.exception import InvalidConfigError
+from soulsai.utils import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ if __name__ == "__main__":
     elif config.algorithm.lower() == "ppo":
         training_node = PPOTrainingNode(config)
     else:
-        raise InvalidConfigError(f"Algorithm {config.algorithm} specified in config"
-                                 "is not supported")
+        raise InvalidConfigError(
+            f"Algorithm {config.algorithm} specified in config" "is not supported"
+        )
     training_node.run()

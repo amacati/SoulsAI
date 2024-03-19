@@ -15,16 +15,16 @@ Example:
 
         $ python soulsai/distributed/client/main.py
 """
-from pathlib import Path
+
 import logging
+from pathlib import Path
 
 import soulsgym  # noqa: F401, needs to register SoulsGym envs with gym module
 
 from soulsai.distributed.client.dqn_client import dqn_client
 from soulsai.distributed.client.ppo_client import ppo_client
-from soulsai.utils import load_config
 from soulsai.exception import InvalidConfigError
-from soulsai.utils import load_remote_config, load_redis_secret
+from soulsai.utils import load_config, load_redis_secret, load_remote_config
 
 if __name__ == "__main__":
     logging.basicConfig()

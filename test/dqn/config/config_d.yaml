@@ -2,58 +2,87 @@
 
 # General settings
 loglevel: info
-device: "cuda"
 
 local:
 
 # Redis settings
-redis_address: "redis"
+redis_address: redis
 
 # Environment information
 env:
   name: LunarLander-v2
+  vectorize: False
   kwargs:
   obs_shape: [8]
   n_actions: 4
   wrappers:
 
 max_env_steps: 100_000
-gamma: 0.99
 
 # Algorithm choice
-algorithm: "dqn"
+algorithm: dqn
 
 # DQN parameters
 dqn:
-  variant: distributional  # [vanilla, distributional]
-  lr: 0.001
-  eps_max: [0.1]
-  eps_min: [0.1]
-  eps_steps: [100_000]
-  grad_clip: 5.
-  q_clip: 200
-  buffer_size: 100_000
   batch_size: 64
   train_epochs: 25
   update_samples: 25
   fill_buffer: False
-  multistep: 4
-  network_type: "DistributionalDQN"
-  network_kwargs:
-    input_dims: 8
-    output_dims: 4
-    layer_dims: 128
-  noise: "UniformDiscreteNoise"
-  noise_kwargs:
-    size_n: 4
-  replay_buffer: "ReplayBuffer"
-  replay_buffer_kwargs:
   action_masking: False
-  normalizer: Normalizer
-  normalizer_kwargs:
   min_samples: null
-  tau: 0.05  # For soft target update
   max_model_delay: 10
+
+  agent:
+    type: DistributionalDQNAgent
+    kwargs:
+      lr: 0.001
+      gamma: 0.99
+      multistep: 4
+      grad_clip: 1.
+      q_clip: 300
+      tau: 0.001  # For soft target update
+      device: cuda
+  
+  network:
+    type: DistributionalDQN
+    kwargs:
+      input_dims: 8
+      output_dims: 4
+      layer_dims: 128
+  
+  replay_buffer:
+    type: ReplayBuffer
+    kwargs:
+      max_size: 100_000
+  
+  observation_transform:
+    type: Normalize
+    kwargs:
+      keys:
+        - obs
+      shapes:
+        - [8]
+
+  value_transform:
+    type: GreedyAction
+    kwargs:
+      value_key: __value__
+      action_key: action
+
+  action_transform:
+    type: Choice
+    kwargs:
+      key: action
+      probs: [0.9, 0.1]
+      transforms:
+        - type: Identity
+        - type: ReplaceWithNoise
+          kwargs:
+            key: action
+            noise:
+              type: UniformDiscreteNoise
+              kwargs:
+                size_n: 4
 
 # Training node settings
 checkpoint:
@@ -68,18 +97,52 @@ checkpoint:
 telemetry:
   update_interval: 5
   moving_average: 20
+  transforms:
+    - type: MetricByKey
+      kwargs:
+        key: ep_reward
+        name: rewards
+    - type: MetricByKey
+      kwargs:
+        key: ep_steps
+        name: steps
+    - type: MetricByKey
+      kwargs:
+        key: total_steps
+        name: n_env_steps
+    - type: CompareValue
+      kwargs:
+        key: ep_reward
+        name: wins
+        value: 200
+        op: gt  # Greater than
+    - type: Timer
+  log_keys:
+    - rewards_av
+    - steps_av
+  callbacks:
+    - type: SaveBest
+      kwargs:
+        key: rewards_av
+        channel: save_best
 
 monitoring:
   file_storage:
-    path: "/home/SoulsAI/saves"
-    plot: True
+    path: /home/SoulsAI/saves
+    plot:
+      xkey: n_env_steps
+      ykeys:
+        - rewards_av
+        - steps_av
+        - wins_av
+        - time
   grafana: True
   prometheus: True
   wandb:
-    project: "soulsai_dqn"
-    entity: "amacati"
-    group: "testing"
-    save_dir: "/home/SoulsAI/saves"
+    project: soulsai_dqn
+    entity: amacati
+    group: testing
+    save_dir: /home/SoulsAI/saves
 
 # Client settings
 max_episodes: -1  # -1 for infinite runs

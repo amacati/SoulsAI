@@ -19,10 +19,10 @@ If you run the training server on windows, you also need to make sure that you c
 rule allowing the connection to port 80 and 443 for the monitoring stack, and 6379 for Redis.
 Additionally, it is very convenient to use WSL2 for the server. If you opt for this solution, make
 sure to forward the ports from WSL2 to Windows. You can find the required commands and accompanying
-explanations `here <https://jwstanly.com/blog/article/Port+Forwarding+WSL+2+to+Your+LAN/>`_.
+explanations `here <https://jwstanly.com/blog/article/Port+Forwarding+WSL+2+to+Your+LAN/>`__.
 
 A detailed tutorial on how to configure NGINX and certbot can also be found
-`here <https://mindsers.blog/post/https-using-nginx-certbot-docker/>`_.
+`here <https://mindsers.blog/post/https-using-nginx-certbot-docker/>`__.
 
 
 Reverse Proxy
@@ -39,7 +39,7 @@ and the */etc/letsencrypt* folder, respectively.
 Certbot
 ^^^^^^^
 Certbot makes sure the SSL certificates are continuously updated. For more information about
-Certbot, please have a look at `the official website <_https://certbot.eff.org/>`_.
+Certbot, please have a look at `the official website <_https://certbot.eff.org/>`__.
 
 ddclient
 ^^^^^^^^

@@ -3,22 +3,23 @@
 It is useful to check the performance of algorithms and parameters with statistical significance
 using the ``SoulsAI`` framework.
 """
+
 from __future__ import annotations
 
-import time
-import shutil
-import json
 import argparse
-from typing import TYPE_CHECKING
+import json
+import shutil
+import time
 from pathlib import Path
 from subprocess import Popen
+from typing import TYPE_CHECKING
 
 import docker
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from redis import Redis
 
-from soulsai.utils import mkdir_date, load_redis_secret, running_mean
+from soulsai.utils import load_redis_secret, mkdir_date, running_mean
 
 if TYPE_CHECKING:
     from docker.client import DockerClient
@@ -116,8 +117,7 @@ def save_plots(results: dict, path: Path):
     ax[0, 1].plot(x, steps_mean, label="Mean episode steps")
     lower, upper = steps_mean - steps_std, steps_mean + steps_std
     ax[0, 1].fill_between(x, lower, upper, alpha=0.4, label="Std deviation episode steps")
-    if results["eps"] is None:
-        ax[0, 1].legend()
+    ax[0, 1].legend()
     ax[0, 1].set_title("Number of steps vs Episodes")
     ax[0, 1].set_xlabel("Episodes")
     ax[0, 1].set_ylabel("Number of steps")
@@ -125,15 +125,6 @@ def save_plots(results: dict, path: Path):
     lower_ylim = np.min(lower) - abs(np.min(lower)) * 0.1
     upper_ylim = np.max(upper) + abs(np.max(upper)) * 0.1
     ax[0, 1].set_ylim([lower_ylim, upper_ylim])
-
-    if results["eps"] is not None:
-        secax_y = ax[0, 1].twinx()
-        secax_y.plot(x, results["eps"], "orange", label="ε")
-        secax_y.set_ylim([-0.05, 1.05])
-        secax_y.set_ylabel("Fraction of random actions")
-        lines, labels = ax[0, 1].get_legend_handles_labels()
-        lines2, labels2 = secax_y.get_legend_handles_labels()
-        secax_y.legend(lines + lines2, labels + labels2)
 
     ax[1, 0].set_title("N/A")
     ax[1, 0].set_xlabel("N/A")
@@ -178,11 +169,6 @@ def average_results(results: dict) -> dict:
         data = np.array([run[key] for run in results.values()])
         averaged_results[key + "_mean"] = np.mean(data, axis=0)
         averaged_results[key + "_std"] = np.std(data, axis=0)
-    if results["run0"]["eps"][0] is None:
-        averaged_results["eps"] = None
-    else:
-        averaged_results["eps"] = np.interp(x, results["run0"]["n_env_steps"],
-                                            results["run0"]["eps"])
     averaged_results["n_env_steps"] = x
     return averaged_results
 
@@ -212,16 +198,17 @@ def main(args: argparse.Namespace):
     if args.nruns:
         save_root = Path(__file__).parents[1] / "saves"
         save_dirs = [d for d in save_root.iterdir() if d.is_dir() and d.name[:4].isdigit()]
-        run_dirs = sorted(save_dirs)[-args.nruns:]
+        assert len(save_dirs) >= args.nruns, "Not enough runs to summarize"
+        run_dirs = sorted(save_dirs)[-args.nruns :]
         save_path = mkdir_date(save_root)
         save_path = save_path.rename(save_path.parent / ("multirun_" + save_path.name))
         # Copy config from first run, save stats into dictionary, create joint results plot
-        shutil.copyfile(run_dirs[0] / "config.json", save_path / "config.json")
+        shutil.copyfile(run_dirs[0] / "config.yaml", save_path / "config.yaml")
         results = {}
         for i, run_dir in enumerate(run_dirs):
-            with open(run_dir / "SoulsAIStats.json", "r") as f:
+            with open(run_dir / "telemetry.json", "r") as f:
                 results["run" + str(i)] = json.load(f)
-        with open(save_path / "SoulsAIStats.json", "w") as f:
+        with open(save_path / "telemetry.json", "w") as f:
             json.dump(results, f)
         results = average_results(results)
         with open(save_path / "AveragedStats.json", "w") as f:
@@ -231,16 +218,13 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('algorithm',
-                        type=str,
-                        help='Training algorithm',
-                        choices=["ppo", "dqn", "dqn_atari"])
-    parser.add_argument('nruns', type=int, help='Number of training runs')
-    parser.add_argument('nclients', type=int, default=1, help='Number of client nodes')
-    parser.add_argument('--profile',
-                        type=str,
-                        default="",
-                        help='Docker compose profile',
-                        required=False)
+    parser.add_argument(
+        "algorithm", type=str, help="Training algorithm", choices=["ppo", "dqn", "dqn_atari"]
+    )
+    parser.add_argument("nruns", type=int, help="Number of training runs")
+    parser.add_argument("nclients", type=int, default=1, help="Number of client nodes")
+    parser.add_argument(
+        "--profile", type=str, default="", help="Docker compose profile", required=False
+    )
     args = parser.parse_args()
     main(args)

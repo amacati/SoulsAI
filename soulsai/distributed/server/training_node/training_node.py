@@ -8,29 +8,30 @@ Each training node also has a heartbeat service that determines how many clients
 active. The heartbeat service can also be customized to require nodes (or a subset of them) to be
 continuously connected.
 """
+
 from __future__ import annotations
 
-from pathlib import Path
+import json
 import logging
 import multiprocessing as mp
-import json
 import time
 from abc import ABC, abstractmethod
-from threading import Thread, Event
-from typing import Any, TYPE_CHECKING
 from contextlib import contextmanager
+from pathlib import Path
+from threading import Event, Thread
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import yaml
+from prometheus_client import Counter, Gauge, Info, start_http_server
 from redis import Redis
-from prometheus_client import start_http_server, Info, Counter, Gauge
 
-from soulsai.utils import mkdir_date, load_redis_secret, namespace2dict, dict2namespace
+from soulsai.distributed.common.serialization import deserialize
+from soulsai.utils import dict2namespace, load_redis_secret, mkdir_date, namespace2dict
 
 if TYPE_CHECKING:
-    from types import SimpleNamespace
     from multiprocessing.sharedctypes import Synchronized
-
-    from soulsai.distributed.common.serialization import Serializer
+    from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +52,12 @@ class TrainingNode(ABC):
         # Switch to spawn method for multiprocessing
         cxt = mp.get_context()
         if not isinstance(cxt, mp.context.SpawnContext):
-            logger.warning((f"Multiprocessing context already set to {type(cxt)}. Trying to force "
-                            "spawn method..."))
+            logger.warning(
+                (
+                    f"Multiprocessing context already set to {type(cxt)}. Trying to force  spawn "
+                    "method..."
+                )
+            )
             mp.set_start_method("spawn", force=True)
         self._shutdown = mp.Event()
         self._lock = mp.Lock()
@@ -63,52 +68,67 @@ class TrainingNode(ABC):
         # Set config, load from checkpoint if specified
         self.config = config
         if self.config.checkpoint.load_config:
-            self.load_config(save_root_dir / "checkpoint" / "config.json")
+            self.load_config(save_root_dir / "checkpoint" / "config.yaml")
             logger.info("Config loading complete")
         self.config.save_dir = self.save_dir.name
-        self.save_config(self.save_dir / "config.json")
+        self.save_config(self.save_dir / "config.yaml")
         # Translate config values that are incompatible with json
         self._max_env_steps = self.config.max_env_steps or float("inf")
         # Load redis secret, create redis connection and subscribers
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
-        self.red = Redis(host='redis', port=6379, password=secret, db=0)
+        self.red = Redis(host="redis", port=6379, password=secret, db=0)
         self.episode_info_sub = self.red.pubsub(ignore_subscribe_messages=True)
         self.episode_info_sub.subscribe(
-            episode_info=lambda msg: self._episode_info_callback(msg["data"]))
-        self._episode_info_sub_worker = self.episode_info_sub.run_in_thread(sleep_time=.1,
-                                                                            daemon=True)
+            episode_info=lambda msg: self._episode_info_callback(msg["data"])
+        )
+        self._episode_info_sub_worker = self.episode_info_sub.run_in_thread(
+            sleep_time=0.1, daemon=True
+        )
         self.cmd_sub = self.red.pubsub(ignore_subscribe_messages=True)
-        self.cmd_sub.subscribe(manual_save=lambda msg: self.checkpoint(
-            self.save_dir / "manual_save", json.loads(msg["data"])))
-        self.cmd_sub.subscribe(save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),
-                               shutdown=self.shutdown)
-        self._cmd_sub_worker = self.cmd_sub.run_in_thread(sleep_time=.1, daemon=True)
+        self.cmd_sub.subscribe(
+            manual_save=lambda msg: self.checkpoint(
+                self.save_dir / "manual_save", json.loads(msg["data"])
+            )
+        )
+        self.cmd_sub.subscribe(
+            save_best=lambda _: self.checkpoint(self.save_dir / "best_model"),
+            shutdown=self.shutdown,
+        )
+        self._cmd_sub_worker = self.cmd_sub.run_in_thread(sleep_time=0.1, daemon=True)
         # Initialize monitoring server and metrics
         self._total_env_steps = 0
         self._client_counter = mp.Value("i", 0)
         if self.config.monitoring.prometheus:
             logger.info("Starting prometheus monitoring server")
             start_http_server(8080)
-            self.prom_num_workers = Gauge("soulsai_num_workers",
-                                          "Number of registered client nodes")
-            self.prom_num_samples = Counter("soulsai_num_samples",
-                                            "Total number of received samples")
-            self.prom_num_samples_reject = Counter("soulsai_num_samples_reject",
-                                                   "Total number of rejected samples")
-            self.prom_update_time = Gauge("soulsai_update_time",
-                                          "Processing time for a model update")
-            self.prom_publish_time = Gauge("soulsai_publish_time",
-                                           "Time required to publish the network parameters")
-            self.prom_deserialization_time = Gauge("soulsai_deserialization_time",
-                                                   "Time required for deserialization")
-            self.prom_buffer_time = Gauge("soulsai_buffer_time",
-                                          "Time required to append samples to the buffer")
-            self.prom_message_time = Gauge("soulsai_message_time",
-                                           "Time required to read messages from Redis.")
+            self.prom_num_workers = Gauge(
+                "soulsai_num_workers", "Number of registered client nodes"
+            )
+            self.prom_num_samples = Counter(
+                "soulsai_num_samples", "Total number of received samples"
+            )
+            self.prom_num_samples_reject = Counter(
+                "soulsai_num_samples_reject", "Total number of rejected samples"
+            )
+            self.prom_update_time = Gauge(
+                "soulsai_update_time", "Processing time for a model update"
+            )
+            self.prom_publish_time = Gauge(
+                "soulsai_publish_time", "Time required to publish the network parameters"
+            )
+            self.prom_deserialization_time = Gauge(
+                "soulsai_deserialization_time", "Time required for deserialization"
+            )
+            self.prom_buffer_time = Gauge(
+                "soulsai_buffer_time", "Time required to append samples to the buffer"
+            )
+            self.prom_message_time = Gauge(
+                "soulsai_message_time", "Time required to read messages from Redis."
+            )
             self.prom_config_info = Info("soulsai_config", "SoulsAI configuration")
-            self.prom_config_info.info({
-                str(key): str(val) for key, val in namespace2dict(self.config).items()
-            })
+            self.prom_config_info.info(
+                {str(key): str(val) for key, val in namespace2dict(self.config).items()}
+            )
             self._update_client_gauge_thread = Thread(target=self._update_client_gauge, daemon=True)
             self._update_client_gauge_thread.start()
 
@@ -147,7 +167,7 @@ class TrainingNode(ABC):
                 continue
             for msg in msgs:
                 t = time.perf_counter()
-                sample = self.serializer.deserialize_sample(msg)
+                sample = deserialize(msg)
                 deserialization_time += time.perf_counter() - t
                 if not self._validate_sample(sample, monitoring=self.config.monitoring.prometheus):
                     continue
@@ -185,7 +205,7 @@ class TrainingNode(ABC):
         """
         path.parent.mkdir(exist_ok=True)
         with open(path, "w") as f:
-            json.dump(namespace2dict(self.config), f)
+            yaml.safe_dump(namespace2dict(self.config), f)
 
     def load_config(self, path: Path):
         """Load the training configuration from file.
@@ -194,7 +214,7 @@ class TrainingNode(ABC):
             path: Path to the configuration file.
         """
         with open(path, "r") as f:
-            saved_config = dict2namespace(json.load(f))
+            saved_config = dict2namespace(yaml.safe_load(f))
         assert saved_config.env.name == self.config.env.name, "Config environments do not match"
         assert saved_config.algorithm == self.config.algorithm, "Config algorithms do not match"
         self.config = saved_config
@@ -215,11 +235,13 @@ class TrainingNode(ABC):
             prom_timer.set(time.perf_counter() - tstart)
 
     @staticmethod
-    def _client_heartbeat(redis_secret: str,
-                          shutdown_event: Event,
-                          client_counter: Synchronized,
-                          required_client_ids: list = []):
-        red = Redis(host='redis', port=6379, password=redis_secret, db=0, decode_responses=True)
+    def _client_heartbeat(
+        redis_secret: str,
+        shutdown_event: Event,
+        client_counter: Synchronized,
+        required_client_ids: list = [],
+    ):
+        red = Redis(host="redis", port=6379, password=redis_secret, db=0, decode_responses=True)
         sub = red.pubsub(ignore_subscribe_messages=True)
         sub.subscribe("heartbeat")
         logger.info("Client heartbeat service started")
@@ -230,7 +252,7 @@ class TrainingNode(ABC):
                 time.sleep(1)
             else:
                 msg = json.loads(msg["data"])
-                if not msg["client_id"] in heartbeats:
+                if msg["client_id"] not in heartbeats:
                     logger.info("New client registered")
                 if time.time() - msg["timestamp"] < 1e3:
                     # Don't use timestamp from message as clocks may have drifted
@@ -277,48 +299,32 @@ class TrainingNode(ABC):
         """
         ...
 
-    @property
     @abstractmethod
-    def serializer(self) -> Serializer:
-        """Serializer to decode Redis messages."""
-        raise NotImplementedError
+    def _get_samples(self) -> list[bytes]: ...
 
     @abstractmethod
-    def _get_samples(self) -> list[bytes]:
-        ...
+    def _validate_sample(self, sample: dict, monitoring: bool) -> bool: ...
 
     @abstractmethod
-    def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
-        ...
+    def _update_model(self, monitoring: bool): ...
 
     @abstractmethod
-    def _update_model(self, monitoring: bool):
-        ...
+    def _publish_model(self): ...
 
     @abstractmethod
-    def _publish_model(self):
-        ...
+    def _check_update_cond(self) -> bool: ...
 
     @abstractmethod
-    def _check_update_cond(self) -> bool:
-        ...
+    def _check_checkpoint_cond(self) -> bool: ...
 
     @abstractmethod
-    def _check_checkpoint_cond(self) -> bool:
-        ...
+    def _episode_info_callback(self, _: bytes): ...
 
-    @abstractmethod
-    def _episode_info_callback(self, _: bytes):
-        ...
+    def _startup_hook(self): ...
 
-    def _startup_hook(self):
-        ...
+    def _sample_received_hook(self, _: dict): ...
 
-    def _sample_received_hook(self, _: dict):
-        ...
-
-    def _post_update_hook(self):
-        ...
+    def _post_update_hook(self): ...
 
     def _required_client_ids(self) -> list:
         return []

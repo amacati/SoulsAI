@@ -1,28 +1,38 @@
-from typing import Any, Dict, Iterable, List, Tuple
+"""Wrappers for the Iudex Gundyr boss fight in Dark Souls III."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Iterable
 
 import numpy as np
-from gymnasium import ObservationWrapper, Env
+from gymnasium import ObservationWrapper
 from gymnasium.spaces import Box
 from soulsgym.games.game import StaticGameData
 
 from soulsai.data.one_hot_encoder import OneHotEncoder
 
+if TYPE_CHECKING:
+    from soulsgym.envs.darksouls3.iudex import IudexEnv
+
 
 class IudexObservationWrapper(ObservationWrapper):
+    """Observation wrapper for the state-based Iudex Gundyr boss fight in soulsgym."""
 
-    space_coords_low = np.array([110., 540., -73.])
-    space_coords_high = np.array([190., 640., -55.])
+    space_coords_low = np.array([110.0, 540.0, -73.0])
+    space_coords_high = np.array([190.0, 640.0, -55.0])
     space_coords_diff = space_coords_high - space_coords_low
 
-    def __init__(self, env: Env):
+    def __init__(self, env: IudexEnv):
+        """Initialize the observation wrapper.
+
+        We create one-hot encoders for the player and boss animations. Additionally, we bin common
+        player and boss animations to reduce the state space. Animation timings are updated
+        accordingly
+
+        Args:
+            env: The environment to wrap.
+        """
         super().__init__(env)
-        self.game_id = "DarkSoulsIII"
-        self.boss_id = "iudex"
-        low = np.zeros(74, dtype=np.float32)
-        high = np.ones(74, dtype=np.float32)
-        # Boss distance, player animation duration, boss animation duration are possibly unbounded
-        high[[3, 16, 17]] = np.inf
-        self.observation_space = Box(low, high, dtype=np.float32)
         self.game_data = StaticGameData("DarkSoulsIII")
         # Initialize player one-hot encoder
         self.player_animation_encoder = OneHotEncoder(allow_unknown=True)
@@ -31,17 +41,25 @@ class IudexObservationWrapper(ObservationWrapper):
         self.player_animation_encoder.fit(filtered_player_animations)
         # Initialize boss one-hot encoder
         self.boss_animation_encoder = OneHotEncoder(allow_unknown=True)
-        iudex_animations = self.game_data.boss_animations[self.boss_id]["all"]
+        iudex_animations = self.game_data.boss_animations["iudex"]["all"]
         boss_animations = [a["ID"] for a in iudex_animations.values()]
         filtered_boss_animations = unique(
-            map(lambda x: self.filter_boss_animation(x)[0], boss_animations))
+            map(lambda x: self.filter_boss_animation(x)[0], boss_animations)
+        )
         self.boss_animation_encoder.fit(filtered_boss_animations)
-        # Initialize stateful attributes
-        self._current_time = 0.
-        self._acuumulated_time = 0.
+        # Initialize internal counters
+        self._current_time = 0.0
+        self._acuumulated_time = 0.0
         self._last_animation = None
+        # Set the new observation space
+        obs = self.observation(self.observation_space.sample())
+        self._reset_internal_counters()  # Reset stateful counters modified by ``self.observation``
+        low, high = np.zeros_like(obs), np.ones_like(obs)
+        # Boss distance, player animation duration, boss animation duration are possibly unbounded
+        high[[3, 16, 17]] = np.inf
+        self.observation_space = Box(low, high, dtype=np.float32)
 
-    def observation(self, obs: Dict) -> np.ndarray:
+    def observation(self, obs: dict) -> np.ndarray:
         """Transform a game observation with a stateful conversion.
 
         Warning:
@@ -66,11 +84,17 @@ class IudexObservationWrapper(ObservationWrapper):
         player_animation_onehot = self.player_animation_encoder(player_animation)
         boss_animation_onehot, boss_animation_duration = self.boss_animation_transform(obs)
         animation_times = [obs["player_animation_duration"], boss_animation_duration]
-        return np.concatenate((self._common_transforms(obs), animation_times,
-                               player_animation_onehot, boss_animation_onehot),
-                              dtype=np.float32)
+        return np.concatenate(
+            (
+                self._common_transforms(obs),
+                animation_times,
+                player_animation_onehot,
+                boss_animation_onehot,
+            ),
+            dtype=np.float32,
+        )
 
-    def _common_transforms(self, obs: Dict) -> np.ndarray:
+    def _common_transforms(self, obs: dict) -> np.ndarray:
         player_hp = obs["player_hp"] / obs["player_max_hp"]
         player_sp = obs["player_sp"] / obs["player_max_sp"]
         boss_hp = obs["boss_hp"] / obs["boss_max_hp"]
@@ -92,22 +116,19 @@ class IudexObservationWrapper(ObservationWrapper):
         )
         return np.concatenate(args, dtype=np.float32)
 
-    def reset(self,
-              *,
-              seed: int | None = None,
-              options: dict[str, Any] | None = None) -> tuple[Dict, dict[str, Any]]:
+    def reset(
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
+    ) -> tuple[dict, dict[str, Any]]:
         """Reset the stateful attributed of the transformer.
 
         Modifies the :attr:`env` after calling :meth:`reset`, returning a modified observation using
         :meth:`self.observation`.
         """
-        self._current_time = 0.
-        self._acuumulated_time = 0.
-        self._last_animation = None
+        self._reset_internal_counters()
         obs, info = self.env.reset(seed=seed, options=options)
         return self.observation(obs), info
 
-    def boss_animation_transform(self, obs: Dict) -> Tuple[np.ndarray, float]:
+    def boss_animation_transform(self, obs: dict) -> tuple[np.ndarray, float]:
         """Transform the observation's boss animation into a one-hot encoding and a duration.
 
         Since we are binning the boss animations, we have to sum the durations of binned animations.
@@ -125,8 +146,8 @@ class IudexObservationWrapper(ObservationWrapper):
         """
         boss_animation, is_filtered = self.filter_boss_animation(obs["boss_animation"])
         if not is_filtered:
-            self._acuumulated_time = 0.
-            self._current_time = 0.
+            self._acuumulated_time = 0.0
+            self._current_time = 0.0
             self._last_animation = boss_animation
             return self.boss_animation_encoder(boss_animation), obs["boss_animation_duration"]
         if obs["boss_animation"] != self._last_animation:
@@ -169,7 +190,7 @@ class IudexObservationWrapper(ObservationWrapper):
             return 105
         return animation
 
-    def filter_boss_animation(self, animation: int) -> Tuple[int, bool]:
+    def filter_boss_animation(self, animation: int) -> tuple[int, bool]:
         """Bin boss movement animations into a single animation.
 
         Boss animations that essentially constitute the same state are binned into a single category
@@ -189,7 +210,7 @@ class IudexObservationWrapper(ObservationWrapper):
         return animation, False
 
     @staticmethod
-    def _unpack_obs(obs: Dict) -> Dict:
+    def _unpack_obs(obs: dict) -> dict:
         """Unpack numpy arrays of float observations.
 
         Args:
@@ -199,8 +220,11 @@ class IudexObservationWrapper(ObservationWrapper):
             The observation with unpacked floats.
         """
         scalars = [
-            "player_hp", "player_sp", "boss_hp", "boss_animation_duration",
-            "player_animation_duration"
+            "player_hp",
+            "player_sp",
+            "boss_hp",
+            "boss_animation_duration",
+            "player_animation_duration",
         ]
         for key in scalars:
             if isinstance(obs[key], np.ndarray):
@@ -212,8 +236,13 @@ class IudexObservationWrapper(ObservationWrapper):
                 obs[key] = np.array(obs[key])
         return obs
 
+    def _reset_internal_counters(self):
+        self._current_time = 0.0
+        self._acuumulated_time = 0.0
+        self._last_animation = None
 
-def unique(seq: Iterable) -> List:
+
+def unique(seq: Iterable) -> list:
     """Create a list of unique elements from an iterable.
 
     Args:

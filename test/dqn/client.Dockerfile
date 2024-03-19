@@ -13,6 +13,6 @@ COPY . /home/SoulsAI
 # Remove all secret files from the container
 RUN find /home/SoulsAI -type f -name '*.secret' -delete
 WORKDIR /home/SoulsAI
-RUN python setup.py develop
+RUN pip install -e .
 
 ENTRYPOINT ["python", "test/dqn/launch_client.py"]

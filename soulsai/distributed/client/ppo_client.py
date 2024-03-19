@@ -4,6 +4,7 @@ Note:
     The implementation of PPO is synchronous. Therefore, the client and server are currently not
     resilient against disconnects.
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,10 +12,15 @@ import time
 from multiprocessing import Event
 from typing import TYPE_CHECKING
 
-import gymnasium as gym
+import gymnasium
+import torch
+from tensordict import TensorDict
 
-from soulsai.distributed.common.serialization import PPOSerializer
+import soulsai.wrappers
 from soulsai.distributed.client.connector import PPOConnector
+from soulsai.distributed.common.serialization import serialize
+from soulsai.utils import namespace2dict
+from soulsai.wrappers import TensorDictWrapper
 
 if TYPE_CHECKING:
     from types import SimpleNamespace
@@ -46,9 +52,12 @@ def ppo_client(config: SimpleNamespace):
         keyboard.add_hotkey("enter", exit_callback)
         logger.info("Press 'Enter' to end training")
 
-    env = gym.make(config.env.name)
+    env = gymnasium.make(config.env.name)
+    for wrapper, wrapper_args in namespace2dict(config.env.wrappers).items():
+        env = getattr(soulsai.wrappers, wrapper)(env, **(wrapper_args["kwargs"] or {}))
+    env = TensorDictWrapper(env)  # Convert all outputs to TensorDicts
+
     con = PPOConnector(config)
-    serializer = PPOSerializer(config.env.name)
     con.sync()  # Wait for the new model to download
 
     logger.info("Client node running")
@@ -57,55 +66,41 @@ def ppo_client(config: SimpleNamespace):
         ppo_steps = 0
         while not stop_flag.is_set() and episode_id != config.max_episodes:
             episode_id += 1
-            obs, info = env.reset()
-            terminated = False
-            episode_reward = 0.
-            episode_steps = 1
-            while not terminated and not stop_flag.is_set():
+            steps, episode_reward = torch.tensor([1]), torch.tensor([0.0])
+            sample = env.reset()
+            obs = sample["obs"]
+            done = False
+
+            while not done and not stop_flag.is_set():
                 action, prob = con.agent.get_action(obs)
-                next_obs, reward, next_terminated, truncated, info = env.step(action)
-                next_terminated = next_terminated or truncated
-                episode_reward += reward
-                sample = serializer.serialize_sample({
-                    "obs": obs,
-                    "action": action,
-                    "prob": prob,
-                    "reward": reward,
-                    "terminated": terminated,
-                    "info": info,
-                    "modelId": con.agent.model_id,
-                    "clientId": con.client_id,
-                    "stepId": ppo_steps
-                })
-                con.push_sample(sample)
+                sample = env.step(action)
+                sample["obs"] = obs
+                episode_reward += sample["reward"]
+                sample["prob"] = prob
+                sample["model_id"] = torch.tensor([con.model_id] * env.num_envs)
+                sample["client_id"] = torch.tensor([con.client_id] * env.num_envs)
+                sample["step_id"] = torch.tensor([ppo_steps] * env.num_envs)
+
+                con.push_sample(serialize(sample))
                 logger.debug(f"Pushed sample {ppo_steps} for model {con.agent.model_id}")
-                obs = next_obs
-                terminated = next_terminated
-                episode_steps += 1
+                obs = sample["next_obs"]
+                done = torch.all(sample["terminated"] | sample["truncated"])
+                steps += 1
                 ppo_steps += 1
+
                 if config.step_delay:
                     time.sleep(config.step_delay)
                 if ppo_steps == config.ppo.n_steps:
-                    sample = serializer.serialize_sample({
-                        "obs": next_obs,
-                        "action": 0,
-                        "prob": 0,
-                        "reward": 0,
-                        "terminated": terminated,
-                        "modelId": con.agent.model_id,
-                        "clientId": con.client_id,
-                        "stepId": ppo_steps
-                    })
-                    con.push_sample(sample)
+                    sample["obs"] = sample["next_obs"]
+                    sample["action"] = [0] * env.num_envs
+                    sample["prob"] = [0] * env.num_envs
+                    sample["reward"] = [0] * env.num_envs
+                    sample["step_id"] = [ppo_steps] * env.num_envs
+                    con.push_sample(serialize(sample))
                     ppo_steps = 0
                     con.sync(config.ppo.client_sync_timeout)  # Wait for the new model
-            episode_info = serializer.serialize_episode_info({
-                "epReward": episode_reward,
-                "epSteps": episode_steps,
-                "obs": obs,
-                "eps": 0
-            })
-            con.push_episode_info(episode_info)
+            episode_info = {"ep_reward": episode_reward, "ep_steps": steps, "obs": obs}
+            con.push_episode_info(serialize(TensorDict(episode_info, batch_size=1)))
             if con.shutdown.is_set():
                 break
     finally:

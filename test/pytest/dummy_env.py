@@ -1,5 +1,12 @@
-from pathlib import Path
+"""Dummy environment for testing the environments without running soulsgym environments.
+
+Since soulsgym requires Windows with a Dark Souls III installation, we cannot run tests on most
+machines. The dummy environments replay input data collected from soulsgym environments and can be
+used to test the observation wrappers.
+"""
+
 import json
+from pathlib import Path
 
 import gymnasium
 
@@ -15,6 +22,7 @@ class IudexDummyEnv(gymnasium.Env):
     step_size = 0.1
 
     def __init__(self):
+        """Load the data from the json file and initialize environment helpers."""
         super().__init__()
         with open(self.path, "r") as f:
             self.data = json.load(f)
@@ -23,7 +31,18 @@ class IudexDummyEnv(gymnasium.Env):
         self._done = True
         self._max_steps = len(self.data["observations"])
 
-    def reset(self, seed: int | None = None, options: dict | None = None):
+    def reset(self, seed: int | None = None, options: dict | None = None) -> tuple[dict, dict]:
+        """Reset the dummy environment.
+
+        Ignores the seed and options and replays the return values from its dataset.
+
+        Args:
+            seed: Ignored seed.
+            options: Ignored options.
+
+        Returns:
+            A tuple containing the observation and info.
+        """
         assert self._step < self._max_steps, "No more data to replay!"
         self._done = False
         obs = self.data["observations"][self._step]
@@ -32,7 +51,17 @@ class IudexDummyEnv(gymnasium.Env):
         self._episode += 1
         return obs, info
 
-    def step(self, _: int):
+    def step(self, _: int) -> tuple[dict, float, bool, bool, dict]:
+        """Step through the dummy environment.
+
+        Ignores the action and replays the return values from its dataset.
+
+        Args:
+            _: Ignored action.
+
+        Returns:
+            A tuple containing the observation, reward, terminated, truncated and info.
+        """
         assert not self._done, "Environment requires reset!"
         assert self._step < self._max_steps, "No more data to replay!"
         obs = self.data["observations"][self._step]

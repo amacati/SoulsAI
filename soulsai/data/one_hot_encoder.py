@@ -2,8 +2,9 @@
 
 We include it to avoid the dependency on heavy frameworks like ``sklearn`` for a trivial task.
 """
-from typing import Iterable, Hashable
+
 import logging
+from typing import Collection, Hashable
 
 import numpy as np
 
@@ -23,16 +24,16 @@ class OneHotEncoder:
         Args:
             allow_unknown: Flag to allow unknown categories.
         """
-        self._key_to_index_dict = dict()
-        self._index_to_key_dict = dict()
-        self.dim = None
+        self._key_to_index_dict: dict[Hashable, int] = dict()
+        self._index_to_key_dict: dict[int, Hashable] = dict()
+        self.dim: int = 0
         self.allow_unknown = allow_unknown
 
-    def fit(self, data: Iterable[Hashable]):
+    def fit(self, data: Collection[Hashable]):
         """Fit the encoder to the training data.
 
         Args:
-            data: An iterable of hashable categories
+            data: A collection of hashable categories
         """
         for idx, key in enumerate(data):
             self._key_to_index_dict[key] = idx

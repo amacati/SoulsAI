@@ -8,3 +8,4 @@ soulsai.distributed
 
     client/index
     server/index
+    common/index

@@ -3,24 +3,48 @@
 By providing a common interface for all noise samplers, algorithms can sample exploration actions
 independently of the noise type chosen.
 """
+
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-import sys
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
+import torch
+import torch.nn as nn
+
+from soulsai.utils import module_type_from_string
+
+if TYPE_CHECKING:
+    from tensordict import NestedKey, TensorDict
 
 
-class Noise(ABC):
+noise_cls: Callable[[str], type[Noise]] = module_type_from_string(__name__)
+
+
+class Noise(ABC, nn.Module):
     """Abstract base class for noise sampling processes."""
 
     def __init__(self):
         """Initialize the numpy random generator."""
+        super().__init__()
         self.np_random = np.random.default_rng()
+
+    def forward(self, sample: TensorDict) -> torch.Tensor:
+        """Alias for `Noise.sample(sample)`.
+
+        Args:
+            sample: The sample TensorDict the noise is sampled for.
+
+        Returns:
+            The random action.
+        """
+        return self.sample(sample)
 
     @abstractmethod
     def sample(self) -> int:
         """Generate a single noise sample."""
 
-    @abstractmethod
     def reset(self):
         """Reset the noise process in case of stateful noise."""
 
@@ -36,15 +60,17 @@ class UniformDiscreteNoise(Noise):
         """
         super().__init__()
         assert size_n > 0
-        self.size_n = size_n
+        self.size_n = torch.nn.Parameter(
+            torch.tensor(size_n, dtype=torch.int32), requires_grad=False
+        )
 
-    def sample(self) -> int:
+    def sample(self, _: TensorDict) -> torch.Tensor:
         """Sample a random action in the range of [0, ``size_n``).
 
         Returns:
             The random action.
         """
-        return self.np_random.integers(0, self.size_n).item()
+        return torch.randint(0, self.size_n, (1,))
 
     def reset(self):
         """Reset the noise process in case of stateful noise."""
@@ -56,41 +82,27 @@ class MaskedDiscreteNoise(Noise):
     Actions are uniformly sampled in the set of valid actions defined by the action mask.
     """
 
-    def __init__(self, size_n: int):
+    def __init__(self, size_n: int, mask_key: NestedKey):
         """Initialize the base class.
 
         Args:
             size_n: The number of possible actions.
+            mask_key: The key to the action mask in the sample TensorDict.
         """
         super().__init__()
         assert size_n > 0
-        self.size_n = size_n
+        self.size_n = torch.nn.Parameter(
+            torch.tensor(size_n, dtype=torch.int32), requires_grad=False
+        )
+        self._mask_key = mask_key if isinstance(mask_key, str) else tuple(mask_key)
 
-    def sample(self, mask: np.ndarray) -> int:
+    def sample(self, sample: TensorDict) -> torch.Tensor:
         """Sample a random action in the range of [0, ``size_n``) while omitting masked actions.
 
         Args:
-            mask: A numpy array of 0s and 1s of size ``size_n``, with 1s denoting valid actions.
+            sample: The sample TensorDict the noise is sampled for.
 
         Returns:
             The random action.
         """
-        return np.argmax(self.np_random.random(self.size_n) * mask).item()
-
-    def reset(self):
-        """Reset the noise process in case of stateful noise."""
-
-
-def get_noise_class(noise_type: str) -> type[Noise]:
-    """Get the noise class from the noise name.
-
-    Note:
-        This function returns a type rather than an instance!
-
-    Args:
-        noise_type: The noise type name.
-
-    Returns:
-        The noise type.
-    """
-    return getattr(sys.modules[__name__], noise_type)
+        return torch.argmax(torch.rand(self.size_n) * sample[self._mask_key]).reshape(1)

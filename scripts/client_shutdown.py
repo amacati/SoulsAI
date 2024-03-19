@@ -1,10 +1,10 @@
 """Script to issue a shutdown command to the training node."""
+
 from pathlib import Path
 
 from redis import Redis
 
 from soulsai.utils import load_redis_secret
-
 
 if __name__ == "__main__":
     config_dir = Path(__file__).parents[1] / "config"

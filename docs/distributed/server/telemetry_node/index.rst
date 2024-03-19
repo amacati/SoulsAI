@@ -5,7 +5,9 @@ server.telemetry_node
     :hidden:
 
     telemetry_node
-    grafana_connector
+    connectors
+    transforms
+    callbacks
 
 .. automodule:: soulsai.distributed.server.telemetry_node
     :members:

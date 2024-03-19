@@ -2,16 +2,16 @@
 
 # General settings
 loglevel: info
-device: "cuda"
 
 # Redis settings
-redis_address: "localhost"
+redis_address: localhost
 
 local:
 
 # Environment information
 env:
   name: SoulsGymIudex-v0
+  vectorize: False
   kwargs:
     game_speed: 1.
   obs_shape: [74]
@@ -21,69 +21,81 @@ env:
       kwargs:
 
 max_env_steps: null
-gamma: 0.99
 
 # Algorithm choice
-algorithm: "DQN"
-
-# PPO settings
-ppo:
-  n_clients: 1
-  n_steps: 2048
-  actor_net_type: "PPOActor"
-  actor_net_kwargs:
-    input_dims: 74
-    output_dims: 20
-    layer_dims: 64
-  critic_net_type: "PPOCritic"
-  critic_net_kwargs:
-    input_dims: 74
-    layer_dims: 64
-  vf_coef: 0.5
-  max_grad_norm: 0.5
-  clip_range: 0.2
-  train_epochs: 10
-  minibatch_size: 64
-  actor_lr: 0.0003
-  critic_lr: 0.0003
-  gae_lambda: 0.95
-  client_sync_timeout: 20
+algorithm: DQN
 
 # DQN parameters
 dqn:
-  variant: "vanilla"  # [vanilla, distributional]
-  lr: 0.001
-  eps_max: [0.5, 0.1]
-  eps_min: [0.1, 0.01]
-  eps_steps: [1_000_000, 1_000_000]
-  grad_clip: 5.
-  q_clip: 200
-  buffer_size: 100_000
   batch_size: 64
   train_epochs: 25
   update_samples: 25
   fill_buffer: False
-  multistep: 4
-  network_type: "DQN"
-  network_kwargs:
-    input_dims: 74
-    output_dims: 20
-    layer_dims: 128
-  noise: "UniformDiscreteNoise"
-  noise_kwargs:
-    size_n: 20
-  replay_buffer: "ReplayBuffer"
-  replay_buffer_kwargs:
-  action_masking: True
-  normalizer:
-  normalizer_kwargs:
   min_samples: null
-  tau: 0.05  # Optional, for target network updates
   max_model_delay: 10
+
+  agent:
+    type: DQNAgent
+    kwargs:
+      lr: 0.001
+      gamma: 0.99
+      multistep: 4
+      grad_clip: 1.
+      q_clip: 2
+      device: cuda
+
+  network:
+    type: DQN
+    kwargs:
+      input_dims: 74
+      output_dims: 20
+      layer_dims: 128
+
+  replay_buffer:
+    type: ReplayBuffer
+    kwargs:
+      max_size: 100_000
+
+  observation_transform:
+    type: Normalize
+    kwargs:
+      keys:
+        - obs
+      shapes:
+        - [8]
+
+  value_transform:
+    type: Chain
+    kwargs:
+      transforms:
+        - type: Mask
+          kwargs:
+            key: __value__
+            mask_key: [info, action_mask]
+        - type: GreedyAction
+          kwargs:
+            value_key: __value__
+            action_key: action
+
+  action_transform:
+    type: Choice
+    kwargs:
+      key: action
+      probs: [0.9, 0.1]
+      transforms:
+        - type: Identity
+        - type: ReplaceWithNoise
+          kwargs:
+            key: action
+            noise:
+              type: MaskedDiscreteNoise
+              kwargs:
+                mask_key: [info, action_mask]
+                size_n: 20
 
 # Training node settings
 checkpoint:
-  save: True
+  save: False
   epochs: 100  # Checkpoint every 100th iteration
   save_buffer: False
   load: False
@@ -93,21 +105,54 @@ checkpoint:
 # Telemetry node settings
 telemetry:
   update_interval: 5
-  save_best_interval: 5
   moving_average: 20
+  transforms:
+    - type: MetricByKey
+      kwargs:
+        key: ep_reward
+        name: rewards
+    - type: MetricByKey
+      kwargs:
+        key: ep_steps
+        name: steps
+    - type: MetricByKey
+      kwargs:
+        key: total_steps
+        name: n_env_steps
+    - type: CompareValue
+      kwargs:
+        key: ep_reward
+        name: wins
+        value: 200
+        op: gt  # Greater than
+    - type: Timer
+  log_keys:
+    - rewards_av
+    - steps_av
+  callbacks:
+    - type: SaveBest
+      kwargs:
+        key: rewards_av
+        channel: save_best
 
 # Monitoring
 monitoring:
   file_storage:
-    path: "/home/SoulsAI/saves"
-    plot: True
+    path: /home/SoulsAI/saves
+    plot:
+      xkey: n_env_steps
+      ykeys:
+        - rewards_av
+        - steps_av
+        - wins_av
+        - time
   grafana: True
   prometheus: True
   wandb:
-    project: "soulsai_iudex"
-    entity: "amacati"
-    group: "state_obs"
-    save_dir: "/home/SoulsAI/saves"
+    project: soulsai_iudex
+    entity: amacati
+    group: state_obs
+    save_dir: /home/SoulsAI/saves
 
 # Client settings
 max_episodes: -1  # -1 for infinite runs

@@ -1,12 +1,13 @@
 """Script to compare and plot the results of different experiment runs."""
-from pathlib import Path
-import json
-import argparse
-from typing import List
-import logging
 
-import numpy as np
+import argparse
+import json
+import logging
+from pathlib import Path
+from typing import List
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 from soulsai.utils import running_mean
 
@@ -24,7 +25,7 @@ def plot_comparison(names: List[str], results: dict):
     reward_ymin, reward_ymax = 0, 0
     steps_ymin, steps_ymax = 0, 0
     for name, result in zip(names, results):
-        x = result["samples"]
+        x = result["n_env_steps"]
         smoothing_window_size = max(int(len(x) * 0.01), 1)
 
         rewards_mean = running_mean(result["rewards_mean"], smoothing_window_size)
@@ -70,19 +71,8 @@ def plot_comparison(names: List[str], results: dict):
     ax[1, 1].set_ylabel("Success rate")
     ax[1, 1].set_ylim([0, 1])
     ax[1, 1].grid(alpha=0.3)
-
     # Plot legends
-    if results[0]["eps"] is None:
-        ax[0, 1].legend()
-    else:
-        secax_y = ax[0, 1].twinx()
-        for name, result in zip(names, results):
-            secax_y.plot(result["samples"], result["eps"], "orange", label="ε " + name)
-        secax_y.set_ylim([-0.05, 1.05])
-        secax_y.set_ylabel("Fraction of random actions")
-        lines, labels = ax[0, 1].get_legend_handles_labels()
-        lines2, labels2 = secax_y.get_legend_handles_labels()
-        secax_y.legend(lines + lines2, labels + labels2)
+    ax[0, 1].legend()
     ax[0, 0].legend()
     ax[1, 1].legend()
     plt.savefig("comparison.png")
@@ -111,8 +101,9 @@ def main(folder_names: List[str]):
                 # Load results from json, convert arrays to np arrays
                 results.append({key: np.array(value) for key, value in json.load(f).items()})
         except FileNotFoundError as e:
-            logger.error(("Missing averaged stats file, specified folder is not a multirun "
-                          "experiment."))
+            logger.error(
+                ("Missing averaged stats file, specified folder is not a multirun " "experiment.")
+            )
             raise e
     # Display results
     plot_comparison(folder_names, results)
@@ -120,7 +111,7 @@ def main(folder_names: List[str]):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('folders', nargs="+")
+    parser.add_argument("folders", nargs="+")
     args = parser.parse_args()
     logging.basicConfig()
     logging.getLogger().setLevel(logging.INFO)

@@ -2,15 +2,15 @@
 
 # General settings
 loglevel: info
-device: "cuda:0"
 
 # Redis settings
-redis_address: "redis"
+redis_address: redis
 
 local:
 
 # Environment information
 env:
+  vectorize: False  # Atari wrappers do not support vectorized environments
   name: ALE/Pong-v5
   kwargs:
     frameskip: 1
@@ -22,44 +22,70 @@ env:
     AtariExpandImage:
       kwargs:
 
-gamma: 0.99
 max_env_steps: 10_000_000
 
 # Algorithm choice
-algorithm: "dqn"
+algorithm: dqn
 
 # DQN parameters
 dqn:
-  variant: distributional  # [vanilla, distributional]
-  lr: 0.0001
-  eps_max: [0.1]
-  eps_min: [0.05]
-  eps_steps: [10_000_000]
-  grad_clip: 5.
-  q_clip: 200
-  buffer_size: 500_000
   batch_size: 128
   train_epochs: 25
   update_samples: 50
   fill_buffer: False
-  multistep: 3
-  network_type: "CNNDistributionalDQN" # "CNNDistributionalDQN"
-  network_kwargs:
-    input_shape: [1, 84, 84]
-    output_dims: 6
-    n_quantiles: 32
-  noise: "UniformDiscreteNoise"
-  noise_kwargs:
-    size_n: 6
-  replay_buffer: "ReplayBuffer"
-  replay_buffer_kwargs:
-    obs_dtype: uint8
   action_masking: False
-  normalizer: ImageNormalizer
-  normalizer_kwargs:
   min_samples: null
-  tau: 0.05  # For soft target update
   max_model_delay: 10
+
+  agent:
+    type: DistributionalDQNAgent
+    kwargs:
+      lr: 0.0001
+      gamma: 0.99
+      multistep: 3
+      grad_clip: 5.
+      q_clip: 50
+      tau: 0.001  # For soft target update
+      device: cpu
+
+  network:
+    type: CNNDistributionalDQN # CNNDistributionalDQN
+    kwargs:
+      input_shape: [1, 84, 84]
+      output_dims: 6
+      n_quantiles: 32
+
+  replay_buffer:
+    type: ReplayBuffer
+    kwargs:
+      max_size: 500_000
+  
+  observation_transform:
+    type: NormalizeImg
+    kwargs:
+      keys:
+        - obs
+
+  value_transform:
+    type: GreedyAction
+    kwargs:
+      value_key: __value__
+      action_key: action
+
+  action_transform:
+    type: Choice
+    kwargs:
+      key: action
+      probs: [0.95, 0.05]
+      transforms:
+        - type: Identity
+        - type: ReplaceWithNoise
+          kwargs:
+            key: action
+            noise:
+              type: UniformDiscreteNoise
+              kwargs:
+                size_n: 6
 
 # Training node settings
 checkpoint:
@@ -73,26 +99,58 @@ checkpoint:
 # Telemetry node settings
 telemetry:
   update_interval: 5
-  save_best_interval: 5
   moving_average: 20
+  transforms:
+    - type: MetricByKey
+      kwargs:
+        key: ep_reward
+        name: rewards
+    - type: MetricByKey
+      kwargs:
+        key: ep_steps
+        name: steps
+    - type: MetricByKey
+      kwargs:
+        key: total_steps
+        name: n_env_steps
+    - type: CompareValue
+      kwargs:
+        key: ep_reward
+        name: wins
+        value: 200
+        op: gt  # Greater than
+    - type: Timer
+  log_keys:
+    - rewards_av
+    - steps_av
+  callbacks:
+    - type: SaveBest
+      kwargs:
+        key: rewards_av
+        channel: save_best
+
+monitoring:
+  file_storage:
+    path: /home/SoulsAI/saves
+    plot:
+      xkey: n_env_steps
+      ykeys:
+        - rewards_av
+        - steps_av
+        - wins_av
+        - time
+  grafana: True
+  prometheus: True
+  wandb:
+    project: soulsai_dqn_atari
+    entity: amacati
+    group: testing
+    save_dir: /home/SoulsAI/saves
 
 # Client settings
 max_episodes: -1  # -1 for infinite runs
 enable_interrupt: False
-step_delay: 0.003
-
-# Monitoring
-monitoring:
-  file_storage:
-    path: "/home/SoulsAI/saves"
-    plot: True
-  grafana: True
-  prometheus: True
-  wandb:
-    project: "soulsai_dqn_atari"
-    entity: "amacati"
-    group: "test"
-    save_dir: "/home/SoulsAI/saves"
+step_delay: 0.005
 
 watchdog:
   enable: False

@@ -8,33 +8,34 @@ buffer. Older samples are rejected and discarded.
 This approach also allows us to dynamically add and remove worker nodes, making the overall
 architecture more resilient against connection failures, client errors etc.
 """
+
 from __future__ import annotations
 
-from uuid import uuid4
-import logging
-from pathlib import Path
-from collections import deque
-import time
-from typing import TYPE_CHECKING
 import json
-from multiprocessing.synchronize import Event
+import logging
+import time
+from collections import deque
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
+import torch.nn as nn
 from redis import Redis
 
-from soulsai.core.replay_buffer import get_buffer_class
-from soulsai.core.agent import DistributionalDQNAgent, DQNAgent
-from soulsai.core.normalizer import get_normalizer_class
-from soulsai.core.scheduler import EpsilonScheduler
-from soulsai.distributed.common.serialization import DQNSerializer
-from soulsai.distributed.server.training_node.training_node import TrainingNode
+from soulsai.core.agent import Agent, agent_cls
+from soulsai.core.replay_buffer import buffer_cls
+from soulsai.core.scheduler import Scheduler
+from soulsai.core.transform import Mask, transform_cls
+from soulsai.distributed.common.serialization import deserialize, serialize
 from soulsai.distributed.server.training_node.connector import DQNServerConnector
-from soulsai.utils import namespace2dict, load_redis_secret
+from soulsai.distributed.server.training_node.training_node import TrainingNode
+from soulsai.utils import load_redis_secret, namespace2dict
 
 if TYPE_CHECKING:
+    from multiprocessing.synchronize import Event
     from types import SimpleNamespace
 
-    from soulsai.core.normalizer import AbstractNormalizer
+    from soulsai.core.transform import Transform
 
 logger = logging.getLogger(__name__)
 
@@ -50,52 +51,42 @@ class DQNTrainingNode(TrainingNode):
         """
         logger.info("DQN training node startup")
         super().__init__(config)
-        self._serializer = DQNSerializer(self.config.env.name)
-        # Translate config params
-        if self.config.dqn.min_samples:
-            assert self.config.dqn.min_samples <= self.config.dqn.buffer_size
-            self._required_samples = max(self.config.dqn.min_samples, self.config.dqn.batch_size)
-        else:
-            self._required_samples = self.config.dqn.batch_size * self.config.dqn.train_epochs
-
-        self._log_reject_time = time.time()  # Only log sample rejects once per second
+        # Reduce the number of log messages for logging events
+        self._log_times = {"reject_sample": 0, "model_update": 0, "checkpoint": 0}
         self._last_model_log = 0  # Reduce number of log messages for model updates
         self._model_iterations = 0  # Track number of model iterations for checkpoint trigger
         # Also accept samples from recent model iterations
         self.model_ids = deque(maxlen=self.config.dqn.max_model_delay)
-        if self.config.dqn.variant == "distributional":
-            self.agent = DistributionalDQNAgent(self.config.dqn.network_type,
-                                                namespace2dict(self.config.dqn.network_kwargs),
-                                                self.config.dqn.lr, self.config.gamma,
-                                                self.config.dqn.multistep,
-                                                self.config.dqn.grad_clip, self.config.dqn.q_clip,
-                                                self.config.device)
-        elif self.config.dqn.variant == "vanilla":
-            self.agent = DQNAgent(self.config.dqn.network_type,
-                                  namespace2dict(self.config.dqn.network_kwargs),
-                                  self.config.dqn.lr, self.config.gamma, self.config.dqn.multistep,
-                                  self.config.dqn.grad_clip, self.config.dqn.q_clip,
-                                  self.config.device)
-        else:
-            raise ValueError(f"DQN variant {self.config.dqn.variant} is not supported")
+
+        self.agent = agent_cls(self.config.dqn.agent.type)(
+            self.config.dqn.network.type,
+            namespace2dict(self.config.dqn.network.kwargs),
+            **namespace2dict(self.config.dqn.agent.kwargs),
+        )
         # Compile all agent networks
         torch.compile(self.agent.networks, mode="reduce-overhead")
 
-        self.normalizer = None
-        if self.config.dqn.normalizer:
-            normalizer_cls = get_normalizer_class(self.config.dqn.normalizer)
-            normalizer_kwargs = namespace2dict(self.config.dqn.normalizer_kwargs)
-            self.normalizer = normalizer_cls(self.config.env.obs_shape, **normalizer_kwargs)
-        buffer_kwargs = {}
-        if self.config.dqn.replay_buffer_kwargs is not None:
-            buffer_kwargs = namespace2dict(self.config.dqn.replay_buffer_kwargs)
-        self.buffer = get_buffer_class(self.config.dqn.replay_buffer)(
-            self.config.dqn.buffer_size, self.config.env.obs_shape, self.config.env.n_actions,
-            self.config.dqn.action_masking, **buffer_kwargs)
-        self.eps_scheduler = EpsilonScheduler(self.config.dqn.eps_max,
-                                              self.config.dqn.eps_min,
-                                              self.config.dqn.eps_steps,
-                                              zero_ending=True)
+        self.transforms: nn.ModuleDict[str, Transform] = nn.ModuleDict()
+        kwargs = namespace2dict(getattr(config.dqn.observation_transform, "kwargs", None))
+        self.transforms["obs"] = transform_cls(config.dqn.observation_transform.type)(**kwargs)
+        kwargs = namespace2dict(getattr(config.dqn.value_transform, "kwargs", None))
+        self.transforms["value"] = transform_cls(config.dqn.value_transform.type)(**kwargs)
+        kwargs = namespace2dict(getattr(config.dqn.action_transform, "kwargs", None))
+        self.transforms["action"] = transform_cls(config.dqn.action_transform.type)(**kwargs)
+        self.transforms.to(self.agent.device)
+        mask = [m for m in self.transforms["value"].modules() if isinstance(m, Mask)]
+        self._value_mask = mask[0] if mask else None
+
+        self.buffer = buffer_cls(self.config.dqn.replay_buffer.type)(
+            **namespace2dict(self.config.dqn.replay_buffer.kwargs)
+        )
+
+        # Translate config params
+        if self.config.dqn.min_samples:
+            assert self.config.dqn.min_samples <= self.buffer.size
+            self._required_samples = max(self.config.dqn.min_samples, self.config.dqn.batch_size)
+        else:
+            self._required_samples = self.config.dqn.batch_size * self.config.dqn.train_epochs
 
         if self.config.checkpoint.load:
             self.load_checkpoint(Path(__file__).parents[4] / "saves/checkpoint")
@@ -105,20 +96,17 @@ class DQNTrainingNode(TrainingNode):
         # training loop. The performance impact for small networks is negligible, but for larger
         # networks it can become significant
         self.agent.share_memory()
-        self.eps_scheduler.share_memory()
+        self.transforms.share_memory()
         cxt = torch.multiprocessing.get_context("spawn")
         self._publish_model_event = cxt.Event()
         async_upload_kwargs = {
             "event": self._publish_model_event,
             "model": self.agent,
-            "epsilon_scheduler": self.eps_scheduler
+            "transforms": self.transforms,
         }
-        if self.config.dqn.normalizer:
-            self.normalizer.share_memory()
-            async_upload_kwargs["normalizer"] = self.normalizer
-        self.model_publish_process = cxt.Process(target=self._async_publish_model,
-                                                 kwargs=async_upload_kwargs,
-                                                 daemon=True)
+        self.model_publish_process = cxt.Process(
+            target=self._async_publish_model, kwargs=async_upload_kwargs, daemon=True
+        )
         self.model_publish_process.start()
 
         # We also asynchronously receive samples from the clients to interleave the training and
@@ -126,30 +114,25 @@ class DQNTrainingNode(TrainingNode):
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
         self._sample_connector = DQNServerConnector("redis", secret)
 
-        self.agent.model_id = str(uuid4())
-        self.model_ids.append(self.agent.model_id)
-        logger.info(f"Initial model ID: {self.agent.model_id}")
+        self.agent.model_id.copy_(torch.tensor([0], dtype=torch.int64))
+        self.model_ids.append(self.agent.model_id.item())
+        logger.info(f"Initial model ID: {self.agent.model_id.item()}")
         logger.info("DQN training node startup complete")
-
-    @property
-    def serializer(self) -> DQNSerializer:
-        """Return the serializer for DQN messages for the current environment."""
-        return self._serializer
 
     def _get_samples(self) -> list[bytes]:
         return self._sample_connector.msgs()
 
     def _validate_sample(self, sample: dict, monitoring: bool) -> bool:
-        valid = sample["modelId"] in self.model_ids
-        if not valid and time.time() - self._log_reject_time > 1:  # Only log once per second
+        # We don't need to lock the model_ids deque here, since sample validation and model id
+        # appending are happening in the same thread
+        valid = sample["model_id"].item() in self.model_ids
+        # Only log once per second
+        if not valid and time.time() - self._log_times["reject_sample"] > 1:
             logger.warning("Sample ID rejected")
-            self._log_reject_time = time.time()
+            self._log_times["reject_sample"] = time.time()
         if monitoring:
             self.prom_num_samples.inc() if valid else self.prom_num_samples_reject.inc()
         return valid
-
-    def _sample_received_hook(self, _: dict):
-        self.eps_scheduler.step()
 
     def _check_update_cond(self) -> bool:
         sufficient_samples = len(self.buffer) >= self._required_samples
@@ -159,33 +142,34 @@ class DQNTrainingNode(TrainingNode):
         t1 = time.time()
         self._dqn_step()
         t2 = time.time()
-        self.agent.model_id = str(uuid4())
-        self.model_ids.append(self.agent.model_id)
-        if time.time() - self._last_model_log > 10:
-            logger.info((f"{time.strftime('%X')}: Model update complete."
-                         f"\nTotal env steps: {self._total_env_steps}"))
+        self.agent.model_id += 1
+        with self._lock:  # Prevent deque mutated during iteration error in other threads
+            self.model_ids.append(self.agent.model_id.item())
+        if time.time() - self._log_times["model_update"] > 10:
+            logger.info(
+                (
+                    f"{time.strftime('%X')}: Model update complete."
+                    f"\nTotal env steps: {self._total_env_steps}"
+                )
+            )
             logger.info(f"Model update took {t2 - t1:.2f} seconds")
-            self._last_model_log = time.time()
+            self._log_times["model_update"] = time.time()
 
     def _publish_model(self):
-        logger.debug(f"Publishing new model with ID {self.agent.model_id}")
+        logger.debug(f"Publishing new model iteration {self.agent.model_id}")
         self._publish_model_event.set()
 
     @staticmethod
-    def _async_publish_model(event: Event,
-                             model: DQNAgent,
-                             epsilon_scheduler: EpsilonScheduler,
-                             normalizer: AbstractNormalizer | None = None):
+    def _async_publish_model(event: Event, model: Agent, transforms: nn.ModuleDict):
         """Upload the model to Redis in a separate process.
 
         Args:
             event: Event to signal when a new model is available.
             model: The neural network.
-            epsilon_scheduler: The epsilon scheduler for epsilon-greedy policies.
-            normalizer: The optional normalizer.
+            transforms: ModuleDict of observation, action etc. transforms.
         """
         secret = load_redis_secret(Path("/run/secrets/redis_secret"))
-        red = Redis(host='redis', port=6379, password=secret, db=0)
+        red = Redis(host="redis", port=6379, password=secret, db=0)
         last_log = time.time()  # Reduce number of log messages for model updates
         while True:
             t = time.perf_counter()
@@ -198,12 +182,12 @@ class DQNTrainingNode(TrainingNode):
                     logger.warning("Model upload can't keep up with model updates!")
                     last_log = time.time()
             event.clear()
-            model_params = model.serialize()
-            model_params["eps"] = epsilon_scheduler.epsilon
-            if normalizer is not None:
-                model_params |= normalizer.serialize()
-            red.hset("model_params", mapping=model_params)
-            red.publish("model_update", model.model_id)
+            red.set("model_state_dict", serialize(model.client_state_dict()))
+            red.hset(
+                "transforms_state_dict",
+                mapping={k: serialize(v.state_dict()) for k, v in transforms.items()},
+            )
+            red.publish("model_update", model.model_id.item())
             logger.debug("Model upload successful")
 
     def _post_update_hook(self):
@@ -215,32 +199,47 @@ class DQNTrainingNode(TrainingNode):
         return self._model_iterations % self.config.checkpoint.epochs == 0
 
     def _episode_info_callback(self, episode_info: bytes):
-        episode_info = self.serializer.deserialize_episode_info(episode_info)
-        if not episode_info["modelId"] in self.model_ids:
-            logger.warning("Stale episode info rejected")
-            return
-        episode_info["totalSteps"] = self._total_env_steps
-        del episode_info["modelId"]
-        self.red.publish("telemetry", self.serializer.serialize_telemetry(episode_info))
+        episode_info = deserialize(episode_info)
+        with self._lock:  # Prevent deque mutated during iteration error
+            if episode_info["model_id"] not in self.model_ids:
+                logger.warning("Stale episode info rejected")
+                return
+        assert "total_steps" not in episode_info.keys(), "total_steps is a reserved key!"
+        episode_info["total_steps"] = torch.tensor([self._total_env_steps])
+        # Log the scheduler info to telemetry. Check if any transform contains a scheduler, and if
+        # so, add its current value to the episode info
+        i = 0
+        for name, tf in self.transforms.items():
+            for m in tf.modules():
+                if isinstance(m, Scheduler):
+                    key = name + f".scheduler.{i}"
+                    assert key not in episode_info.keys(), f"{key} is already in episode_info!"
+                    episode_info[key] = m().unsqueeze(0)
+                    i += 1
+        # Cast to CPU to avoid deserializing on CUDA on the telemetry server
+        self.red.publish("telemetry", serialize(episode_info.cpu()))
 
     def _dqn_step(self):
-        """Sample batches, normalize the values if applicable, and update the agent."""
-        batches = self.buffer.sample_batches(self.config.dqn.batch_size,
-                                             self.config.dqn.train_epochs)
-        if self.config.dqn.normalizer:
-            for batch in batches:
-                self.normalizer.update(batch[0])  # Use observations to update the normalizer
-            for batch in batches:
-                batch[0] = self.normalizer.normalize(batch[0])  # Normalize all observations
-                batch[3] = self.normalizer.normalize(batch[3])  # Normalize next observations too
+        """Sample batches, transform the observations and update the agent."""
+        batches = self.buffer.sample_batches(
+            self.config.dqn.batch_size, self.config.dqn.train_epochs
+        ).to(self.agent.device)
         for batch in batches:
-            if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
-                # -2 because the last two elements are the weights and indices
-                td_errors = self.agent.train(*batch[:-2], weights=batch[-2])
-            else:
-                self.agent.train(*batch)
-            if self.config.dqn.replay_buffer == "PrioritizedReplayBuffer":
-                self.buffer.update_priorities(batch[-1], td_errors)
+            for tf in self.transforms.values():
+                tf.update(batch)  # Update transforms with the new training batches
+        # Transform the observations. We have to transform all batches in one go. Otherwise, the
+        # updated values can get lost, e.g. if the transformation casts the tensor to a different
+        # dtype such as from uint8 to float32. In that case, the float32 tensor would be cast back
+        # to uint8, because we are only writing to parts of the tensor. In addition, transforming
+        # all batches in one go is faster
+        batches = self.transforms["obs"](batches)
+        # Use the observation transform also for the next observation
+        batches = self.transforms["obs"](batches, keys_mapping={"obs": "next_obs"})
+
+        for batch in batches:
+            batch = self.agent.train(batch, self._value_mask)
+            if self.config.dqn.replay_buffer.type == "PrioritizedReplayBuffer":
+                self.buffer.update_priorities(batch)
         self.agent.update_callback()
 
     def checkpoint(self, path: Path, options: dict = {}):
@@ -251,19 +250,20 @@ class DQNTrainingNode(TrainingNode):
             options: Additional options dictionary to customize checkpointing.
         """
         if not options.get("manual", False) and not self.config.checkpoint.save:
-            logger.info("Checkpoint saving disabled")
+            if time.time() - self._log_times["checkpoint"] > 10:
+                logger.info("Checkpoint saving disabled")
+                self._log_times["checkpoint"] = time.time()
             return
         path.mkdir(exist_ok=True)
         with self._lock:
-            self.agent.save(path / "agent.pt")
+            torch.save(self.agent.state_dict(), path / "agent.pt")
             if self.config.checkpoint.save_buffer or options.get("save_buffer", False):
                 self.buffer.save(path / "buffer.pkl")
-            self.eps_scheduler.save(path / "eps_scheduler.json")
-            if self.config.dqn.normalizer:
-                torch.save(self.normalizer.state_dict(), path / "normalizer.pt")
+            for name, tf in self.transforms.items():
+                torch.save(tf.state_dict(), path / f"{name}_transform.pt")
             training_stats = {
                 "_total_env_steps": self._total_env_steps,
-                "_model_iterations": self._model_iterations
+                "_model_iterations": self._model_iterations,
             }
             with open(path / "training_stats.json", "w") as f:
                 json.dump(training_stats, f)
@@ -275,12 +275,11 @@ class DQNTrainingNode(TrainingNode):
         Args:
             path: Path to the save folder.
         """
-        self.agent.load(path / "agent.pt")
+        self.agent.load_state_dict(torch.load(path / "agent.pt"))
+        for name, tf in self.transforms.items():
+            tf.load_state_dict(torch.load(path / f"{name}_transform.pt"))
         if self.config.checkpoint.load_buffer:
             self.buffer.load(path / "buffer.pkl")
-        self.eps_scheduler.load(path / "eps_scheduler.json")
-        if self.config.dqn.normalizer:
-            self.normalizer.load_state_dict(torch.load(path / "normalizer.pt"))
         with open(path / "training_stats.json", "r") as f:
             stats = json.load(f)
         self._total_env_steps = stats["_total_env_steps"]

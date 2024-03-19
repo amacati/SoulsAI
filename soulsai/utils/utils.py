@@ -1,16 +1,18 @@
 """The ``utils`` module contains various utility functions for conversions and config handling."""
-import json
-from types import SimpleNamespace
-from typing import List, NewType
-import logging
-from pathlib import Path
-from datetime import datetime
-import time
+
 import copy
+import json
+import logging
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Callable, List, NewType
 
 import numpy as np
-import yaml
 import redis
+import yaml
 
 from soulsai.exception import InvalidConfigError, MissingConfigError
 
@@ -33,7 +35,7 @@ def running_mean(x: List, N: int) -> np.ndarray:
     """
     y = np.copy(x)
     if len(x) >= N:
-        y[N - 1:] = np.convolve(x, np.ones((N,)) / N, mode='valid')
+        y[N - 1 :] = np.convolve(x, np.ones((N,)) / N, mode="valid")
     return y
 
 
@@ -51,8 +53,31 @@ def running_std(x: List, N: int) -> np.ndarray:
     """
     std = np.zeros_like(x)
     if len(x) >= N:
-        std[N - 1:] = np.std(np.lib.stride_tricks.sliding_window_view(x, N), axis=-1)
+        std[N - 1 :] = np.std(np.lib.stride_tricks.sliding_window_view(x, N), axis=-1)
     return std
+
+
+def module_type_from_string(module_name: str) -> Callable[[str], type]:
+    """Create a function that gets attributes from a module by name.
+
+    Example:
+        >>> import torch
+        >>> torch_type = module_type_from_string("torch")
+        >>> tensor_type = torch_type("Tensor")
+        >>> tensor_type
+        <class 'torch.Tensor'>
+
+    Args:
+        module_name: The module name.
+
+    Returns:
+        The module attribute.
+    """
+
+    def _module_type_from_string(name: str) -> type:
+        return getattr(sys.modules[module_name], name)
+
+    return _module_type_from_string
 
 
 def mkdir_date(path: Path) -> Path:
@@ -116,15 +141,12 @@ def load_config(default_config_path: Path, config_path: Path | None = None) -> S
 
 
 def _overwrite_dicts(target_dict: dict, source_dict: dict) -> dict:
-    for key, value in target_dict.items():
-        if key not in source_dict.keys():
-            continue
-        if isinstance(value, dict):
-            _overwrite_dicts(target_dict[key], source_dict[key])
-        else:
-            target_dict[key] = source_dict[key]
     for key, value in source_dict.items():
-        if key not in target_dict.keys():
+        if key == "kwargs":
+            target_dict[key] = source_dict[key]
+        elif isinstance(value, dict):
+            target_dict[key] = _overwrite_dicts(target_dict.get(key, {}), source_dict[key])
+        else:
             target_dict[key] = source_dict[key]
     return target_dict
 
@@ -169,10 +191,12 @@ def namespace2dict(ns: SimpleNamespace | None) -> dict:
     return ns_dict
 
 
-def load_remote_config(address: str,
-                       secret: str,
-                       red: RedisType | None = None,
-                       local_config: SimpleNamespace | None = None) -> SimpleNamespace:
+def load_remote_config(
+    address: str,
+    secret: str,
+    red: RedisType | None = None,
+    local_config: SimpleNamespace | None = None,
+) -> SimpleNamespace:
     """Load the training configuration from the training server.
 
     This function allows us to only specify the address of a training server and its credentials.

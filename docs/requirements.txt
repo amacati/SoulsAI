@@ -1,4 +1,11 @@
-sphinx-book-theme==0.3.2
-numpy==1.22.3
-flask==2.2.3
+sphinx==7.2.6
+sphinx-book-theme==1.1.2
+numpy==1.26.2
+flask==3.0.0
+werkzeug==3.0.1
 prometheus_client==0.16.0
+pyyaml>=6.0.0
+einops==0.7.0
+gymnasium==0.28.1
+tensordict==0.3.1
+torch==2.2.1

@@ -4,34 +4,20 @@ While the architecture is usually less important for agent performance while sta
 reasonable hyperparameter regimes and mostly dense networks, users may want to experiment with
 different network styles such as noisy nets for exploration.
 """
-import sys
-from typing import Type
-import logging
 
+import logging
+from typing import Callable
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
+
+from soulsai.utils import module_type_from_string
 
 logger = logging.getLogger(__name__)
 
-
-def get_net_class(network_type: str) -> Type[nn.Module]:
-    """Get the network class from the network string.
-
-    Note:
-        This function returns a type rather than an instance!
-
-    Args:
-        network_type: The network type name.
-
-    Returns:
-        The network type.
-
-    Raises:
-        AttributeError: The specified network type does not exist.
-    """
-    return getattr(sys.modules[__name__], network_type)
+net_cls: Callable[[str], type[nn.Module]] = module_type_from_string(__name__)
 
 
 def layer_init(layer: nn.Linear, std: float = np.sqrt(2), bias_const: float = 0.0) -> nn.Linear:
@@ -53,19 +39,19 @@ def layer_init(layer: nn.Linear, std: float = np.sqrt(2), bias_const: float = 0.
     return layer
 
 
-def polyak_update(network: nn.Module, target_network: nn.Module, tau: float):
+def polyak_update(target_network: nn.Module, network: nn.Module, tau: float):
     """Perform a soft parameter update (also called polyak update).
 
     Soft update the weights of a target network from a source network by calculating the weighted
     average theta_target_net = tau * theta_net + (1-tau) * theta_target_net.
 
     Args:
+        target_network: The target network. Parameters get updated in-place.
         network: The source network.
-        target_network. The target network. Parameters get updated in-place.
         tau: Polyak factor controlling the weighted average.
     """
-    for param, target_param in zip(network.parameters(), target_network.parameters()):
-        target_param.copy_((1 - tau) * param.data + tau * target_param.data)
+    for target_param, param in zip(target_network.parameters(), network.parameters()):
+        target_param.copy_((1 - tau) * target_param.data + tau * param.data)
 
 
 class DQN(nn.Module):
@@ -130,7 +116,7 @@ class AdvantageDQN(nn.Module):
         for i in range(nlayers):
             size_in = input_dims if i == 0 else layer_dims
             layer = nn.Linear(size_in, layer_dims)
-            torch.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2.))
+            torch.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2.0))
             self.layers.append(layer)
             self.layers.append(nn.ReLU())
         self.baseline = nn.Linear(layer_dims, 1)
@@ -156,6 +142,12 @@ class CNNAdvantageDQN(nn.Module):
     """CNN Advantage DQN network."""
 
     def __init__(self, input_shape: tuple[int, ...], output_dims: int):
+        """Initialize the network layers.
+
+        Args:
+            input_shape: Input layer dimensions.
+            output_dims: Output layer dimensions.
+        """
         super().__init__()
         assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
         self.output_dims = output_dims
@@ -242,22 +234,23 @@ class DistributionalDQN(nn.Module):
     The network estimates N Q-values, which each have a probability of 1/N.
     """
 
-    def __init__(self,
-                 input_dims: int,
-                 output_dims: int,
-                 layer_dims: int,
-                 n_quantiles: int = 32,
-                 final_layer_init: bool = False):
+    def __init__(self, input_dims: int, output_dims: int, layer_dims: int, n_quantiles: int = 32):
+        """Initialize the network layers.
+
+        Args:
+            input_dims: Input layer dimension.
+            output_dims: Output layer dimension.
+            layer_dims: Hidden layers dimension.
+            n_quantiles: Number of quantiles to estimate.
+        """
         super().__init__()
         self.output_dims = output_dims
         self.n_quantiles = n_quantiles
         self.l1 = nn.Linear(input_dims, layer_dims)
+        self.ln1 = nn.LayerNorm(layer_dims)
         self.l2 = nn.Linear(layer_dims, layer_dims)
+        self.ln2 = nn.LayerNorm(layer_dims)
         self.l3 = nn.Linear(layer_dims, output_dims * n_quantiles)
-        if final_layer_init:
-            bound = 1 / np.sqrt(layer_dims) * 0.001
-            torch.nn.init.uniform_(self.l3.weight, -bound, bound)
-            torch.nn.init.uniform_(self.l3.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the forward pass of the network.
@@ -268,12 +261,12 @@ class DistributionalDQN(nn.Module):
         Returns:
             The network output. Note that the output is a distribution tensor of shape [B A N]
             instead of [B A], where B is the batch dimension, A is the action dimension, and N is
-            the number of bins (here 32).
+            the number of bins.
         """
         batch_size = x.shape[0] if x.ndim > 1 else 1
-        x = F.relu(self.l1(x))
-        x = F.relu(self.l2(x))
-        x = self.l3(x).view(batch_size, self.n_quantiles, self.output_dims)
+        x = F.relu(self.ln1(self.l1(x)))
+        x = F.relu(self.ln2(self.l2(x)))
+        x = self.l3(x).view(batch_size, self.output_dims, self.n_quantiles)
         return x
 
 
@@ -284,6 +277,13 @@ class CNNDistributionalDQN(nn.Module):
     """
 
     def __init__(self, input_shape: tuple[int, ...], output_dims: int, n_quantiles: int = 32):
+        """Initialize the network layers.
+
+        Args:
+            input_shape: Input layer dimensions.
+            output_dims: Output layer dimensions.
+            n_quantiles: Number of quantiles to estimate.
+        """
         super().__init__()
         assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
         self.output_dims = output_dims
@@ -301,35 +301,48 @@ class CNNDistributionalDQN(nn.Module):
         with torch.no_grad():
             n_flatten = self.cnn(torch.zeros((1, *input_shape))).shape[1]
         n_out = output_dims * n_quantiles
-        self.linear = nn.Sequential(nn.Linear(n_flatten, n_out * 2), nn.ReLU(),
-                                    nn.Linear(n_out * 2, n_out))
+        self.linear = nn.Sequential(
+            nn.Linear(n_flatten, n_out * 2), nn.ReLU(), nn.Linear(n_out * 2, n_out)
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the forward pass of the network.
 
         Args:
-            x: Network input.
+            x: Network input. Must be 4-dimensional (BxCxHxW).
 
         Returns:
             The network output. Note that the output is a distribution tensor of shape [B A N]
             instead of [B A], where B is the batch dimension, A is the action dimension, and N is
-            the number of bins (here 32).
+            the number of bins.
         """
-        assert x.ndim in (3, 4), f"Input must be 3- or 4-dimensional, is {x.ndim}"
-        if x.ndim == 3:
-            x = x.unsqueeze(0)
-        return self.linear(self.cnn(x)).view(x.shape[0], self.n_quantiles, self.output_dims)
+        assert x.ndim == 4, f"Input must be 4-dimensional, is {x.ndim}"
+        return self.linear(self.cnn(x)).view(x.shape[0], self.output_dims, self.n_quantiles)
 
 
 class ResidualCNNBlock(nn.Module):
     """Residual CNN block from the Impala paper."""
 
     def __init__(self, n_channels: int):
+        """Initialize the network layers.
+
+        Args:
+            n_channels: Number of input and output channels. `ResidualCNNBlock` always have the same
+                number of input and output channels to allow for the residual connection.
+        """
         super().__init__()
         self.conv1 = nn.Conv2d(n_channels, n_channels, 3, padding=1)
         self.conv2 = nn.Conv2d(n_channels, n_channels, 3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the forward pass of the residual block.
+
+        Args:
+            x: Network input.
+
+        Returns:
+            The network output.
+        """
         return self.conv2(F.relu(self.conv1(F.relu(x)))) + x
 
 
@@ -340,6 +353,12 @@ class ImpalaBlock(nn.Module):
     """
 
     def __init__(self, channel_in: int, channel_out: int):
+        """Initialize the network layers.
+
+        Args:
+            channel_in: Number of input channels.
+            channel_out: Number of output channels.
+        """
         super().__init__()
         self.base_conv = nn.Conv2d(channel_in, channel_out, 3, padding=1)
         self.base_max = nn.MaxPool2d(3, 2)
@@ -347,6 +366,14 @@ class ImpalaBlock(nn.Module):
         self.res_block2 = ResidualCNNBlock(channel_out)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the forward pass of the Imapala block.
+
+        Args:
+            x: Network input.
+
+        Returns:
+            The network output.
+        """
         out = self.base_max(self.base_conv(x))
         out = self.res_block2(self.res_block1(out))
         return out
@@ -359,18 +386,31 @@ class ImpalaDistributionalDQN(nn.Module):
     """
 
     def __init__(self, input_shape: tuple[int, ...], output_dims: int, n_quantiles: int = 32):
+        """Initialize the network layers.
+
+        Args:
+            input_shape: Input layer dimensions.
+            output_dims: Output layer dimensions.
+            n_quantiles: Number of quantiles to estimate.
+        """
         super().__init__()
         assert len(input_shape) == 3, f"Input shape must be 3-dimensional (CxHxW), is {input_shape}"
         self.output_dims = output_dims
         self.n_quantiles = n_quantiles
-        self.cnn = nn.Sequential(ImpalaBlock(input_shape[0], 16), ImpalaBlock(16, 32),
-                                 ImpalaBlock(32, 32), nn.Flatten(), nn.ReLU())
+        self.cnn = nn.Sequential(
+            ImpalaBlock(input_shape[0], 16),
+            ImpalaBlock(16, 32),
+            ImpalaBlock(32, 32),
+            nn.Flatten(),
+            nn.ReLU(),
+        )
         # Compute shape by doing one forward pass
         with torch.no_grad():
             n_flatten = self.cnn(torch.zeros((1, *input_shape))).shape[1]
         n_out = output_dims * n_quantiles
-        self.linear = nn.Sequential(nn.Linear(n_flatten, n_out * 2), nn.ReLU(),
-                                    nn.Linear(n_out * 2, n_out))
+        self.linear = nn.Sequential(
+            nn.Linear(n_flatten, n_out * 2), nn.ReLU(), nn.Linear(n_out * 2, n_out)
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the forward pass of the network.
@@ -525,7 +565,7 @@ class PPOCritic(nn.Module):
         super().__init__()
         self.linear1 = layer_init(nn.Linear(input_dims, layer_dims))
         self.linear2 = layer_init(nn.Linear(layer_dims, layer_dims))
-        self.output = layer_init(nn.Linear(layer_dims, 1), std=1.)
+        self.output = layer_init(nn.Linear(layer_dims, 1), std=1.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the forward pass of the network.
