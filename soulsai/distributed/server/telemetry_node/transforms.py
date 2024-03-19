@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Callable
 from soulsai.utils import module_type_from_string
 
 if TYPE_CHECKING:
-    from tensordict import TensorDict
+    from tensordict import TensorDict, NestedKey
 
 telemetry_transform: Callable[[str], type[TelemetryTransform]] = module_type_from_string(__name__)
 
@@ -38,7 +38,7 @@ class TelemetryTransform(ABC):
 class MetricByKey(TelemetryTransform):
     """Create a telemetry metric from a key in the sample dictionary."""
 
-    def __init__(self, key: str, name: str | None = None, idx: int | None = None):
+    def __init__(self, key: NestedKey, name: str | None = None, idx: int | None = None):
         """Initialize the transformation.
 
         Args:
@@ -47,7 +47,7 @@ class MetricByKey(TelemetryTransform):
             idx: Optional index of the value. Defaults to None.
         """
         super().__init__()
-        self.key = key
+        self.key = key if isinstance(key,str) else tuple(key)
         self.name = name or key
         self.idx = idx
 
@@ -89,7 +89,7 @@ class CompareValue(TelemetryTransform):
 
     def __init__(
         self,
-        key: str,
+        key: NestedKey,
         value: float,
         name: str | None = None,
         op: str = "gt",
@@ -107,7 +107,7 @@ class CompareValue(TelemetryTransform):
             offset: The offset for the value.
         """
         super().__init__()
-        self.key = key
+        self.key = key if isinstance(key,str) else tuple(key)
         self.value = value
         self.name = name or key
         self._operator = getattr(operator, op)
