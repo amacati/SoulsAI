@@ -114,14 +114,14 @@ class CompareValue(TelemetryTransform):
         self._scale = scale
         self._offset = offset
 
-    def __call__(self, sample: TensorDict) -> tuple[str, bool]:
+    def __call__(self, sample: TensorDict) -> tuple[str, float]:
         """Compare the value from the sample to the given value.
 
         Args:
             sample: The sample to transform.
 
         Returns:
-            The name and the result of the comparison.
+            The name and the result of the comparison as float.
         """
         value = sample[self.key] * self._scale + self._offset
-        return self.name, self._operator(value, self.value).item()
+        return self.name, float(self._operator(value, self.value).item())
