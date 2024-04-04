@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   nginx:
     image: nginx:alpine
@@ -36,7 +34,6 @@ services:
     volumes:
       - ./ddclient/config:/config
     restart: unless-stopped
-
 
 networks:
   reverse_proxy_net:

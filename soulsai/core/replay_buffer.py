@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 from abc import ABC, abstractmethod, abstractproperty
 from typing import TYPE_CHECKING, Callable
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 buffer_cls: Callable[[str], type[AbstractBuffer]] = module_type_from_string(__name__)
+logger = logging.getLogger(__name__)
 
 
 class AbstractBuffer(ABC):
@@ -291,17 +293,17 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         # keep track of the sum of priorities to avoid having to recompute it every time we sample
         # from the buffer.
         idx = torch.arange(self._idx, self._idx + num_samples) % self.max_size
-        self.buffer[idx] = sample
-        self._sum_priorities_alpha -= self.buffer["__priority__"][self._idx].sqrt().sum()
+        self._sum_priorities_alpha -= self.buffer["__priority__"][idx].sqrt().sum()
         # Check if the maximum index is about to be overwritten. If it is, we first need to
         # recompute the new maximum index and priority. In practice, this does not happen often, as
         # older samples should generally have a lower TD error and therefore lower priority.
         if (idx == self._max_priority_idx).any():
             self.buffer["__priority__"][idx] = 0.0  # Set to 0 to remove from max calculation
             self._max_priority_idx = torch.argmax(self.buffer["__priority__"])
-        # Set the priortiy of the new sample to the current maximum priority and update the sum of
-        # priorities
+        # Set the priortiy of the new samples to the current maximum priority
         priority = 1.0 if self._maxidx < 0 else self.buffer["__priority__"][self._max_priority_idx]
+        # Now we can overwrite the samples at `idx` with the new samples and update the priorities
+        self.buffer[idx] = sample
         self.buffer["__priority__"][idx] = priority + 1e-10
         # Cache the square root of the priority for faster sampling
         self.buffer["__priority_sqrt__"][idx] = self.buffer["__priority__"][idx].sqrt()
