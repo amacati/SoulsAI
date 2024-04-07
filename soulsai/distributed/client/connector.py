@@ -62,6 +62,8 @@ class DQNConnector:
     model updates will resume.
     """
 
+    startup_timeout = 10.0
+
     def __init__(self, config: SimpleNamespace):
         """Initialize the agent and communication processes, and download the current model.
 
@@ -126,8 +128,11 @@ class DQNConnector:
 
         # Block while first model is not here
         logger.info("Waiting for model download...")
-        while self.model_id == -1:
+        t_start = time.time()
+        while self.model_id == -1 and time.time() - t_start < self.startup_timeout:
             time.sleep(0.01)
+        if self.model_id == -1:
+            raise RuntimeError("Initial model download failed.")
         logger.info("Download complete, connector initialized")
 
         # Start the heartbeat process
