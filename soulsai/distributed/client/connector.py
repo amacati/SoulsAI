@@ -194,6 +194,7 @@ class DQNConnector:
         self.model_updater.join()
         self.heartbeat.join()
         self.shutdown_sub.join()
+        self.update_sub.join()
         self._msg_queue.cancel_join_thread()
         logger.debug("All background processes joined")
 
