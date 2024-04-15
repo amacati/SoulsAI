@@ -92,21 +92,26 @@ class DQNConnector:
         secret = load_redis_secret(Path(__file__).parents[3] / "config/secrets/redis.secret")
         address = self.config.redis_address
 
+        # Collect all processes in a dictionary for easier management
+        self.processes = {}
         # Start the model update notification process
         args = (self._update_event, address, secret, self.shutdown)
-        self.update_sub = cxt.Process(target=self._update_msg, args=args, daemon=True)
-        self.update_sub.start()
+        self.processes["update_sub"] = cxt.Process(target=self._update_msg, args=args, daemon=True)
+        self.processes["update_sub"].start()
 
         # Start the shutdown notification process
-        args = (self.shutdown, address, secret)
-        self.shutdown_sub = cxt.Process(target=self._client_shutdown, args=args, daemon=True)
-        self.shutdown_sub.start()
+        self.processes["shutdown_sub"] = cxt.Process(
+            target=self._client_shutdown, args=(self.shutdown, address, secret), daemon=True
+        )
+        self.processes["shutdown_sub"].start()
 
         # Start the message consumer process
         self._msg_queue = cxt.Queue(maxsize=100)
         args = (self._msg_queue, address, secret, self.shutdown)
-        self.msg_consumer = cxt.Process(target=self._consume_msgs, args=args, daemon=True)
-        self.msg_consumer.start()
+        self.processes["msg_consumer"] = cxt.Process(
+            target=self._consume_msgs, args=args, daemon=True
+        )
+        self.processes["msg_consumer"].start()
 
         # Start the model update process
         self.agent.share_memory()
@@ -122,8 +127,10 @@ class DQNConnector:
             secret,
             config,
         )
-        self.model_updater = cxt.Process(target=self._update_model, args=args, daemon=True)
-        self.model_updater.start()
+        self.processes["update_model"] = cxt.Process(
+            target=self._update_model, args=args, daemon=True
+        )
+        self.processes["update_model"].start()
 
         # Block while first model is not here
         logger.info("Waiting for model download...")
@@ -136,8 +143,8 @@ class DQNConnector:
 
         # Start the heartbeat process
         args = (address, secret, self.shutdown)
-        self.heartbeat = cxt.Process(target=self._heartbeat, args=args, daemon=True)
-        self.heartbeat.start()
+        self.processes["heartbeat"] = cxt.Process(target=self._heartbeat, args=args, daemon=True)
+        self.processes["heartbeat"].start()
         # Utility attributes
         self._full_queue_warn_time = 0
 
@@ -190,11 +197,8 @@ class DQNConnector:
     def close(self):
         """Close the connector by stopping the message consumer, updater and heartbeat process."""
         self.shutdown.set()
-        self.msg_consumer.join()
-        self.model_updater.join()
-        self.heartbeat.join()
-        self.shutdown_sub.join()
-        self.update_sub.join()
+        for proc in self.processes.values():
+            proc.join()
         self._msg_queue.cancel_join_thread()
         logger.debug("All background processes joined")
 
