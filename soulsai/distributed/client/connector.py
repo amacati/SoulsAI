@@ -330,11 +330,14 @@ class DQNConnector:
             address: Redis address.
             secret: Redis secret.
         """
-        red = Redis(host=address, password=secret, port=6379, db=0)
-        msg_sub = red.pubsub(ignore_subscribe_messages=True)
-        msg_sub.subscribe("client_shutdown")
+        redis_reload = True
         while not stop_flag.wait(1):
             try:
+                if redis_reload:
+                    red = Redis(host=address, password=secret, port=6379, db=0)
+                    msg_sub = red.pubsub(ignore_subscribe_messages=True)
+                    msg_sub.subscribe("client_shutdown")
+                    redis_reload = False
                 if msg_sub.get_message(timeout=1) is None:
                     continue
                 logger.info("Received shutdown signal from training node. Exiting training")
@@ -342,9 +345,7 @@ class DQNConnector:
                 return
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 time.sleep(10)
-                red = Redis(host=address, password=secret, port=6379, db=0)
-                msg_sub = red.pubsub(ignore_subscribe_messages=True)
-                msg_sub.subscribe("client_shutdown")
+                redis_reload = True
 
     @staticmethod
     def _update_msg(update_flag: Event, address: str, secret: str, stop_flag: Event):
