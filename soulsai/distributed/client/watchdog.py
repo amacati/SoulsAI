@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from multiprocessing import Value, Process
+from multiprocessing import Value
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -48,10 +48,11 @@ class ClientWatchdog:
         self.watchdog_thread.start()
         while not self.shutdown.is_set():
             try:
-                kwargs = {"stop_flag": self._fn_shutdown, "sample_gauge": self.sample_gauge}
-                p = Process(target=self._watched_fn, args=self._external_args, kwargs=kwargs)
-                p.start()
-                p.join()
+                self._watched_fn(
+                    *self._external_args,
+                    stop_flag=self._fn_shutdown,
+                    sample_gauge=self.sample_gauge,
+                )
             except Exception as e:
                 logger.info(f"{type(e).__name__}: {e}")
                 self._fn_shutdown.clear()
