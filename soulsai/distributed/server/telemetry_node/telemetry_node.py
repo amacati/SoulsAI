@@ -41,19 +41,6 @@ class TelemetryNode:
     data to a ``Grafana`` instance running within the same network.
     """
 
-    stats = [
-        "rewards",
-        "rewards_av",
-        "steps",
-        "steps_av",
-        "boss_hp",
-        "boss_hp_av",
-        "wins",
-        "wins_av",
-        "eps",
-        "samples",
-    ]
-
     def __init__(self, config: SimpleNamespace):
         """Initialize the connection to Redis and Grafana (if enabled).
 

@@ -91,6 +91,7 @@ class CompareValue(TelemetryTransform):
         self,
         key: NestedKey,
         value: float,
+        idx: int | None = None,
         name: str | None = None,
         op: str = "gt",
         scale: float = 1.0,
@@ -101,6 +102,7 @@ class CompareValue(TelemetryTransform):
         Args:
             key: The metric key in the sample dictionary.
             value: The value to compare to.
+            idx: Optional index of the value. Defaults to None.
             name: The name of the metric.
             op: The comparison operator. Names are according to Python's operator module.
             scale: The scale factor for the value.
@@ -109,6 +111,7 @@ class CompareValue(TelemetryTransform):
         super().__init__()
         self.key = key if isinstance(key, str) else tuple(key)
         self.value = value
+        self.idx = idx
         self.name = name or key
         self._operator = getattr(operator, op)
         self._scale = scale
@@ -123,5 +126,6 @@ class CompareValue(TelemetryTransform):
         Returns:
             The name and the result of the comparison as float.
         """
-        value = sample[self.key] * self._scale + self._offset
+        value = sample[self.key] if self.idx is None else sample[self.key][0, self.idx]
+        value = value * self._scale + self._offset
         return self.name, float(self._operator(value, self.value).item())
