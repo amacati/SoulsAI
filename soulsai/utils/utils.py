@@ -14,7 +14,7 @@ import numpy as np
 import redis
 import yaml
 
-from soulsai.exception import InvalidConfigError, MissingConfigError
+from soulsai.exception import MissingConfigError
 
 logger = logging.getLogger(__name__)
 
