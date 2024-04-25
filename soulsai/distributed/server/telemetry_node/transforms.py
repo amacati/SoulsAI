@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Callable
 from soulsai.utils import module_type_from_string
 
 if TYPE_CHECKING:
-    from tensordict import TensorDict
+    from tensordict import NestedKey, TensorDict
 
 telemetry_transform: Callable[[str], type[TelemetryTransform]] = module_type_from_string(__name__)
 
@@ -38,7 +38,7 @@ class TelemetryTransform(ABC):
 class MetricByKey(TelemetryTransform):
     """Create a telemetry metric from a key in the sample dictionary."""
 
-    def __init__(self, key: str, name: str | None = None, idx: int | None = None):
+    def __init__(self, key: NestedKey, name: str | None = None, idx: int | None = None):
         """Initialize the transformation.
 
         Args:
@@ -47,7 +47,7 @@ class MetricByKey(TelemetryTransform):
             idx: Optional index of the value. Defaults to None.
         """
         super().__init__()
-        self.key = key
+        self.key = key if isinstance(key, str) else tuple(key)
         self.name = name or key
         self.idx = idx
 
@@ -89,8 +89,9 @@ class CompareValue(TelemetryTransform):
 
     def __init__(
         self,
-        key: str,
+        key: NestedKey,
         value: float,
+        idx: int | None = None,
         name: str | None = None,
         op: str = "gt",
         scale: float = 1.0,
@@ -101,27 +102,30 @@ class CompareValue(TelemetryTransform):
         Args:
             key: The metric key in the sample dictionary.
             value: The value to compare to.
+            idx: Optional index of the value. Defaults to None.
             name: The name of the metric.
             op: The comparison operator. Names are according to Python's operator module.
             scale: The scale factor for the value.
             offset: The offset for the value.
         """
         super().__init__()
-        self.key = key
+        self.key = key if isinstance(key, str) else tuple(key)
         self.value = value
+        self.idx = idx
         self.name = name or key
         self._operator = getattr(operator, op)
         self._scale = scale
         self._offset = offset
 
-    def __call__(self, sample: TensorDict) -> tuple[str, bool]:
+    def __call__(self, sample: TensorDict) -> tuple[str, float]:
         """Compare the value from the sample to the given value.
 
         Args:
             sample: The sample to transform.
 
         Returns:
-            The name and the result of the comparison.
+            The name and the result of the comparison as float.
         """
-        value = sample[self.key] * self._scale + self._offset
-        return self.name, self._operator(value, self.value).item()
+        value = sample[self.key] if self.idx is None else sample[self.key][0, self.idx]
+        value = value * self._scale + self._offset
+        return self.name, float(self._operator(value, self.value).item())

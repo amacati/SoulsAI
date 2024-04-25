@@ -139,11 +139,12 @@ class Normalize(Transform):
         self.params["count"] = nn.Parameter(torch.zeros(1, dtype=torch.int64), requires_grad=False)
         self.params["eps2"] = nn.Parameter(torch.tensor(1e-4), requires_grad=False)
         self._indexes = None
-        if indexes is not None:
-            self._indexes = {
-                k: torch.tensor(idx) if idx is not None else slice(None)
-                for k, idx in zip(self._keys, indexes)
-            }
+        indexes = indexes or [None] * len(keys)
+        assert len(indexes) == len(keys), "Indexes must have the same length as keys"
+        self._indexes = {
+            k: torch.tensor(idx) if idx is not None else slice(None)
+            for k, idx in zip(self._keys, indexes)
+        }
 
     def forward(
         self, x: TensorDict, keys_mapping: dict[NestedKey, NestedKey] | None = None

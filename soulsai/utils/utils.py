@@ -14,7 +14,7 @@ import numpy as np
 import redis
 import yaml
 
-from soulsai.exception import InvalidConfigError, MissingConfigError
+from soulsai.exception import MissingConfigError
 
 logger = logging.getLogger(__name__)
 
@@ -126,22 +126,15 @@ def load_config(default_config_path: Path, config_path: Path | None = None) -> S
             _overwrite_dicts(config, _config)  # Overwrite default config with keys from user config
         else:
             logger.warning(f"Config file specified at {config_path} does not exist. Using defaults")
-    loglvl = config["loglevel"].lower()
-    if loglvl == "debug":
-        config["loglevel"] = logging.DEBUG
-    elif loglvl == "info":
-        config["loglevel"] = logging.INFO
-    elif loglvl == "warning":
-        config["loglevel"] = logging.WARNING
-    elif loglvl == "error":
-        config["loglevel"] = logging.ERROR
-    else:
-        raise InvalidConfigError(f"Loglevel {config['loglevel']} in config not supported!")
+    # Convert loglevel to logging level
+    config["loglevel"] = getattr(logging, config["loglevel"].upper())
     return dict2namespace(config)
 
 
 def _overwrite_dicts(target_dict: dict, source_dict: dict) -> dict:
     for key, value in source_dict.items():
+        if target_dict.get(key) is None:
+            target_dict[key] = {}
         if key == "kwargs":
             target_dict[key] = source_dict[key]
         elif isinstance(value, dict):
