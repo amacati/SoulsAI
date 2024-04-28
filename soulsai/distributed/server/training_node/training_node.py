@@ -240,12 +240,13 @@ class TrainingNode(ABC):
         shutdown_event: Event,
         client_counter: Synchronized,
         required_client_ids: list = [],
+        log_level: int = logging.INFO,
     ):
+        logging.basicConfig(level=log_level)
         red = Redis(host="redis", port=6379, password=redis_secret, db=0, decode_responses=True)
         sub = red.pubsub(ignore_subscribe_messages=True)
         sub.subscribe("heartbeat")
         logger.info("Client heartbeat service started")
-        t_last_log = 0
         heartbeats = {client_id: time.time() for client_id in required_client_ids}
         while not shutdown_event.is_set():
             if not (msg := sub.get_message()):  # Does not work with timeout and ignore subscribe
@@ -254,16 +255,11 @@ class TrainingNode(ABC):
                 msg = json.loads(msg["data"])
                 if msg["client_id"] not in heartbeats:
                     logger.info("New client registered")
-                if time.time() - msg["timestamp"] < 1e3:
-                    # Don't use timestamp from message as clocks may have drifted
-                    heartbeats[msg["client_id"]] = time.time()
+                # Don't use timestamp from message as clocks may have drifted
+                heartbeats[msg["client_id"]] = time.time()
             tnow = time.time()
-            heartbeats = {key: t for key, t in heartbeats.items() if tnow - t < 10}
-            logger.debug(f"{time.strftime('%X')}: Heartbeat ok")
+            heartbeats = {client_id: t for client_id, t in heartbeats.items() if tnow - t < 10}
             client_counter.value = len(heartbeats)
-            if time.time() - t_last_log > 5:
-                t_last_log = time.time()
-                logger.info(f"n_active_clients: {client_counter.value}")
             if not all(client_id in heartbeats for client_id in required_client_ids):
                 logger.error("Missing required client heartbeats. Shutting down training")
                 shutdown_event.set()

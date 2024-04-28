@@ -305,21 +305,20 @@ class DQNConnector:
             stop_flag: Connector shutdown signal.
         """
         logging.basicConfig(level=logging.INFO)
-        red = Redis(host=address, password=secret, port=6379, db=0)
         con_id = str(uuid4())
-        disconnect = False
+        redis_reload = True
         while not stop_flag.wait(1):
-            msg = json.dumps({"client_id": con_id, "timestamp": time.time()})
             try:
-                red.publish("heartbeat", msg)
-                if disconnect:
+                if redis_reload:
+                    red = Redis(host=address, password=secret, port=6379, db=0)
+                    redis_reload = False
                     logger.info("Connection to server restored")
-                    disconnect = False
+                msg = json.dumps({"client_id": con_id, "timestamp": time.time()})
+                red.publish("heartbeat", msg)
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
                 logger.warning("Connection to server interrupted. Trying to reconnect")
-                disconnect = True
+                redis_reload = True
                 time.sleep(10)
-                red = Redis(host=address, password=secret, port=6379, db=0)
 
     @staticmethod
     def _client_shutdown(stop_flag: Event, address: str, secret: str):
